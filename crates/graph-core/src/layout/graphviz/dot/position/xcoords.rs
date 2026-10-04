@@ -14,8 +14,8 @@
 //! Ponytail: none — this is exact, and the only thing it does not carry is the slack nodes,
 //! which are not in a rank row and are removed before anything reads a coordinate again.
 
-use super::Rows;
 use super::super::fast::Fast;
+use super::Rows;
 
 /// `set_xcoords`: `coord.x = rank`, then `rank = the rank index`.
 pub fn run(g: &mut Fast, rows: &Rows) {

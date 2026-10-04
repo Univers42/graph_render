@@ -66,13 +66,13 @@ mod rank_tests;
 #[cfg(test)]
 mod tests;
 
-use decomp::decompose;
-use fast::{Edge, Fast, Node};
 use super::text_width as measured;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::coords::point_geometry;
 use crate::stage::StageError;
+use decomp::decompose;
+use fast::{Edge, Fast, Node};
 
 pub use position::position;
 pub use rank::rank;
@@ -177,12 +177,20 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     if count == 0 {
         return Ok(point_geometry(&[], &[]));
     }
-    let ids: Vec<String> = (0..count).map(|i| topology.node_id(i).to_string()).collect();
+    let ids: Vec<String> = (0..count)
+        .map(|i| topology.node_id(i).to_string())
+        .collect();
     let borrowed: Vec<&str> = ids.iter().map(String::as_str).collect();
     let mut g = build(&borrowed, &input_edges(topology));
-    rank(&mut g).map_err(|e| StageError::Param { name: "rank", rule: ranking_rule(e) })?;
+    rank(&mut g).map_err(|e| StageError::Param {
+        name: "rank",
+        rule: ranking_rule(e),
+    })?;
     mincross::run(&mut g);
-    position(&mut g).map_err(|e| StageError::Param { name: "position", rule: ranking_rule(e) })?;
+    position(&mut g).map_err(|e| StageError::Param {
+        name: "position",
+        rule: ranking_rule(e),
+    })?;
     let mut x = vec![0.0; count as usize];
     let mut y = vec![0.0; count as usize];
     for node in 0..count as usize {

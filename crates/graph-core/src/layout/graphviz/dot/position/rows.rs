@@ -58,6 +58,11 @@ impl Rows {
         self.ranks.len()
     }
 
+    /// Whether the graph had no nodes at all, and so no rows.
+    pub fn is_empty(&self) -> bool {
+        self.ranks.is_empty()
+    }
+
     /// The number of the lowest rank that has a node on it, or `None` for a graph with no
     /// nodes.
     ///
@@ -86,12 +91,17 @@ impl Rows {
     /// The drawing's left edge is measured from a real node's box and a dummy has no box, so
     /// this is the node the bounding box starts from.
     pub fn first_real(row: &[u32], g: &Fast) -> Option<u32> {
-        row.iter().copied().find(|&node| g.nodes[node as usize].kind == Kind::Normal)
+        row.iter()
+            .copied()
+            .find(|&node| g.nodes[node as usize].kind == Kind::Normal)
     }
 
     /// The last node on `row` that is a real node rather than a chain dummy, or `None` when
     /// the row is all dummies. The mirror of [`Rows::first_real`].
     pub fn last_real(row: &[u32], g: &Fast) -> Option<u32> {
-        row.iter().rev().copied().find(|&node| g.nodes[node as usize].kind == Kind::Normal)
+        row.iter()
+            .rev()
+            .copied()
+            .find(|&node| g.nodes[node as usize].kind == Kind::Normal)
     }
 }

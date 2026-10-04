@@ -57,14 +57,6 @@ pub fn ordered(count: u32, edges: &[(u32, u32)]) -> Vec<Vec<u32>> {
     crossings::real_rows(&ranked_and_ordered(count, edges))
 }
 
-/// The **wrong** variant of [`positioned`]: every node on Graphviz's default box rather than on
-/// the box its own id measures to. This is the port the rank pass stopped at, kept as the
-/// negative control for the width table — it is right exactly as long as every label fits
-/// inside the default box.
-pub fn default_box(count: u32, edges: &[(u32, u32)]) -> Fast {
-    positioned_over(graph(count, edges))
-}
-
 /// Every node's id as the oracle's fixtures name them: `n0`, `n1`, … `n{count - 1}`.
 ///
 /// This is the one place the port turns a dense index into text, and it is why the size of a
@@ -356,10 +348,15 @@ fn position_agreement_over_1000_seeds() {
     eprintln!(
         "{} of {} seeds agree on every rank's order; of those {} print every node centre \
          exactly as the oracle prints it",
-        tally.comparable, rows.len(), tally.exact
+        tally.comparable,
+        rows.len(),
+        tally.exact
     );
     eprintln!("exact seeds: {:?}", tally.exact_seeds);
-    assert_eq!(tally.comparable, RECORDED_ORDER_AGREEMENT, "comparable seeds");
+    assert_eq!(
+        tally.comparable, RECORDED_ORDER_AGREEMENT,
+        "comparable seeds"
+    );
     assert_eq!(tally.exact, RECORDED_POSITION_AGREEMENT, "exact placements");
 }
 

@@ -64,13 +64,21 @@ fn set_ycoords_puts_each_rank_seventy_two_points_above_the_next() {
 fn lr_constraints_chain_a_rank_at_three_box_widths() {
     let (g, _rows, aux) = auxed(5, STAR);
     let placed: Vec<i32> = (0..5).map(|n| g.nodes[n].rank).collect();
-    assert_eq!(placed, vec![0, 0, 72, 144, 216], "the row is pre-placed, not solved");
+    assert_eq!(
+        placed,
+        vec![0, 0, 72, 144, 216],
+        "the row is pre-placed, not solved"
+    );
     let lengths: Vec<i32> = aux
         .constraints()
         .iter()
         .map(|&e| g.edges[e as usize].minlen)
         .collect();
-    assert_eq!(lengths, vec![72, 72, 72], "three constraints, one per pair of neighbours");
+    assert_eq!(
+        lengths,
+        vec![72, 72, 72],
+        "three constraints, one per pair of neighbours"
+    );
     assert!(
         aux.constraints()
             .iter()
@@ -88,13 +96,25 @@ fn lr_constraints_chain_a_rank_at_three_box_widths() {
 fn edge_pairs_add_one_slack_node_and_two_one_point_edges_per_edge() {
     let (g, _rows, aux) = auxed(3, &[(0, 1), (1, 2)]);
     assert_eq!(aux.slack().len(), 2, "one slack node per input edge");
-    let lengths: Vec<i32> = aux.pairs().iter().map(|&e| g.edges[e as usize].minlen).collect();
-    assert_eq!(lengths, vec![1, 1, 1, 1], "two one-point edges per slack node");
+    let lengths: Vec<i32> = aux
+        .pairs()
+        .iter()
+        .map(|&e| g.edges[e as usize].minlen)
+        .collect();
+    assert_eq!(
+        lengths,
+        vec![1, 1, 1, 1],
+        "two one-point edges per slack node"
+    );
     assert!(
         aux.pairs().iter().all(|&e| g.edges[e as usize].weight == 1),
         "each carrying the weight of the edge it stands in for"
     );
-    let ranks: Vec<i32> = aux.slack().iter().map(|&n| g.nodes[n as usize].rank).collect();
+    let ranks: Vec<i32> = aux
+        .slack()
+        .iter()
+        .map(|&n| g.nodes[n as usize].rank)
+        .collect();
     assert_eq!(ranks, vec![-1, -1], "one point left of the further end");
 }
 
@@ -117,7 +137,11 @@ fn the_x_simplex_puts_the_star_hub_at_the_median_of_its_neighbours() {
     simplex::rank2(&mut g, &nlist, &Params::left_right()).expect("the star is connected");
     let hub = f64::from(g.nodes[0].rank);
     let leaves: Vec<f64> = (1..5).map(|n| f64::from(g.nodes[n].rank) - hub).collect();
-    assert_eq!(leaves, vec![-108.0, -36.0, 36.0, 108.0], "symmetric about the hub, 72 apart");
+    assert_eq!(
+        leaves,
+        vec![-108.0, -36.0, 36.0, 108.0],
+        "symmetric about the hub, 72 apart"
+    );
 }
 
 /// Step 5, `set_xcoords` and `remove_aux_edges`: the answer moves out of `ND_rank` and the
@@ -133,7 +157,12 @@ fn set_xcoords_restores_the_rank_and_remove_aux_edges_restores_the_graph() {
     ycoords::run(&mut g, &rows);
     let aux = aux::build(&mut g, &rows);
     let nlist = aux.node_list();
-    let constraints: Vec<u32> = aux.constraints().iter().chain(aux.pairs()).copied().collect();
+    let constraints: Vec<u32> = aux
+        .constraints()
+        .iter()
+        .chain(aux.pairs())
+        .copied()
+        .collect();
     simplex::rank2(&mut g, &nlist, &Params::left_right()).expect("the star is connected");
     xcoords::run(&mut g, &rows);
     aux.remove(&mut g);
@@ -144,9 +173,7 @@ fn set_xcoords_restores_the_rank_and_remove_aux_edges_restores_the_graph() {
         "rank is the rank number again"
     );
     assert!(
-        constraints
-            .iter()
-            .all(|&e| !g.edges[e as usize].live),
+        constraints.iter().all(|&e| !g.edges[e as usize].live),
         "every constraint is dead"
     );
 }
@@ -177,7 +204,11 @@ fn the_frame_puts_the_lower_left_node_box_corner_at_the_origin() {
 fn the_frame_shifts_x_and_needs_no_shift_in_y() {
     let pair = positioned(2, &[(0, 1)]);
     let ys: Vec<f64> = centres(&pair).iter().map(|p| p.1).collect();
-    assert_eq!(ys, vec![90.0, 18.0], "the bottom rank's centre is its own half-height");
+    assert_eq!(
+        ys,
+        vec![90.0, 18.0],
+        "the bottom rank's centre is its own half-height"
+    );
     assert_eq!(
         frame::lowest_offset(&pair, &Rows::of(&pair)),
         0.0,

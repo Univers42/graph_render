@@ -30,9 +30,9 @@
 //! the pairs in the node list's order and each node's own out-list order, and nothing here
 //! reads a clock, a hash order or a random number (`prompt.md` §6 D1-D10).
 
-use super::Rows;
 use super::super::fast::{Fast, Node, round};
 use super::super::{NODESEP, decomp};
+use super::Rows;
 
 /// What `allocate_aux_edges` saves and `remove_aux_edges` restores: the graph's own adjacency,
 /// displaced by the constraints, together with what this pass added.
@@ -172,7 +172,12 @@ fn lr_constraints(g: &mut Fast, rows: &Rows, edges: &mut Vec<u32>) {
 /// attribute channel to read them from. Failing input: any DOT graph with a `tailport` or
 /// `headport`. Direction: a ported edge is drawn between the node centres, where the reference
 /// draws it between the ports. Escape hatch: none; `Fast` records no port offset on an edge.
-fn edge_pairs(g: &mut Fast, saved_out: &[Vec<u32>], nlist: &[u32], edges: &mut Vec<u32>) -> Vec<u32> {
+fn edge_pairs(
+    g: &mut Fast,
+    saved_out: &[Vec<u32>],
+    nlist: &[u32],
+    edges: &mut Vec<u32>,
+) -> Vec<u32> {
     let mut slack = Vec::new();
     for &n in nlist {
         for &edge in &saved_out[n as usize] {
@@ -193,6 +198,10 @@ fn edge_pairs(g: &mut Fast, saved_out: &[Vec<u32>], nlist: &[u32], edges: &mut V
 /// rounded, and the given weight. The length is capped on the way in so a width past `int`
 /// cannot wrap round into a negative constraint — the reference's own `largeMinlen` guard.
 fn aux_edge(g: &mut Fast, ends: (u32, u32), len: f64, weight: i32) -> u32 {
-    let capped = if len > f64::from(i32::MAX) { f64::from(i32::MAX) } else { len };
+    let capped = if len > f64::from(i32::MAX) {
+        f64::from(i32::MAX)
+    } else {
+        len
+    };
     g.add_aux(ends.0, ends.1, round(capped), weight)
 }

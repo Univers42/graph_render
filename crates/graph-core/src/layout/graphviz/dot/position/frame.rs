@@ -33,8 +33,8 @@
 //! own slot order, with the node index as the tie-break, so the frame is a function of the
 //! drawing and not of a traversal (`prompt.md` §6 D2, D5).
 
-use super::Rows;
 use super::super::fast::Fast;
+use super::Rows;
 use super::ycoords;
 
 /// The drawing's own lower-left corner, in points: `(x, y)`.

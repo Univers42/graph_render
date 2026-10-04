@@ -90,9 +90,7 @@ fn parse_row(line: &str) -> OracleRow {
     let numbers = |slice: &[&str]| -> Vec<i32> {
         slice.iter().map(|n| n.parse().expect("a number")).collect()
     };
-    let printed = |slice: &[&str]| -> Vec<String> {
-        slice.iter().map(|s| s.to_string()).collect()
-    };
+    let printed = |slice: &[&str]| -> Vec<String> { slice.iter().map(|s| s.to_string()).collect() };
     OracleRow {
         seed,
         edges: pairs

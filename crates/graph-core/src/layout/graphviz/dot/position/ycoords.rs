@@ -31,9 +31,9 @@
 //! empties a rank the simplex filled, so this is a guard and not an expected shape. Direction:
 //! none on the drawing; the two agree wherever a rank is occupied. Escape hatch: none needed.
 
-use super::Rows;
 use super::super::RANKSEP;
 use super::super::fast::Fast;
+use super::Rows;
 
 /// The half-height of `row`: the tallest node on it, halved. The reference's `ht1` and `ht2`
 /// are this number — it assumes the box is symmetric about its centre line, which every node

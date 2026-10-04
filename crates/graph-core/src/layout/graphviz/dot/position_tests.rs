@@ -36,7 +36,12 @@ use super::rank_fixture_edges::all as fixture_edges;
 
 /// One closed case: a name, the input edges, and the inch strings `-Tplain` printed for each
 /// node's centre — the x column then the y column, both in node order `n0`, `n1`, …
-type Closed = (&'static str, &'static [(u32, u32)], &'static str, &'static str);
+type Closed = (
+    &'static str,
+    &'static [(u32, u32)],
+    &'static str,
+    &'static str,
+);
 
 /// The six closed cases, in the order `docs/measurements/p13-gv2-dot.md` lists them, with the
 /// coordinates the oracle printed for them.
@@ -48,7 +53,12 @@ type Closed = (&'static str, &'static [(u32, u32)], &'static str, &'static str);
 const CLOSED: &[Closed] = &[
     ("one node", &[], "0.375", "0.25"),
     ("two nodes", &[(0, 1)], "0.375 0.375", "1.25 0.25"),
-    ("3-path", &[(0, 1), (1, 2)], "0.375 0.375 0.375", "2.25 1.25 0.25"),
+    (
+        "3-path",
+        &[(0, 1), (1, 2)],
+        "0.375 0.375 0.375",
+        "2.25 1.25 0.25",
+    ),
     (
         "4-cycle",
         &[(0, 1), (1, 2), (2, 3), (3, 0)],
@@ -123,7 +133,11 @@ fn the_six_closed_cases_are_placed_as_the_oracle_places_them() {
     for (name, edges, want_x, want_y) in CLOSED {
         let count = case_nodes(name);
         let got = centres(&positioned(count, edges));
-        assert_eq!(inch_columns(&got), (want_x.to_string(), want_y.to_string()), "{name}");
+        assert_eq!(
+            inch_columns(&got),
+            (want_x.to_string(), want_y.to_string()),
+            "{name}"
+        );
     }
 }
 
@@ -275,7 +289,10 @@ const FIXTURES: &[(u32, &str, &str)] = &[
 fn the_first_twenty_fixture_seeds_are_placed_as_the_oracle_places_them() {
     let (agreed, seeds) = sweep_fixtures();
     eprintln!("{agreed} of 20 fixture seeds agree node for node; the rest: {seeds:?}");
-    assert_eq!(agreed, AGREEING_SEEDS, "seeds placed exactly as the oracle places them");
+    assert_eq!(
+        agreed, AGREEING_SEEDS,
+        "seeds placed exactly as the oracle places them"
+    );
 }
 
 /// How many of the twenty the pass places byte for byte as the oracle places them, measured.
@@ -330,7 +347,11 @@ fn the_width_table_is_the_default_box_below_four_characters_and_the_oracle_is_wi
                 "{id}: {ours} pt is above the default box and still short of {theirs}"
             );
         } else {
-            assert_eq!(ours, crate::layout::graphviz::dot::NODE_W, "{id}: the default box");
+            assert_eq!(
+                ours,
+                crate::layout::graphviz::dot::NODE_W,
+                "{id}: the default box"
+            );
             assert!(
                 theirs - ours > 3.0,
                 "{id}: and the oracle's own box is {theirs} pt, which is not it"
@@ -402,8 +423,15 @@ fn the_disagreements_split_by_whether_the_ids_reach_three_characters() {
     let (_, rest) = sweep_fixtures();
     let short: Vec<u32> = rest.iter().copied().filter(|&s| s < 9).collect();
     let long: Vec<u32> = rest.iter().copied().filter(|&s| s >= 9).collect();
-    assert_eq!(short, DUMMY_SLOT_SEEDS, "two-character ids: dummy slots only");
-    assert_eq!(long.len(), 11, "three-character ids: every one of them, the width table");
+    assert_eq!(
+        short, DUMMY_SLOT_SEEDS,
+        "two-character ids: dummy slots only"
+    );
+    assert_eq!(
+        long.len(),
+        11,
+        "three-character ids: every one of them, the width table"
+    );
     assert_eq!(short.len() + long.len() + 5, 20, "and 5 agree");
 }
 
@@ -431,9 +459,15 @@ fn the_disagreements_are_chain_dummy_slots_inside_a_rank() {
     let g = positioned(4, edges);
     let xs: Vec<f64> = (0..4).map(|n| g.nodes[n].coord.x).collect();
     let ours = xs[2] - xs[1];
-    assert_eq!(ours, 72.0, "one constraint of two 27-point boxes plus nodesep");
+    assert_eq!(
+        ours, 72.0,
+        "one constraint of two 27-point boxes plus nodesep"
+    );
     // The oracle's row for seed 2, from the pinned table above: 1.9028 - 0.375 inch.
-    let (_, want_x, _) = FIXTURES.iter().find(|(s, ..)| *s == 2).expect("seed 2 is pinned");
+    let (_, want_x, _) = FIXTURES
+        .iter()
+        .find(|(s, ..)| *s == 2)
+        .expect("seed 2 is pinned");
     let column: Vec<f64> = want_x.split_whitespace().map(parse_inches).collect();
     let theirs_in = column[2] - column[1];
     let two_constraints_in = ((27.0 + 10.0 + 18.0) + (10.0 + 27.0 + 18.0)) / 72.0;
@@ -442,7 +476,11 @@ fn the_disagreements_are_chain_dummy_slots_inside_a_rank() {
         "the oracle's {theirs_in} in is the row n1, dummy, n2: two constraints of \
          {two_constraints_in} in"
     );
-    assert_ne!(ours, theirs_in * 72.0, "and this port's row is the other one");
+    assert_ne!(
+        ours,
+        theirs_in * 72.0,
+        "and this port's row is the other one"
+    );
 }
 
 /// How many nodes a fixture seed's edge list reaches, which is its node count: the generator

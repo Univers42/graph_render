@@ -1,8 +1,8 @@
 //! Layouts whose oracle differential is not a byte comparison or has no recorded run,
 //! so their row is `implemented`, never `gated`.
 
-use super::layout_row::UNPROVEN_RECORD;
 use super::super::Status;
+use super::layout_row::UNPROVEN_RECORD;
 
 /// The six igraph 2D layouts, held to `harness/oracle-igraph.py`'s stress ratio.
 const IGRAPH_LAYOUTS: [&str; 6] = [

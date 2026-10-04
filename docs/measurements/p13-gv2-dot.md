@@ -379,11 +379,18 @@ accounted for by the two causes above, neither of which is an algorithmic differ
 - `mincross.rs` and `mincross/{ranks,build,median,transpose,crossings,driver}.rs` — the
   order pass: the per-rank rows, the two initial walks, `medians`/`reorder`, `transpose`,
   `rcross`/`ncross` and the three passes with `save_best`/`restore_best`.
-- `rank_tests.rs` (the six closed cases and twenty fixture seeds), `order_tests.rs` (the
-  same twenty, ordered), `mincross_tests.rs` (one closed case per step),
+- `position.rs` and `position/{rows,ycoords,aux,xcoords,frame}.rs` — `dot_position`: the
+  rank heights, the auxiliary graph (`make_LR_constraints`' zero-weight neighbour constraints
+  and `make_edge_pairs`' weighted pair per input edge), **a second run of the same simplex with
+  `LR_balance`**, `set_xcoords` with `remove_aux_edges`, and the frame. Each step is described
+  in the port's own words above it, and every omission is named where it is dropped.
+- `position_tests.rs` (the six closed cases and the twenty fixture seeds, byte for byte at the
+  printed precision, with both disagreement causes isolated), `position_steps.rs` (one closed
+  case per step), `rank_tests.rs` (the six closed cases and twenty fixture seeds),
+  `order_tests.rs` (the same twenty, ordered), `mincross_tests.rs` (one closed case per step),
   `class2_tests.rs` (each of `class2`'s three outcomes), `oracle_crossings.rs` (the one
   crossing count both sides of an oracle comparison can be computed with) and
-  `oracle_probe.rs` (both 1000-seed sweeps, `#[ignore]`d, which also holds the shared
+  `oracle_probe.rs` (all three 1000-seed sweeps, `#[ignore]`d, which also holds the shared
   scaffolding). `simplex/checks.rs` re-derives the pass's invariants from scratch under
   `cfg(test)` after **every** pivot.
 
@@ -434,6 +441,15 @@ Closing this means a text-measurement table taken from the oracle image and pinn
 here, which is a decision for the ADR (`docs/decisions/graphviz-oracle.md`), not for
 this job.
 
+**Now measured, and the finding is about the table rather than the port.** The ADR's table
+exists and `position.rs` reads it, by exactly the formula the ADR and the job name:
+`node_width(text_width(id))`. That formula returns **the 0.75 inch default box for every id of
+two or three characters**, against an oracle that prints 57.942 points for `n10` and 70.358 for
+`n100`. So blocker 1 is **not closed** by shipping the pass: it is *settled as a measurement*,
+the escape hatch is named (one constant pair in `text_width.rs`), and the cost is a known
+constant on every graph whose ids reach three characters. The "Position" section above carries
+the numbers and the seeds.
+
 # Blocker 2 — the port does not fit one job
 `dot` is four passes, and three of them are large:
 | pass | reference | size | ported |
@@ -476,14 +492,19 @@ branch), `reorder`, `transpose`, `rcross`/`ncross`, `save_best`/`restore_best`.
 **Not** ported, with the measured reason in the mincross section: the same-rank edge
 precedence matrix (no fixture seed of the 1000 has a same-rank edge), the port-local half
 of the crossing count (no ports) and the cluster path (no clusters).
-! 5. **`position.rs`.** `set_ycoords` (rank heights, `pht1`/`pht2`, `ranksep`), then
-!    `create_aux_edges` = `make_LR_constraints` + `make_edge_pairs`, `rank(g, 2, …)`,
-!    `set_xcoords`, `set_aspect` (a no-op at the default ratio), `remove_aux_edges`.
-! 6. **The frame.** `dotneato_postprocess` translates so the drawing's lower-left *node
-box* corner is the origin, which for the six closed cases is the offsets in the
-table below. This is part of the answer, not presentation: the closed cases are
-compared byte for byte against `-Tplain`'s printed text, so the translation has to
-be applied on our side too or nothing can match.
+5. **`position.rs`. Done** — `set_ycoords` (rank heights, `ranksep`), then
+   `create_aux_edges` = `allocate_aux_edges` + `make_LR_constraints` + `make_edge_pairs`,
+   `rank(g, 2, …)`, `set_xcoords`, `remove_aux_edges`. `set_aspect` is a no-op at the
+   default ratio and `pos_clusters`/`compress_graph` are clusters, so both are named as
+   omissions rather than ported.
+6. **The frame. Done** — `dotneato_postprocess` translates so the drawing's lower-left *node
+   box* corner is the origin, which for the six closed cases is the offsets in the table
+   below. This is part of the answer, not presentation: the closed cases are compared byte
+   for byte against `-Tplain`'s printed text, so the translation has to be applied on our
+   side too or nothing can match. The vertical offset is **zero**, and that is measured
+   rather than assumed: `set_ycoords` already puts the lowest rank's line at its own
+   half-height, and a one-node graph on the default box and on `height=1` both print their
+   centre unchanged.
 ! 7. **The differential.** `crates/graph-cli/src/oracle_python/dot.rs` as a `Differential`
 (shape: `oracle_python/osage.rs`), one `by_engine` arm and one `ENGINES` entry, and
 a `DOT_CLOSED` table in `harness/oracle-graphviz.py:144` for the six closed cases.
