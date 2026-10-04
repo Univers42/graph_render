@@ -298,3 +298,12 @@ One round, native Barnes-Hut, 1M nodes, 10 × 10 000-node batches, `--from targe
 | `json` (two runs) | 28.80 / 29.10 ms | 3.54 / 3.64 ms | 32.48 / 33.75 ms (over the budget) | 9.51→8.20, 13.15→12.98 |
 | `columns`        | 16.35 ms           | 5.15 ms     | **21.79 ms**, under the 30 ms budget | 9.49→11.80 |
 ```
+
+## Result (P4f)
+
+[`perf-p4f-wasm.md`](../measurements/perf-p4f-wasm.md) times `encodeBatch` on its own: it is
+**84 % / 79 % of the wasm32 `extend` timer** (31.18 / 29.52 ms of 37.33 / 37.14), so the premium
+was never the wasm motor — the copy into linear memory is 0.25 % and the motor is the whole of
+the 6–8 ms left over. Removing the encoder's wasted work (a field path per field per row, a
+discarded `join` of the whole table, a second measurement of every entry) leaves the GMX1 bytes
+byte-identical, pinned by a literal and a SHA-256 with a verified negative control.

@@ -13,7 +13,9 @@
 //   * an edge may name a node the graph already holds — the one thing a batch may do that a
 //     whole document's dense-row endpoint cannot;
 //   * a lone surrogate is refused by the encoder, by field name, as `encodeColumns` refuses it;
-//   * a module without `gm_graph_extend_columns` is refused, naming the export it lacks.
+//   * a module without `gm_graph_extend_columns` is refused, naming the export it lacks;
+//   * the GMX1 bytes of a fixed batch are a **pinned literal**, so a cheaper `encodeBatch` that
+//     changed one byte is red here and nowhere else.
 //
 // Run: node --test --experimental-strip-types crates/graph-sdk-js/test/
 //
@@ -21,6 +23,7 @@
 // `delta.test.mjs` does.
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 
@@ -161,6 +164,64 @@ test("a batch edge may name a node the graph already holds, and one a node of it
   assert.equal(motor.nodeCount(graph), 6, "`e3` names `d`, which this batch does not carry");
   motor.release(graph);
 });
+
+test("the GMX1 bytes of a fixed batch are a pinned literal", () => {
+  // What this pins: the encoder may get cheaper, never different. `docs/measurements/
+  // perf-p4f-wasm.md` attributes ~40 % of the wasm32 `extend` timer to `encodeBatch`, so the
+  // work that follows is a rewrite of the same two passes — and the only thing that can tell a
+  // rewrite from a change is the bytes. Every other test here compares two *live* encoders or
+  // two *live* paths, which agree with each other whatever they both do.
+  //
+  // The batch is `BATCH` plus one node carrying every awkward value the format has: a
+  // multi-byte icon (which is what pushes the assembler off its ASCII fast path and onto the
+  // exact one — the case the optimisation has to keep), a `-0` weight, a subnormal, an absent
+  // optional, and an edge whose endpoint names a node this batch does not carry. The digest is
+  // SHA-256 of the whole document; `GMX1_BYTES` below is the same bytes, in hex, so a failure
+  // names the difference rather than only the hash.
+  const fixed = {
+    nodes: [
+      ...BATCH.nodes,
+      {
+        id: "z-é🌿", kind: "database", database_id: "db-9", source: "s9", label: "Zed",
+        group: "Active", weight: -0.0, version: 5e-324, has_note: true, icon: "🌿",
+      },
+    ],
+    edges: [...BATCH.edges, edge("e5", "d", "z-é🌿")],
+  };
+  const bytes = encodeBatch(fixed);
+  assert.equal(sha256(bytes), GMX1_SHA256, "the document is what it was");
+  assert.equal(bytes.length, GMX1_BYTES.length / 2, "and it is the same length");
+  assert.equal(Buffer.from(bytes).toString("hex"), GMX1_BYTES, "byte for byte");
+});
+
+/** SHA-256 of that batch's bytes, as a literal so a changed byte is one diff line. */
+const GMX1_SHA256 = "c4f97175d4bc20030dde0e715502999482a8ee352cf45feba7c160b30945a853";
+
+/** The same 440 bytes in hex. `assembleColumns` writes the magic `474d5831` = `"GMX1"`, the
+ *  version `01`, three nodes, three edges, a 19-entry table of 61 bytes — and the table is not
+ *  ASCII (`2dc3a9f09f8cbf` is `é` and the herb), so this document takes the assembler's **exact**
+ *  path, the one the multi-byte string table falls to. */
+const GMX1_BYTES = [
+  "474d5831010000000300000003000000130000003d0000000000000000000000",
+  "00000000010000000700000008000000090000000a0000000b00000013000000",
+  "1b0000001f00000021000000240000002a0000002e0000003000000031000000",
+  "39000000390000003b0000003d000000787265636f7264735879597a2dc3a9f0",
+  "9f8cbf646174616261736564622d3973395a6564416374697665f09f8cbf6533",
+  "6472656c6174696f6e65346535000000000000000000e03f000000000000e03f",
+  "0000000000000080000000000000000000000000000000000100000000000000",
+  "000000000000e03f000000000000e03f000000000000e03f0000000004000000",
+  "06000000010000000100000007000000ffffffffffffffff0800000002000000",
+  "020000000900000003000000050000000a000000ffffffffffffffff0b000000",
+  "ffffffffffffffff0c0000000000000000000000010000000d00000011000000",
+  "120000000e000000000000000e0000000000000004000000060000000f000000",
+  "0f0000000f000000100000001000000010000000ffffffffffffffffffffffff",
+  "000000000000000000000000000000000000000000000000",
+].join("");
+
+/** SHA-256 of `bytes`, lowercase hex — `node:crypto`, so no dependency and no hand-rolled hash. */
+function sha256(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
 
 test("a lone surrogate is refused by encodeBatch, by field", () => {
   const batch = { nodes: [node("x")], edges: [] };
