@@ -47,14 +47,33 @@ pub struct Aux {
     /// The slack nodes, in the order `make_edge_pairs` created them. Reversed for the node
     /// list, because `fast_node` prepends.
     slack: Vec<u32>,
-    /// Every edge this pass made, in the order it made them.
-    edges: Vec<u32>,
+    /// `make_LR_constraints`' edges: one per pair of neighbours on a rank, each weight 0.
+    constraints: Vec<u32>,
+    /// `make_edge_pairs`' edges: two per input edge, each carrying that edge's own weight.
+    pairs: Vec<u32>,
     /// `GD_nlist` before the slack nodes existed: every component of the graph, concatenated
     /// in `decompose`'s order, which is `merge_components`' order in the reference.
     nlist: Vec<u32>,
 }
 
 impl Aux {
+    /// The slack nodes, in the order `make_edge_pairs` created them.
+    pub fn slack(&self) -> &[u32] {
+        &self.slack
+    }
+
+    /// The rank constraints, in rank order and then slot order: one per pair of neighbours on a
+    /// rank, every one of them weight 0.
+    pub fn constraints(&self) -> &[u32] {
+        &self.constraints
+    }
+
+    /// The edge pairs, in node-list order and then out-list order: two per input edge, the
+    /// first to the edge's tail and the second to its head.
+    pub fn pairs(&self) -> &[u32] {
+        &self.pairs
+    }
+
     /// `GD_nlist` as the second simplex sees it: the slack nodes first, newest first, then
     /// every node the graph already had.
     pub fn node_list(&self) -> Vec<u32> {
@@ -69,7 +88,7 @@ impl Aux {
     /// dense index must stay dense — and nothing after this point reaches them, because
     /// [`node_list`](Aux::node_list) is what the simplex was given and it is dropped with `self`.
     pub fn remove(self, g: &mut Fast) {
-        for edge in self.edges {
+        for edge in self.constraints.into_iter().chain(self.pairs) {
             g.edges[edge as usize].live = false;
         }
         g.out = self.saved_out;
@@ -86,21 +105,23 @@ impl Aux {
 /// edges. That is what leaves two nodes joined by one edge directly above each other in the
 /// drawing: the one-point pair says their centres are not the same point, and the pair is
 /// satisfied at zero separation. Keep the real edges and every node would be pushed one point
-/// right of its in-neighbour.
+/// right of its in-neighbour, which is the one-point gap the two-node closed case measures.
 pub fn build(g: &mut Fast, rows: &Rows) -> Aux {
     let nlist: Vec<u32> = decomp::decompose(g).into_iter().flatten().collect();
     let saved_out = std::mem::take(&mut g.out);
     let saved_in = std::mem::take(&mut g.inn);
     g.out = vec![Vec::new(); g.nodes.len()];
     g.inn = vec![Vec::new(); g.nodes.len()];
-    let mut edges: Vec<u32> = Vec::new();
-    lr_constraints(g, rows, &mut edges);
-    let slack = edge_pairs(g, &saved_out, &nlist, &mut edges);
+    let mut constraints: Vec<u32> = Vec::new();
+    lr_constraints(g, rows, &mut constraints);
+    let mut pairs: Vec<u32> = Vec::new();
+    let slack = edge_pairs(g, &saved_out, &nlist, &mut pairs);
     Aux {
         saved_out,
         saved_in,
         slack,
-        edges,
+        constraints,
+        pairs,
         nlist,
     }
 }

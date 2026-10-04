@@ -56,6 +56,8 @@ mod oracle_probe;
 #[cfg(test)]
 mod order_tests;
 #[cfg(test)]
+mod position_steps;
+#[cfg(test)]
 mod position_tests;
 #[cfg(test)]
 mod rank_fixture_edges;

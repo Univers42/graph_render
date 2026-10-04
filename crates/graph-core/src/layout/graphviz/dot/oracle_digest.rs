@@ -13,6 +13,9 @@
 
 /// One row of `target/probe/dot1000.txt`: the oracle's answer for one seed.
 pub struct OracleRow {
+    /// The fixture's own seed number, which is the row's first column. Carried so a sweep can
+    /// name the seeds it agrees on.
+    pub seed: u32,
     /// The fixture edges, as (tail, head), in declaration order.
     pub edges: Vec<(u32, u32)>,
     /// The rank the oracle gave every node.
@@ -23,10 +26,8 @@ pub struct OracleRow {
     /// Every node's printed x, in inches, as the string `-Tplain` printed for it: `n0`, `n1`,
     /// ... in node-index order, and the oracle's own characters, because the position sweep
     /// compares them byte for byte against the plain format's five-significant-digit precision.
-    #[allow(dead_code)] // read by the position sweep, which does not exist yet
     pub xs: Vec<String>,
     /// Every node's printed y: the same node order, the same spelling, as [`Self::xs`].
-    #[allow(dead_code)] // read by the position sweep, which does not exist yet
     pub ys: Vec<String>,
 }
 
@@ -78,7 +79,7 @@ fn digest_path() -> std::path::PathBuf {
 /// `count` tokens — the ranks, the order, and the two printed coordinate columns.
 fn parse_row(line: &str) -> OracleRow {
     let mut fields = line.split_whitespace();
-    let _seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
+    let seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
     let count: usize = fields
         .next()
         .expect("a node count")
@@ -93,6 +94,7 @@ fn parse_row(line: &str) -> OracleRow {
         slice.iter().map(|s| s.to_string()).collect()
     };
     OracleRow {
+        seed,
         edges: pairs
             .iter()
             .map(|pair| {
