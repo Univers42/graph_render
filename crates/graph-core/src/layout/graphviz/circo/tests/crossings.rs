@@ -98,7 +98,8 @@ fn the_sweep_agrees_with_the_walk_on_two_thousand_random_blocks() {
         }
         let (swept, walked) = both_ways(count, &edges, &order);
         assert_eq!(
-            swept, walked,
+            swept,
+            walked,
             "n={count}, {} edges, swept {swept}, walked {walked}",
             edges.len()
         );
@@ -107,7 +108,10 @@ fn the_sweep_agrees_with_the_walk_on_two_thousand_random_blocks() {
     }
     assert_eq!(cases, 2_000, "every case ran");
     assert!(repeated > 0, "some orders carried a node twice");
-    assert!(crossed > 0, "the cases crossed something, so this is not a zero-versus-zero pass");
+    assert!(
+        crossed > 0,
+        "the cases crossed something, so this is not a zero-versus-zero pass"
+    );
 }
 
 /// `K4` in the order `n0, n1, n2, n3`: six chords, of which `n0 n1`, `n0 n3` and `n2 n3` run
@@ -134,8 +138,6 @@ fn two_parallel_chords_cross_nothing() {
     let edges = [(0, 1), (2, 3)];
     assert_eq!(both_ways(4, &edges, &[0, 1, 2, 3]), (0, 0));
 }
-
-
 
 /// **A node carried twice**, which is the shape `longest_path` hands the layout when the
 /// thinned tree is a forest and its branch node's two best leaves are the same one. The block is

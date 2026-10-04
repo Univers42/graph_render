@@ -124,13 +124,12 @@ impl Counter {
     /// never carries has no first visit and cannot open the edge, so the other one does.
     fn opens_at(&self, tail: u32, head: u32) -> u32 {
         let (one, other) = (self.first[tail as usize], self.first[head as usize]);
-        let carried = match (one == 0, other == 0) {
-            (true, true) => return 0,
+        match (one == 0, other == 0) {
+            (true, true) => 0,
             (true, false) => other,
             (false, true) => one,
             (false, false) => one.min(other),
-        };
-        carried
+        }
     }
 
     /// The first visit to `node` strictly after `at`, or `u32::MAX`: its first visit when that
@@ -190,28 +189,32 @@ impl Counter {
 
     /// Put one edge into the open set, filed at the position it opened at.
     fn enter(&mut self, at: u32) {
-        self.live = self.live + 1;
+        self.live += 1;
         self.add(at, 1);
     }
 
     /// Take one edge out of the open set.
     fn take(&mut self, at: u32) {
-        self.live = self.live - 1;
+        self.live -= 1;
         self.add(at, -1);
     }
 
-    /// One counter at position `at`, in a tree over `1..=self.bit.len() - 1`.
+    /// One counter at position `at`, in a tree whose `n` counters stand for the positions
+    /// `0..n`. Integer arithmetic only: the counters are `u32`, the steps are shifts and an
+    /// `i32` add per touched slot, and no position ever exceeds `u32::MAX` because a block has
+    /// fewer than `2^31` nodes (`mark`'s `try_from` is where that is enforced, not here).
     fn add(&mut self, at: u32, delta: i32) {
-        let mut slot = at as usize;
+        let mut slot = at as usize + 1;
+        debug_assert!(slot < self.bit.len(), "a position is inside the tree");
         while slot < self.bit.len() {
             self.bit[slot] = (self.bit[slot] as i32 + delta) as u32;
-            slot += slot & slot.wrapping_neg() as usize;
+            slot += slot.isolate_lowest_one();
         }
     }
 
-    /// The counters at the positions `1..=at`, inclusive.
+    /// The counters at the positions `0..=at`, inclusive.
     fn upto(&self, at: u32) -> u32 {
-        let mut slot = at as usize;
+        let mut slot = at as usize + 1;
         let mut sum = 0;
         while slot > 0 {
             sum += self.bit[slot];
