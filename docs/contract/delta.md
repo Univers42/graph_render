@@ -196,9 +196,16 @@ unchanged.
 - `Motor.extend(handle, { nodes, edges })` encodes the batch as JSON v1, calls `gm_graph_extend`,
   then `views.bump()` (`crates/graph-sdk-js/src/index.ts:192` shows the pattern), so every column
   view taken from that handle before is stale.
+- `Motor.extendColumns(handle, { nodes, edges })` is the same append over `encodeBatch(batch)`, the
+  `GMX1` document `gm_graph_extend_columns` reads: the SDK encodes it, stages it through the same
+  `buildStaged` path, bumps the views the same way and drops the handle's kind cache the same way
+  (`crates/graph-sdk-js/src/extend.ts`). An edge may name a node the graph already holds, which
+  the row-addressed endpoint of a whole document cannot. The JSON path is unchanged and stays.
 - `ForceSession.grow(handle)` calls `gm_force_session_grow`, then sets `#views` to null, as `tick`
   already does (`crates/graph-sdk-js/src/force.ts:123`).
-- Both throw the existing typed error on refusal.
+- Both throw the existing typed error on refusal: `extend` throws `BuildRefusedError` where
+  `extendColumns` throws `ColumnsRefusedError`, for the *same* refusal — the codes differ as the
+  ABI table above says, so a host that swaps one call for the other swaps its catch too.
 
 ## The studio
 

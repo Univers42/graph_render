@@ -28,11 +28,12 @@ const node = (id: string) => ({
   group: null, weight: 1, version: 1, has_note: false, icon: null,
 });
 
-/** One new node, and an edge onto a node the graph already holds — the case only a batch has. */
+/** One new node, and an edge onto a node the graph already holds (`n-0` is the generated
+ *  graph's first id) — the case only a batch has, since a document's endpoint is a row. */
 const BATCH: GraphBatch = {
   nodes: [node("delta-1")],
   edges: [{
-    id: "delta-e", source: "delta-1", target: "s00000", kind: "relation", label: "",
+    id: "delta-e", source: "delta-1", target: "n-0", kind: "relation", label: "",
     strength: 1, directed: false, record_id: null, child_first: false,
   }],
 };
@@ -74,8 +75,9 @@ async function motorWith(paths: Paths, asked: string[]): Promise<MotorLike<Handl
   return base;
 }
 
-/** A session over that motor, with a graph built, a run drawn and a live port open. */
-async function withPort(paths: Paths): Promise<{ readonly session: Session; readonly asked: string[] }> {
+/** A session over that motor, with a graph built, a run drawn and a live port open, plus the
+ *  node count the run reported — the count a later structure snapshot is compared against. */
+async function withPort(paths: Paths): Promise<{ readonly session: Session; readonly asked: string[]; readonly before: number | undefined }> {
   const asked: string[] = [];
   const session: Session = createSession({
     motorFrom: () => motorWith(paths, asked),
@@ -86,8 +88,8 @@ async function withPort(paths: Paths): Promise<{ readonly session: Session; read
   });
   await session.open("unused");
   await session.load({ kind: "synthetic", seed: 1, nodes: 40, degree: 2, shape: "vault" }, FIXTURES_URL);
-  await session.layout(FORCE, null);
-  return { session, asked };
+  const drawn = await session.layout(FORCE, null);
+  return { session, asked, before: drawn.meta?.nodeCount };
 }
 
 /** The port's own `extend`, or a failure naming that it has none. */
@@ -99,10 +101,9 @@ function extendOf(session: Session): (batch: GraphBatch) => void {
 }
 
 test("a motor with both paths takes the columnar one", { skip: SKIP }, async () => {
-  const { session, asked } = await withPort({ json: true, columns: true });
+  const { session, asked, before } = await withPort({ json: true, columns: true });
   const extend = extendOf(session);
-  const before = await session.structure();
-  assert.equal(before.meta?.nodeCount, 40, "the graph the batch grows");
+  assert.equal(before, 40, "the graph the batch grows");
   extend(BATCH);
   assert.deepEqual(asked, ["columns"], "the batch went through extendColumns");
   const after = await session.structure();
@@ -110,12 +111,12 @@ test("a motor with both paths takes the columnar one", { skip: SKIP }, async () 
 });
 
 test("a motor with only the JSON path still takes the batch", { skip: SKIP }, async () => {
-  const { session, asked } = await withPort({ json: true, columns: false });
+  const { session, asked, before } = await withPort({ json: true, columns: false });
   const extend = extendOf(session);
   extend(BATCH);
   assert.deepEqual(asked, ["json"], "the fallback ran, and the batch reached the graph");
   const after = await session.structure();
-  assert.equal(after.meta?.nodeCount, 41);
+  assert.equal(after.meta?.nodeCount, (before ?? 0) + 1);
 });
 
 test("a motor with neither refuses the batch, and says so", { skip: SKIP }, async () => {

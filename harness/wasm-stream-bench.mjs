@@ -3,15 +3,17 @@
 // JavaScript SDK instead of through the Rust bench.
 //
 //   node harness/wasm-stream-bench.mjs --from target/bench/s.jsonl --engine barnes_hut
-//   node harness/wasm-stream-bench.mjs --from ... --engine particle_mesh --wasm <path>
+//   node harness/wasm-stream-bench.mjs --from ... --engine particle_mesh --path columns
 //
 // WHAT IS MEASURED, per batch, exactly as the native arm measures it: `extend` and `grow` in
 // two timers, neither containing the other, with `tick(1)` after each batch and `tick(10)`
 // after line 0 both outside them. `JSON.parse` of a line is untimed, the way reading the line
-// off disk is untimed natively. One asymmetry is inside `extend`: the SDK encodes the batch
-// with `JSON.stringify` before `gm_graph_extend` sees it, while the native arm hands
-// `service::extend` the bytes it read, so the wasm `extend` column carries a JS string
-// serialize the native one does not.
+// off disk is untimed natively. One asymmetry stays inside `extend` on both paths: the SDK's own
+// encoding, `JSON.stringify` under `--path json` and `encodeBatch` under `--path columns`. The
+// native arm hands `service::extend` the bytes it read and `service::extend_columns` the bytes a
+// Rust encoder wrote, both untimed, so this arm is the only one that pays a host's encoder —
+// which is the point of A1 in `docs/decisions/extend-columns.md`, and why the `columns` columns
+// are not "the native columns minus the walk".
 //
 // The structure snapshot the studio rebuilds is timed once at the end: `run(handle,
 // "layout.random")` and `toBytes(handle)` at the final size.
@@ -49,21 +51,29 @@ function fail(message) {
   process.exit(2);
 }
 
-/** `--from`, `--engine`, `--wasm`. Nothing else: an unknown flag is a refusal, not a default. */
+/** The paths this arm can replay a stream through, and nothing else: an unknown value is a
+ *  refusal, not a default, because the two print different columns and a typo would otherwise
+ *  be read as a measurement. */
+const PATHS = ["json", "columns"];
+
+/** `--from`, `--engine`, `--wasm`, `--path`. Nothing else: an unknown flag is a refusal, not a
+ *  default. */
 function parseArgs(argv) {
-  const plan = { wasm: DEFAULT_WASM, from: null, engine: "barnes_hut" };
+  const plan = { wasm: DEFAULT_WASM, from: null, engine: "barnes_hut", path: "json" };
   for (let i = 0; i < argv.length; i += 1) {
     const [flag, inline] = argv[i].split("=");
     const value = () => inline ?? argv[(i += 1)];
     if (flag === "--from") plan.from = value();
     else if (flag === "--wasm") plan.wasm = resolve(value());
     else if (flag === "--engine") plan.engine = value();
+    else if (flag === "--path") plan.path = value();
     else fail(`unknown argument ${flag}`);
   }
   if (plan.from === null) fail("--from <path.jsonl> is the stream to replay");
   if (!existsSync(plan.from)) fail(`${plan.from} does not exist`);
   if (!existsSync(plan.wasm)) fail(`${plan.wasm} does not exist (cargo build -p graph-wasm --release --target wasm32-unknown-unknown)`);
   if (!(plan.engine in ENGINE_IDS)) fail(`--engine takes ${Object.keys(ENGINE_IDS).join(" or ")}`);
+  if (!PATHS.includes(plan.path)) fail(`--path takes ${PATHS.join(" or ")}`);
   return plan;
 }
 
@@ -146,14 +156,24 @@ async function* lines(path) {
 /**
  * One batch: `extend`, then `grow`, each in its own timer, then one untimed `tick(1)`.
  *
+ * `--path json` times `motor.extend` and `--path columns` times `motor.extendColumns`, and the
+ * SDK's own encoding is **inside** the `extend` timer in both: `JSON.stringify` on one side,
+ * `encodeBatch` on the other. That is deliberate and it is the asymmetry this bench exists to
+ * measure (A1 in `docs/decisions/extend-columns.md`): a host pays whatever its SDK's encoder
+ * costs, so a columnar `extend` that excluded the encode would flatter the wasm arm by exactly
+ * the number A1 asks about. The native arm cannot be read the same way — it hands
+ * `service::extend_columns` bytes written by a Rust encoder outside its timer — so the two
+ * `columns` columns differ by that encode and the two `json` columns differ by `JSON.stringify`.
+ *
  * Caveat: `tick(1)` runs after both timers close, so this measures what the contract names
  * and not what a host's frame costs — a host that ticked per batch would pay a tick per
- * 10 000 nodes that no column here shows. And `motor.extend` is timed whole, including the
- * SDK's `JSON.stringify`, which the native `service::extend` never does.
+ * 10 000 nodes that no column here shows.
  */
-function batch(motor, handle, session, parsed) {
+function batch(motor, handle, session, parsed, path) {
   const startedExtend = performance.now();
-  motor.extend(handle, { nodes: parsed.nodes, edges: parsed.edges });
+  const at = { nodes: parsed.nodes, edges: parsed.edges };
+  if (path === "columns") motor.extendColumns(handle, at);
+  else motor.extend(handle, at);
   const extendMs = performance.now() - startedExtend;
   const startedGrow = performance.now();
   session.grow(handle);
@@ -186,7 +206,7 @@ async function replay(motor, plan) {
     }
     const parsed = parse(line);
     if (batchNodes === 0) batchNodes = parsed.nodes.length;
-    rows.push(batch(motor, handle, session, parsed));
+    rows.push(batch(motor, handle, session, parsed, plan.path));
     nodes += parsed.nodes.length;
   }
   if (handle === null) fail(`${plan.from} holds no line, so there is no stream to replay`);

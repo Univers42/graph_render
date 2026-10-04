@@ -137,6 +137,23 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 }
 
 /**
+ * One delta batch, appended to the graph behind `built`.
+ *
+ * The columnar path is preferred wherever the motor has it and the JSON path is the fallback, so
+ * this file works against both an SDK that grew the export and one that did not. A motor with
+ * neither is refused by name rather than called blindly: a `TypeError` on a missing method would
+ * reject the worker's promise and read as the studio's own bug, where `SessionRefusal` is the
+ * queue's `failed` result saying the motor cannot do this (`docs/contract/delta.md`).
+ */
+function appendBatch<Handle>(motor: MotorLike<Handle>, built: Built<Handle>, batch: GraphBatch): void {
+  if (motor.extendColumns !== undefined) motor.extendColumns(built.handle, batch);
+  else if (motor.extend !== undefined) motor.extend(built.handle, batch);
+  else throw new SessionRefusal("this motor cannot add to a built graph");
+  // After the motor: a refusal leaves the graph and this list as they were.
+  built.nodes = [...built.nodes, ...batch.nodes];
+}
+
+/**
  * The live force port over the graph as it is now drawn, or null when there is none: a force
  * request before a graph is loaded is "no session yet", the same answer as a motor with none.
  */
