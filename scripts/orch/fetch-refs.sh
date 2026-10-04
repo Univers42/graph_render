@@ -20,6 +20,8 @@ npm_ref() { # pkg ver integrity
   [[ "sha512-$(openssl dgst -sha512 -binary "$t" | base64 -w0)" == "$3" ]] || die "sha512 mismatch: $t"
   tar -xzf "$t" -C "$d"
 }
+# A fresh host (a CI runner) has no scratch root yet; without this the check below refused it.
+mkdir -p "${R%/*}" || die "cannot create ${R%/*}"
 [[ -w ${R%/*} || -w $R ]] || die "cannot write $R"
 mkdir -p "$R/npm"; chmod -R u+w "$R"
 
