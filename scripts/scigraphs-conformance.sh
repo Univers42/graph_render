@@ -40,12 +40,13 @@ set -euo pipefail
 # step's own code, and a step that exits 1 would satisfy the `--break` row's `test $? -eq 1`
 # without the judge ever running. Measured 2026-10-03: the gm-chromium render died silently
 # under a loaded host and turned the negative control red with no message.
-trap 'rc=$?; printf "scigraphs-conformance: could not run: line %s exited %s\n" "$LINENO" "$rc" >&2; exit 2' ERR
+trap 'printf "scigraphs-conformance: could not run: line %s exited %s\n" "$LINENO" "$?" >&2; exit 2' ERR
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 dir=target/scigraphs-conformance
-images="gm-chromium ge-python-oracle ge-graphviz-oracle"
+# The two oracle images this script builds itself; gm-chromium comes from image.sh below.
+images="ge-python-oracle ge-graphviz-oracle"
 break=0
 # The one row the negative control perturbs. Named here rather than at the call site so the
 # gate row and this script agree on which row `--break` is about.
@@ -63,8 +64,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# WHY the two -e: the reference pins are bytes, and numpy and OpenBLAS pick their kernels from
+# the CPU at run time. CI run 37200088122 (x86_64 runner) moved the reference bytes of
+# CIRCLE_PACKING, FORCEATLAS2, SPECTRAL_3D and MDS_3D while every motor row matched. The pins
+# were made on an AVX2 host (i5-13600KF) where OpenBLAS resolves to Haswell and numpy finds no
+# AVX512 (`numpy.show_runtime()` in the image, 2026-10-04), so both settings are no-ops there.
+# Caveat: this pins x86_64 only, and assumes AVX2+FMA3; a CPU without them, or an aarch64
+# host, still yields other reference bytes.
+npy_off="AVX512F AVX512CD AVX512_KNL AVX512_KNM AVX512_SKX AVX512_CLX AVX512_CNL AVX512_ICL AVX512_SPR"
 python_image() {
-  "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle "$@"
+  "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w \
+    -e OPENBLAS_CORETYPE=Haswell -e "NPY_DISABLE_CPU_FEATURES=$npy_off" ge-python-oracle "$@"
 }
 graphviz_image() {
   "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle "$@"
@@ -79,13 +89,17 @@ build() {
     --build-context gv="$gv" . >/dev/null
 }
 
-# `scratch.sh` exports GM_SCRATCH and is meant to be sourced, not run: its output is empty, so
-# running it would leave this script building from a path it never learned.
-# shellcheck source=scripts/orch/scratch.sh
-source scripts/orch/scratch.sh
+# `image.sh` sources `scratch.sh`, which exports GM_SCRATCH. Both are meant to be sourced, not
+# run: their output is empty, so running them would leave this script building from a path it
+# never learned.
+# shellcheck source=scripts/orch/image.sh
+source scripts/orch/image.sh
 refs=$GM_SCRATCH/refs
 nx=$refs/networkx-3.6 ig=$refs/igraph-0.11.9 gv=$refs/graphviz-16.1.0
 
+# WHY ensure_image: `build` makes only the two oracle images. On a host without gm-chromium
+# (every CI runner) step 5 asked Docker Hub for it, which has no such image.
+ensure_image gm-chromium || { printf 'scigraphs-conformance: could not build gm-chromium\n' >&2; exit 2; }
 for image in $images; do
   if ! docker image inspect "$image" >/dev/null 2>&1; then
     printf 'scigraphs-conformance: building %s\n' "$image" >&2
@@ -120,11 +134,12 @@ chromium_image python3 harness/scigraphs-conformance/render.py "$dir/shapes" --o
 
 # 6. the verdict. The exit code is this script's: 0, 1 or 2.
 status=0
-# The log lives beside the fixture directory, not inside it: the fixture tree is written by
-# containers running as root, so the host shell cannot create a file in there.
+# WHY the container writes the log, not the host shell: under a rootful Docker (every CI runner)
+# the containers create `target/` itself as root, and a host redirect into it was "Permission
+# denied" (CI run 37196508462; fix-analysis.md, fix-post-routed.md and fix-scale.md hit the same).
 log=target/scigraphs-conformance-judge.log
-scripts/orch/gr cargo run -q --release -p graph-cli -- scigraphs-conformance --dir "$dir" \
-  >"$log" 2>&1 || status=$?
+scripts/orch/gr sh -c "cargo run -q --release -p graph-cli -- scigraphs-conformance --dir $dir >$log 2>&1" \
+  || status=$?
 cat "$log"
 if [ "$status" = 2 ]; then
   printf 'scigraphs-conformance: could not run (exit 2)\n' >&2
