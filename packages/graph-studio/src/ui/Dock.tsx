@@ -2,12 +2,15 @@
 import { useState, type ReactElement, type ReactNode } from "react";
 
 import { DOCK_SECTIONS } from "../actions/all.ts";
+import { PARAMS_SECTION, specsOf } from "../actions/params.ts";
 import type { LiveBridge } from "../motor/bridge.ts";
 import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { ForcesPanel } from "./ForcesPanel.tsx";
 import { ActionForm } from "./ActionForm.tsx";
+import { LayoutParamsPanel } from "./LayoutParamsPanel.tsx";
 import { drawnOf } from "./draft.ts";
+import { paramsKey } from "./paramSpecs.ts";
 import { useStudioState } from "./useStudio.ts";
 
 /** One section open: with three, the dock was as tall as the page and covered the graph. */
@@ -29,8 +32,10 @@ interface SectionProps {
   readonly children: ReactNode;
 }
 
+/** One id per section: lowercased, and with the gaps a two-word name has closed up, because
+ *  an `id` is one token and a space would make it two. */
 function sectionId(name: string): string {
-  return `gs-dock-${name.toLowerCase()}`;
+  return `gs-dock-${name.toLowerCase().replaceAll(" ", "-")}`;
 }
 
 function Section(props: SectionProps): ReactElement {
@@ -54,6 +59,13 @@ function Section(props: SectionProps): ReactElement {
   );
 }
 
+interface PanelProps {
+  readonly studio: Studio;
+  readonly state: StudioState;
+  readonly name: string;
+  readonly bar: DockProps["bar"];
+}
+
 function Actions(props: { readonly studio: Studio; readonly state: StudioState; readonly name: string }): ReactElement {
   const { studio, state, name } = props;
   return (
@@ -65,6 +77,37 @@ function Actions(props: { readonly studio: Studio; readonly state: StudioState; 
         return <ActionForm key={`${action.id} ${drawn}`} studio={studio} action={action} state={state} drawn={drawn} />;
       })}
     </div>
+  );
+}
+
+/**
+ * What a section shows of its own, and whether its actions are listed under it. The forces
+ * panel brings its own controls for the force actions, so it is the whole of that section;
+ * the layout's panel is a set of controls beside the one action that puts the defaults back.
+ */
+const PANELS: Readonly<Record<string, "alone" | "beside">> = {
+  Forces: "alone",
+  [PARAMS_SECTION]: "beside",
+};
+
+function panelOf(props: PanelProps): ReactNode {
+  const { studio, state, name, bar } = props;
+  if (name === "Forces") return <ForcesPanel studio={studio} state={state} bar={bar} />;
+  if (name === PARAMS_SECTION) {
+    // WHY the key is the layout and its values: the panel's draft is what the controls show,
+    // so a run that changed a value has to rebuild it from the state that landed.
+    return <LayoutParamsPanel key={paramsKey(state, specsOf(state))} studio={studio} state={state} />;
+  }
+  return null;
+}
+
+function Body(props: PanelProps): ReactElement {
+  const { studio, state, name } = props;
+  return (
+    <>
+      {panelOf(props)}
+      {PANELS[name] !== "alone" && <Actions studio={studio} state={state} name={name} />}
+    </>
   );
 }
 
@@ -88,9 +131,7 @@ export function Dock(props: DockProps): ReactElement {
       <div className="gs-dock-body" id={BODY} hidden={!open}>
         {DOCK_SECTIONS.map((name) => (
           <Section key={name} name={name} open={shown.includes(name)} onToggle={() => flip(name)}>
-            {name === "Forces"
-              ? <ForcesPanel studio={studio} state={state} bar={bar} />
-              : <Actions studio={studio} state={state} name={name} />}
+            <Body studio={studio} state={state} name={name} bar={bar} />
           </Section>
         ))}
       </div>

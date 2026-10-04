@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { initialState } from "../src/state/model.ts";
 import { createStore } from "../src/state/store.ts";
 import { STORED_DOCUMENT_CHARS, type SettingsStorage, keepSettings, openingSettings, recall, remember } from "../src/state/persist.ts";
-import { DEFAULT_SETTINGS, type Settings, withAppearance, withFilter, withSettings } from "../src/state/settings.ts";
+import { DEFAULT_SETTINGS, type Settings, withAppearance, withFilter, withParams, withSettings } from "../src/state/settings.ts";
 
 function memory(): SettingsStorage & { readonly items: Map<string, string> } {
   const items = new Map<string, string>();
@@ -79,6 +79,24 @@ test("keepSettings writes when the settings change and not when something else d
   assert.equal(writes, 3, "a stop marks a clean end");
   store.update((state) => ({ ...state, settings: DEFAULT_SETTINGS }));
   assert.equal(writes, 3);
+});
+
+test("what each layout is run at is remembered with the source, and comes back with it", () => {
+  const storage = memory();
+  const held = withParams(changed(), "layout.force.graphopt", { niter: 250 });
+  remember(storage, held);
+  assert.deepEqual(recall(storage, DEFAULT_SETTINGS.source), held);
+  assert.deepEqual(recall(storage, DEFAULT_SETTINGS.source)?.params, { "layout.force.graphopt": { niter: 250 } });
+});
+
+test("a store that keeps the settings keeps the values with them", () => {
+  const storage = memory();
+  const store = createStore(initialState(DEFAULT_SETTINGS));
+  const stop = keepSettings(store, storage);
+  const held = withParams(DEFAULT_SETTINGS, "layout.grid", { spacing: 24 });
+  store.update((state) => ({ ...state, settings: held }));
+  assert.deepEqual(recall(storage, DEFAULT_SETTINGS.source)?.params, { "layout.grid": { spacing: 24 } });
+  stop();
 });
 
 test("a document too long to store is neither stored nor recalled", () => {

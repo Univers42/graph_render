@@ -41,8 +41,11 @@ async function answerTo(session: Session, request: Request, forces: ForceHost | 
   if (request.type === "load") {
     return { result: { type: "loaded", graph: await session.load(request.source, request.fixturesUrl) }, transfer: [] };
   }
+  if (request.type === "params") {
+    return { result: { type: "params", layoutId: request.layoutId, specs: session.params(request.layoutId) }, transfer: [] };
+  }
   if (request.type === "layout") {
-    const run = await session.layout(request.layoutId, request.postId);
+    const run = await session.layout(request.layoutId, request.postId, request.params);
     return { result: { type: "laid-out", run }, transfer: [run.bytes.buffer] };
   }
   const analysis = session.analysis(request.analysisId);

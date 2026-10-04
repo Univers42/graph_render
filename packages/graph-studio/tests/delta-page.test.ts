@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { APPLY_DELTAS, ActionRefusal, createDeltas, deltaBatch } from "../src/actions/registry.ts";
+import { APPLY_DELTAS, createDeltas, deltaBatch } from "../src/actions/batch.ts";
+import { ActionRefusal } from "../src/actions/registry.ts";
 import { type DeltasView, createDeltasPage } from "../src/motor/deltasPage.ts";
 import type { NodeKind } from "../src/source/ingest.ts";
 import type { GraphMeta } from "../src/source/meta.ts";
