@@ -5,22 +5,22 @@
 of 3 medians at 1M nodes. It named three remaining costs and, for the largest, said what would
 have to be measured before anything was changed. This document is that measurement round.
 
-**Both wasm arms are met.** Barnes-Hut **32.51 → 28.37 ms** and particle mesh **33.11 → 27.62 ms**
-on this tip's own before-table, the encoder's share of them falling from 18.84 / 20.02 ms to
-16.43 / 14.40 ms. The native arms are the host-load control and did not move (14.72 → 14.86 and
-15.10 → 15.21, +1 %).
+**Both wasm arms are met on a quiet host, and only there.** Against the true `75c885b6`,
+re-measured interleaved with the final tree at matching load (1-minute load 4–7), Barnes-Hut goes
+**33.42 → 28.86 ms** and particle mesh **38.05 → 28.36 ms**; on the quietest round (load ≤ 2.7)
+the final tree measures 28.37 / 27.62 ms. Headroom is 1.1–2.4 ms, and load takes it: Barnes-Hut
+measured 31.93 ms in a round at load 5–7, and both arms 41–43 ms at load ≥ 11.
 
 **One of the three named costs was not taken, and the measurement that says so is below.** The
 `StringArena` hash is **not** the cost: over a million ids the probe's cache misses are 70 % of
 `find` and the hash is 29 %, and a word-at-a-time FNV-1a recovers only 12–13 % of `find`. That is
 a measurement and a decision, not an omission.
 
-**The largest named cost turned out to be stale.** Growing the mesh in place — instead of
-`Mesh::new` per batch, which zero-fills ~80 MB at 1M — and dropping the `px`/`py` `clear()`
-(another 16 MB a batch) moved the median `grow` by **0.03 ms**. It is kept, because it is
-correct, because it is what makes the growth contract testable across a `side_for` boundary, and
-because the numbers say the cost it removes had already been overtaken elsewhere on this tip.
-**Recorded as a miss on the premise, not on the code.**
+**Fix 1 is the larger win, and the first draft of this document said the opposite.** Growing the
+mesh in place, instead of `Mesh::new` per batch (~80 MB zero-filled at 1M), cuts the particle-mesh
+`grow` **10.02 → 3.93 ms** in wasm32 and **6.68 → 3.39 ms** natively; dropping the `px`/`py`
+`clear()` (16 MB a batch) cuts Barnes-Hut's 4.71 → 3.58 and 3.89 → 2.77 ms. The first `before`
+round ran fix 1's Rust, not `75c885b6`, which is why it showed 0.03 ms — see "The true base".
 
 ## Method
 
@@ -39,28 +39,30 @@ One 1M process at a time. Before **every** process the host gate was checked —
 available ≥ 12 GB and 1-minute load < 14 — and on a failure the process waited 60 s and
 re-checked, inside a 45-minute budget for the run. All 36 processes ran and every one exited 0;
 **the gate cleared on the first check in all 36**, no wait anywhere. Raw output, one file per
-process and one per gate check, under `target/wf/p4g-step/{before,fix1,final}/`.
+process and one per gate check, under `target/wf/p4g-step/{before,fix1,final}/`. The re-measure
+of the true base (24 more processes, same gate, every one exited 0) is under
+`target/wf/p4g-step/{base2,final2}/`.
 
 The three source states were three file trees, swapped by copy (`target/wf/p4g-step/swap.sh`),
 never by a git state change:
 
 | tree | what it is |
 |---|---|
-| `base` | the tip this slice started from, **`75c885b6`**, pinned by hash |
+| `base` | the tip this slice started from, **`75c885b6`** — measured only as `base2`; the `before` round ran `fix1`'s Rust |
 | `fix1` | `base` + fix 1 (six Rust files), JS at `base` |
 | `final` | `fix1` + fix 3 (three JS files) — the tree this slice returns |
 
-### **Caveat: the host was quieter for the final round than for the before round.**
+### **Caveat: host load moves these numbers by more than the fixes do.**
 
-1-minute load at the twelve process starts: **5.58 → 6.16** for `before`, 2.44 → 2.60 for `fix1`,
-**1.84 → 2.62** for `final`. So the final round ran on a machine roughly half as loaded, and some
-of its gain is the host. What bounds that: the two **native arms do not run the JS encoder at
-all** — their `extend_columns` receives bytes a Rust encoder wrote outside the timer — so they are
-the control, and between `before` and `final` they moved **+1.0 %** and **+0.7 %**, the wrong sign
-for a quiet host to have produced. The wasm `encode` columns fell 13 % and 28 %. Read the wasm
-delta as the larger number and the native drift as the noise floor.
+1-minute load at the process starts: 5.58 → 6.16 for `before`, 2.44 → 2.60 for `fix1`,
+1.84 → 2.62 for `final`; in the interleaved re-measure 4.2–7.0 for pair 1, 3.9–11.4 for pair 2
+and 11.0–15.4 for pair 3. At load ≥ 11 the wasm arms gain 10–15 ms (`final2` round 3: 41.22 /
+43.39 ms). The control is the native `extend` column — no fix touches it and it does not run the
+JS encoder — which reads 12.20 / 11.95 ms in `base2` round 1 against 12.52 / 12.11 ms in `final2`
+round 1. Native `sum` is not a control across fix 1, which moves native `grow`. Only pairs
+measured back to back at matching load are compared.
 
-### Before (`base`, `75c885b6`)
+### Before — the first round, which ran `fix1`'s Rust
 
 | round | arm | encode median | extend median | grow median | sum median | sum p95 | sum max | load start → end |
 |---:|---|---:|---:|---:|---:|---:|---:|---|
@@ -84,11 +86,37 @@ delta as the larger number and the native drift as the noise floor.
 | wasm BH columns | 18.84 | 28.36 | 3.45 | **32.51** | 1.08× | **MISSED** — 2.51 ms over |
 | wasm PM columns | 20.02 | 28.42 | 3.89 | **33.11** | 1.10× | **MISSED** — 3.11 ms over |
 
-**These are not P4f's numbers, and the difference is the tip.** P4f measured this same code at
-wasm PM `grow` **10.18 ms**; `base` measures **3.89 ms**. `perf-p4f-wasm.md`'s after-table was
-taken at P4f's tip, and commits have landed since. Everything below is measured against
-`75c885b6` measured here, back to back on this host — not against P4f's table, which is a
-different tree.
+**This round did not measure `75c885b6`.** Mid-job the orchestrator's sync committed the Rust
+half of fix 1 as `4ca25aaa`, and the `before` tree was built from `HEAD`, so `before` ran fix 1's
+Rust with `base`'s JS (`target/wf/p4g-step/versions.sh`'s comment says otherwise and is wrong).
+Its `encode` column is `base`'s JS and valid; its `grow` and `sum` are `fix1`'s, at load 4.2–6.2.
+That is why it measured wasm PM `grow` at 3.89 ms where P4f measured 10.18 ms.
+
+### The true base, re-measured interleaved
+
+`target/wf/p4g-step/remeasure.sh` writes every crate and harness file that differs from
+`75c885b6` back to that commit (`git show`, restored by a trap), rebuilds the wasm module, runs
+one round of the four arms, restores the final tree, rebuilds, and runs one round: three pairs,
+`base2` then `final2`, under the same host gate. Pair 1, at matching load, is the comparison:
+
+| arm (pair 1, load 4.2–7.0) | encode | extend | grow | **sum** |
+|---|---:|---:|---:|---:|
+| native BH columns | — | 12.20 → 12.52 | 3.89 → 2.77 | **16.61 → 15.50** |
+| native PM columns | — | 11.95 → 12.11 | 6.68 → 3.39 | **19.02 → 16.00** |
+| wasm BH columns | 22.02 → 16.64 | 28.22 → 26.06 | 4.71 → 3.58 | **33.42 → 28.86** |
+| wasm PM columns | 18.45 → 13.62 | 27.42 → 24.08 | 10.02 → 3.93 | **38.05 → 28.36** |
+
+| `sum`, base → final | pair 1 | pair 2 | pair 3 |
+|---|---:|---:|---:|
+| native BH columns | 16.61 → 15.50 | 16.26 → 15.34 | 23.74 → 18.87 |
+| native PM columns | 19.02 → 16.00 | 20.26 → 18.40 | 18.62 → 22.72 |
+| wasm BH columns | 33.42 → 28.86 | 32.74 → 31.93 | 47.27 → 41.22 |
+| wasm PM columns | 38.05 → 28.36 | 40.03 → 42.05 | 38.93 → 43.39 |
+| load at start, base / final | 4.2–5.9 / 4.8–7.0 | 3.9–5.7 / 5.3–11.4 | 11.6–15.4 / 11.0–12.1 |
+
+`base2` reproduces P4f's tip: wasm PM `grow` 10.02 / 10.25 / 10.58 ms against P4f's 10.18. The
+medians of three are not quoted as results: pair 2's final wasm PM and all of pair 3 ran at
+load ≥ 11, and in pair 2 the final tree ran at up to three times the base's load.
 
 ## Fix 1 — grow the mesh in place, and stop zeroing `px`/`py`
 
@@ -153,22 +181,19 @@ tree.
 
 ### What fix 1 measured
 
-| arm | grow before | grow after fix 1 | sum before | sum after fix 1 |
-|---|---:|---:|---:|---:|
-| native BH | 2.76 | 2.75 | 14.72 | 14.59 |
-| native PM | 3.32 | 3.32 | 15.10 | 15.01 |
-| wasm BH | 3.45 | 3.53 | 32.51 | 31.75 |
-| wasm PM | 3.89 | 3.86 | 33.11 | 32.67 |
+Fix 3 is JS only and cannot move `grow`, so `base2` against `final2` isolates fix 1 in that column:
 
-**0.03 ms on the particle-mesh median, and nothing outside noise on the other three.** The ~96 MB
-of per-batch zero-fill this removes is not what `grow` spends at 1M on this tip. The wasm
-particle-mesh `sum` fell 0.44 ms and Barnes-Hut 0.76 ms, but the load was 2.4–2.6 against
-5.6–6.2 for `before`, so those two are the host and this document does not claim them.
+| `grow`, ms | `base2` r1 / r2 / r3 | `final2` r1 / r2 / r3 |
+|---|---:|---:|
+| native BH | 3.89 / 3.58 / 6.22 | 2.77 / 2.76 / 3.85 |
+| native PM | 6.68 / 6.95 / 6.83 | 3.39 / 3.94 / 5.59 |
+| wasm BH | 4.71 / 4.31 / 5.35 | 3.58 / 3.72 / 5.03 |
+| wasm PM | 10.02 / 10.25 / 10.58 | 3.93 / 5.39 / 6.05 |
 
-**Recorded as a miss on the brief's premise.** P4f's tip paid 10.18 ms for the particle-mesh
-`grow`; `base` pays 3.89 ms for the same `Mesh::new` per batch. Whatever removed that cost is
-already in `75c885b6`. The change is kept because it is correct and because it is what makes the
-growth contract testable at a `side_for` boundary, not because it is fast.
+**The particle-mesh `grow` falls 6.1 ms in wasm32 and 3.3 ms natively in pair 1, and falls in
+every pair**, including pair 2, where the final tree ran at the higher load. Barnes-Hut's ~1.1 ms
+is the `px`/`py` zero fill. The agent's own `before` → `fix1` rounds (3.89 → 3.86 ms) compared fix
+1's Rust with itself and measure nothing about it.
 
 **The next cost, named and not measured.** `grow` still climbs with `n` — 2.52 ms at 920 000 rows
 to 4.81 ms at 1 000 000, wasm particle mesh, `final` round 1 — with a constant 10 000-row batch.
@@ -301,7 +326,8 @@ so the two paths are pinned symmetrically.
 | native PM | — | — | — | 15.10 | 15.21 |
 
 `encodeBatch` fell **2.41 ms (13 %)** on Barnes-Hut and **5.62 ms (28 %)** on particle mesh, and
-the native control moved **+1.0 %** and **+0.7 %**. The micro-benchmark predicted 5.58 ms of
+the native control moved **+1.0 %** and **+0.7 %**. Both `before` and `final` ran fix 1's Rust,
+so this table is fix 3 alone plus the host, not `base` → `final`. The micro-benchmark predicted 5.58 ms of
 placement and 4.6 ms of measuring; the arm saw 2.4 and 5.6. The micro-benchmark's table is
 synthetic and its blob is larger than the stream's, so the two are the same sign and the same
 order, not the same number — and the arm is the number that counts.
@@ -323,7 +349,7 @@ order, not the same number — and the arm is the number that counts.
 | 3 | native PM | — | 11.53 | 3.26 | 15.21 | 34.26 | 48.89 | 2.64 2.46 2.55 → 2.62 2.46 2.55 |
 | 3 | wasm PM | 14.40 | 23.68 | 3.94 | 27.56 | 43.67 | 54.08 | 2.62 2.46 2.55 → 2.56 2.46 2.55 |
 
-### Before → after each fix → final, median of 3 medians
+### `before` → `fix1` → `final`, median of 3 medians (all three ran fix 1's Rust)
 
 | arm | encode | extend | grow | **sum** | vs 30 ms | change |
 |---|---:|---:|---:|---:|---:|---|
@@ -334,22 +360,22 @@ order, not the same number — and the arm is the number that counts.
 
 ### Verdicts
 
-| arm | sum median | vs 30 ms | verdict |
-|---|---:|---:|---|
-| native, Barnes-Hut, `columns` | 14.86 ms | 0.50× | **met** |
-| native, particle mesh, `columns` | 15.21 ms | 0.51× | **met** |
-| wasm32, Barnes-Hut, `columns` | 28.37 ms | 0.95× | **met** — 1.63 ms of headroom |
-| wasm32, particle mesh, `columns` | 27.62 ms | 0.92× | **met** — 2.38 ms of headroom |
+| arm | quiet (`final`, load ≤ 2.7) | matched (`final2` r1, load 4.4–7.0) | under load | verdict |
+|---|---:|---:|---|---|
+| native, Barnes-Hut, `columns` | 14.86 ms | 15.50 ms | 18.87 ms (load 12–17) | **met** |
+| native, particle mesh, `columns` | 15.21 ms | 16.00 ms | 22.72 ms (load 11–13) | **met** |
+| wasm32, Barnes-Hut, `columns` | 28.37 ms | 28.86 ms | 31.93 ms (load 5–7), 41.22 ms (load 11–12) | **met on a quiet host**, 1.1–1.6 ms headroom; **missed under load** |
+| wasm32, particle mesh, `columns` | 27.62 ms | 28.36 ms | 42.05 ms (load 11–12), 43.39 ms (load 11) | **met on a quiet host**, 1.6–2.4 ms headroom; **missed under load** |
 
-**P4 is met on all four arms.** The margin on the two wasm arms is 1.6 and 2.4 ms, which is
-about one wasm `encode` call's worth of spread — thin, and stated as such.
+**P4 is met on a quiet host, not robustly.** The wasm margin, 1.1–2.4 ms, is smaller than the
+spread one loaded round adds, so a gate run on this host at load ≥ 7 can read red on the same tree.
 
 **Next cost, named.** With `encode` down to 16.43 / 14.40 ms, `extend − encode` is 8.40 / 9.28 ms
 and is the largest single item left in either wasm timer. P4f's profile put 28.66 % of the window
 in the wasm32 motor and named `StringArena::find` (9.43 %) and `intern` (5.79 %) inside it; this
 document has measured that the hash is 29 % of `find` and the probe is 71 %, so **the probe is the
 next cost, not the hash** — a million-entry `IndexMap`'s bucket walk and its cache misses, which
-nothing in `arena.rs` can fix and which this slice did not attempt. On the native side, `grow`
+nothing in `arena.rs` can fix and which this slice did not attempt. In wasm particle mesh, `grow`
 still climbs 2.5 → 4.8 ms across the ten batches with a constant 10 000-row batch, and the O(n)
 work behind that is named above and unmeasured.
 
@@ -374,6 +400,7 @@ GR_MEM=12g timeout 3000 scripts/orch/gr cargo run -q --release -p graph-cli -- \
 target/wf/p4g-step/versions.sh          # base = 75c885b6, fix1, final
 target/wf/p4g-step/swap.sh fix1         # or base / final
 target/wf/p4g-step/round.sh <label> native-bh wasm-bh native-pm wasm-pm
+target/wf/p4g-step/remeasure.sh         # 75c885b6 vs the tip, interleaved: base2/, final2/
 scripts/orch/node-slim.sh node target/wf/p4g-step/read-round.mjs <label>
 
 # the placement micro-benchmark and the SDK suite
@@ -389,17 +416,14 @@ committed.
 
 ## Caveats
 
-- **The final round ran on a quieter host than the before round** (1-minute load 1.84–2.62 against
-  5.58–6.16). The native arms — which do not run the JS encoder at all, and are therefore the
-  host-load control — moved +1.0 % and +0.7 % over the same interval, so the host accounts for
-  about a percent and not for the wasm arms' 12.7 % and 16.6 %. Read the native drift as the noise
-  floor, not the wasm delta.
-- **The before table is not P4f's after-table.** It is `75c885b6` measured here, and the same code
-  measures wasm PM `grow` at 3.89 ms where P4f measured 10.18 ms. Commits landed between. Nothing
-  in this document compares against a number from a different tree.
-- **The `fix1` wasm `sum` movement (0.44 and 0.76 ms) is the host, not the fix.** That round sat
-  at load 2.4–2.6 against 5.6–6.2 for `before`, and `fix1`'s own `grow` medians moved 0.03 ms or
-  less in the opposite direction. This document claims no `fix1` effect.
+- **Load moves these numbers by more than the fixes do.** At load ≥ 11 the wasm arms gain
+  10–15 ms. Only pairs measured back to back at matching load are compared, and `base2`/`final2`'s
+  medians of three are not results: pair 2's final wasm PM and all of pair 3 ran at load ≥ 11.
+- **The `before` round is not `75c885b6`.** It ran fix 1's Rust (`HEAD` was `4ca25aaa` when its tree
+  was built) with `base`'s JS. Its `encode` column is valid; its `grow` and `sum` are fix 1's.
+  `base2` is the true base, and it reproduces P4f's wasm PM `grow` (10.02–10.58 ms against 10.18).
+- **`before` and `fix1` are the same Rust**, so their 0.03 ms `grow` agreement says nothing about
+  fix 1; the `base2`/`final2` `grow` columns do.
 - **The hash measurement is native, one shape of id, three runs.** 28–30 % of `find` for the hash
   and 70–72 % for the probe is a consistent three runs, but it is x86-64; wasm32's ratio could
   differ, and nothing here measures it. The conclusion drawn is the conservative one — the hash is
