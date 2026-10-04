@@ -19,10 +19,10 @@ fn both_ways(count: u32, edges: &[(u32, u32)], order: &[u32]) -> (u32, u32) {
 
 #[test]
 fn tmp_order_lengths() {
-    use crate::index::{index_model, seeded_model};
-    use crate::registry::REFERENCE_DEGREE;
+    use crate::index::index_model;
+    use crate::{REFERENCE_DEGREE, gate_node_count, seeded_model};
     for seed in 0..200u32 {
-        let (nodes, edges) = seeded_model(seed, 2 + seed % 600, REFERENCE_DEGREE);
+        let (nodes, edges) = seeded_model(seed, gate_node_count(seed), REFERENCE_DEGREE);
         let topology = index_model(&nodes, &edges).expect("indexes");
         let count = topology.node_count();
         let derived = Derived::of(&topology);
