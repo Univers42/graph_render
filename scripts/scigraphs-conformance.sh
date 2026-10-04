@@ -64,8 +64,17 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# WHY the two -e: the reference pins are bytes, and numpy and OpenBLAS pick their kernels from
+# the CPU at run time. CI run 37200088122 (x86_64 runner) moved the reference bytes of
+# CIRCLE_PACKING, FORCEATLAS2, SPECTRAL_3D and MDS_3D while every motor row matched. The pins
+# were made on an AVX2 host (i5-13600KF) where OpenBLAS resolves to Haswell and numpy finds no
+# AVX512 (`numpy.show_runtime()` in the image, 2026-10-04), so both settings are no-ops there.
+# Caveat: this pins x86_64 only, and assumes AVX2+FMA3; a CPU without them, or an aarch64
+# host, still yields other reference bytes.
+npy_off="AVX512F AVX512CD AVX512_KNL AVX512_KNM AVX512_SKX AVX512_CLX AVX512_CNL AVX512_ICL AVX512_SPR"
 python_image() {
-  "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle "$@"
+  "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w \
+    -e OPENBLAS_CORETYPE=Haswell -e "NPY_DISABLE_CPU_FEATURES=$npy_off" ge-python-oracle "$@"
 }
 graphviz_image() {
   "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle "$@"

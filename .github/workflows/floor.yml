@@ -103,6 +103,11 @@ jobs:
         if: steps.oracle-cache.outputs.cache-hit == 'true'
         run: docker load --input "$RUNNER_TEMP/oracles.tar"
 
+      # The reference pins depend on the CPU's SIMD (scigraphs-conformance.sh, python_image):
+      # the model name in the log is what a moved reference row is checked against.
+      - name: Runner CPU
+        run: grep -m1 'model name' /proc/cpuinfo; grep -m1 -o 'avx512f' /proc/cpuinfo || echo 'no avx512f'
+
       - name: Merge floor gate
         run: scripts/orch/gate.sh "$RUNNER_TEMP/gate" scripts/orch/rows/quick.rows
 
