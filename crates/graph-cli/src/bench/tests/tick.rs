@@ -21,6 +21,11 @@ fn a_tick_row_has_one_cell_per_header_column_for_either_layout() {
             collide_radius: None,
             // The timed runner on the threaded row: its table goes to stderr, its row must not move.
             passes: workers > 1,
+            // Stream mode is not what this row measures; the flags stay off.
+            stream: None,
+            batches: 10,
+            emit: None,
+            from: None,
         };
         let row = measure(&plan).expect("a 300-node model builds");
         let columns = |line: &str| line.matches('|').count();
