@@ -115,7 +115,7 @@ fn every_fixture_reaches_the_stage_with_its_batches() {
     for (name, lines) in expected {
         assert_eq!(documents(name).expect("emitted").len(), lines, "{name}");
     }
-    let honest_lines = arm_lines(&honest()).expect("the honest run");
+    let honest_lines = arm_lines(&honest(), Route::Json).expect("the honest run");
     for name in FIXTURES {
         for batch in 0..documents(name).expect("emitted").len() {
             assert!(
@@ -124,6 +124,36 @@ fn every_fixture_reaches_the_stage_with_its_batches() {
             );
         }
     }
+}
+
+/// **The columns path's own judge.** The stage compares the columns arm against the others per
+/// batch, and this is that comparison run natively over every fixture: the two appends must
+/// print the same digest on every batch, which is byte-identity of the two paths' topologies
+/// after each append — the one thing a divergence here could hide.
+#[test]
+fn the_columns_arm_agrees_with_the_json_arm_on_every_batch() {
+    let json = arm_lines(&honest(), Route::Json).expect("the json arm runs");
+    let columns = arm_lines(&honest(), Route::Columns).expect("the columns arm runs");
+    assert_eq!(
+        columns, json,
+        "the two arms must print the same digest for every fixture and batch"
+    );
+    assert!(
+        !json.is_empty(),
+        "and they printed something: a stage that read no fixture would agree on nothing"
+    );
+}
+
+/// The route is chosen by name, and anything else is refused rather than defaulted: an arm that
+/// silently became the JSON one would make the stage's comparison vacuous.
+#[test]
+fn an_unknown_route_is_refused_by_name() {
+    assert_eq!(parse_route(None), Ok(Route::Json));
+    assert_eq!(parse_route(Some("json")), Ok(Route::Json));
+    assert_eq!(parse_route(Some("columns")), Ok(Route::Columns));
+    let err = parse_route(Some("yaml")).expect_err("yaml is not a reader");
+    assert!(err.contains(ROUTE_ENV), "{err}");
+    assert!(err.contains("yaml"), "{err}");
 }
 
 /// The comparison's own contract. Equal arms are `None`; a changed line is `Some` naming the
@@ -170,9 +200,9 @@ fn first_divergence_names_the_batch_and_refuses_a_ragged_arm() {
 /// control names, and no earlier one, because batches `0..2` are still processed alike.
 #[test]
 fn the_dropped_batch_is_reported_as_a_divergence_at_that_batch() {
-    let honest_text = arm_lines(&honest()).expect("the honest run");
+    let honest_text = arm_lines(&honest(), Route::Json).expect("the honest run");
     let dropped = setting_for(crate::hashgate::Knob::DropDelta.env(), "2").expect("parses");
-    let dropped_text = arm_lines(&dropped).expect("the controlled run");
+    let dropped_text = arm_lines(&dropped, Route::Json).expect("the controlled run");
     assert_ne!(dropped_text, honest_text, "the control perturbed nothing");
     let honest_arm = arm("native run 1", honest_text);
     let dropped_arm = arm("native run 1 (dropped batch 2)", dropped_text);
