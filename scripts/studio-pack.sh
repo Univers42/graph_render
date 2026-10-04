@@ -122,7 +122,7 @@ verify_files() {
 }
 
 verify_references() {
-  local wasm line offenders
+  local wasm line offenders verdict
   for wasm in graph_wasm.wasm graph_wasm_threads.wasm; do
     [[ -f $pack/$wasm ]] || bad "$wasm is not in the pack"
   done
@@ -134,11 +134,18 @@ verify_references() {
   while IFS= read -r line; do
     [[ -n $line ]] && bad "the pack reaches outside itself: $line"
   done <<<"$offenders"
-  # A worker is one statement, so a blob: or data: URL on its line is a worker the CSP refuses.
-  offenders=$(grep -nF 'new Worker' "$pack"/*.js | grep -F -e 'blob:' -e 'data:' -e 'createObjectURL' | head -5)
+  # The worker form, by the one predicate that now watches both bundles: the row embed-bundle runs
+  # scripts/worker-form.sh over the service bundle, and the pack is the artifact it was extracted
+  # from. A worker is one statement, so a blob: or data: URL on its line is a worker the CSP
+  # refuses; the file:line comes back stripped of worker-form.sh's own `worker-form: DIR:` prefix,
+  # so this script's message reads as it always did.
+  verdict=$("$here/worker-form.sh" "$pack" 2>&1 >/dev/null || true)
   while IFS= read -r line; do
     [[ -n $line ]] && bad "a worker built from a blob: or data: URL: $line"
-  done <<<"$offenders"
+  done < <(sed -n 's|^worker-form: .*: a worker built from a blob: or data: URL: ||p' <<<"$verdict")
+  if grep -qF 'the motor worker is gone' <<<"$verdict"; then
+    bad "no worker in the pack: $(grep -F 'the motor worker is gone' <<<"$verdict")"
+  fi
 }
 
 report() {
