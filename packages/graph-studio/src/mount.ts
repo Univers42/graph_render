@@ -14,6 +14,7 @@ import { type Previews, createPreviews } from "./host/previews.ts";
 import { watchHost } from "./host/watch.ts";
 import { type LiveBridge, NOT_ASKED, createLiveBridge, watchRuns } from "./motor/bridge.ts";
 import { type MotorClient, createClient } from "./motor/client.ts";
+import { type DeltasPage, createDeltasPage } from "./motor/deltasPage.ts";
 import { createLiveDrag } from "./motor/liveDrag.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
 import { workerPort } from "./motor/workerPort.ts";
@@ -42,6 +43,8 @@ export interface Mounted {
   readonly root: Root;
   /** The live bridge: the drag, the forces panel and the progress strip all read it. */
   readonly bridge: LiveBridge;
+  /** The page's half of a delta batch: the structure it needs drawn, and the frame up to it. */
+  readonly deltas: DeltasPage;
   /** Stops watching the studio's state for a layout that settles live. */
   readonly unwatch: () => void;
   /** Stops measuring the panels over the canvas (ST-4). */
@@ -83,7 +86,10 @@ function download(name: string, data: Blob): void {
 function assetsOf(host: HTMLElement, threads: number | undefined): Assets {
   const absolute = (name: string, fallback: string): string => new URL(host.getAttribute(name) ?? fallback, document.baseURI).href;
   const assets = { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
-  return threads === undefined ? assets : { ...assets, threads };
+  // `?break-deltas=1` is the gate's negative control and nothing else: the worker drops the grow
+  // after an extend, so the batch is applied and the new nodes never move.
+  const gate = new URL(document.baseURI).searchParams.get("break-deltas") === "1" ? { breakDeltas: true } : {};
+  return threads === undefined ? { ...assets, ...gate } : { ...assets, threads, ...gate };
 }
 
 /**
@@ -116,6 +122,7 @@ interface Shown {
 function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, backend: BackendChoice): {
   readonly view: View;
   readonly bridge: LiveBridge;
+  readonly page: DeltasPage;
 } {
   const wires: { bridge: LiveBridge | null } = { bridge: null };
   // WHY an explicit `undefined` test and not `??`: the link answers `null` when the simulation
@@ -133,15 +140,23 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, 
       send: (request) => client.force?.(request),
     }),
   });
+  // The store is the studio's and the studio is made after this, so both are read late.
+  const page = createDeltasPage(
+    view,
+    () => shown.studio?.store.get().meta ?? null,
+    (meta) => { shown.studio?.store.update((state) => ({ ...state, meta })); },
+  );
   const bridge = createLiveBridge({
     send: (request) => client.force?.(request),
     onPush: (handler) => client.onForce?.(handler) ?? (() => undefined),
     onFail: (handler) => client.onFail?.(handler) ?? (() => undefined),
-    paint: (frame) => view.setPositions(frame.xs, frame.ys),
+    paint: (frame) => page.frame(frame.xs, frame.ys),
+    // The structure a delta batch needs drawn; the frames above are drawn up to its count.
+    structure: (run) => page.structure(run),
     report: (reason) => shown.note(reason),
   });
   wires.bridge = bridge;
-  return { view, bridge };
+  return { view, bridge, page };
 }
 
 function shadowOf(host: HTMLElement): { readonly canvas: HTMLCanvasElement; readonly chrome: HTMLElement } {
@@ -161,13 +176,13 @@ function shadowOf(host: HTMLElement): { readonly canvas: HTMLCanvasElement; read
   return { canvas, chrome };
 }
 
-type Parts = Pick<Mounted, "studio" | "view" | "client" | "bridge">;
+type Parts = Pick<Mounted, "studio" | "view" | "client" | "bridge" | "deltas">;
 
 function studioOf(host: HTMLElement, options: StudioElementOptions, canvas: HTMLCanvasElement): Parts {
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
   // The view is made before the studio, and the ids live in the studio's state: read late.
   const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
-  const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");
+  const { view, bridge, page } = livePair(canvas, client, shown, options.backend ?? "auto");
   const storage = pageStorage(host);
   const studio = createStudio({
     client,
@@ -179,13 +194,13 @@ function studioOf(host: HTMLElement, options: StudioElementOptions, canvas: HTML
     ...(storage === null ? {} : { storage, settings: openingSettings(storage) }),
   });
   shown.studio = studio;
-  return { studio, view, client, bridge };
+  return { studio, view, client, bridge, deltas: page };
 }
 
 /** `resolve` is read through `resolver` on every call, so the host may set it at any time. */
 export function mount(host: HTMLElement, options: StudioElementOptions, resolver: () => Resolve | null): Mounted {
   const { canvas, chrome } = shadowOf(host);
-  const { studio, view, client, bridge } = studioOf(host, options, canvas);
+  const { studio, view, client, bridge, deltas } = studioOf(host, options, canvas);
   const previews = createPreviews({ resolver });
   // Before `start`: a studio that remembers draws at once, and that load is announced too.
   const unwatchHost = watchHost({ host, store: studio.store, view, previews });
@@ -204,7 +219,7 @@ export function mount(host: HTMLElement, options: StudioElementOptions, resolver
     unwatchGestures();
     previews.clear();
   };
-  return { studio, view, client, root, bridge, unwatch, unwatchArea, verbs: hostVerbs(host, studio, started), previews, unhost };
+  return { studio, view, client, root, bridge, deltas, unwatch, unwatchArea, verbs: hostVerbs(host, studio, started), previews, unhost };
 }
 
 export function unmount(mounted: Mounted | null): void {
