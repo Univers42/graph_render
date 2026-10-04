@@ -9,7 +9,7 @@ use super::shift_invert;
 use super::width::Width;
 use crate::linalg::dense_sym::eigh;
 use crate::linalg::lobpcg::lobpcg_smallest;
-use crate::linalg::{EigBlock, orthonormal};
+use crate::linalg::{EigBlock, orthonormal, residual_converged};
 
 use super::{DENSE_EIG_LIMIT, Tier};
 
@@ -60,16 +60,14 @@ fn peak_residual(graph: &ComponentGraph, eig: &EigBlock) -> f64 {
 /// for the dense tier (`docs/decisions/eigensolver.md`: "the reference trusts `eigh` for
 /// dense; we verify anyway because it is cheap").
 fn converged(graph: &ComponentGraph, eig: &EigBlock) -> (bool, f64) {
+    // The verdict is `linalg`'s own, not a second copy of the same arithmetic: the report needs
+    // the *number*, `residual_converged` returns only the verdict, so the peak is measured
+    // alongside and the two are pinned against each other by
+    // `tests::shift_invert::the_reported_peak_residual_is_the_number_the_gate_decided_on`.
     let residual = peak_residual(graph, eig);
-    let scale = eig
-        .values
-        .iter()
-        .fold(0.0_f64, |m, v| m.max(v.abs()))
-        .max(1e-12);
-    (
-        residual <= RESIDUAL_TOL * scale && orthonormal(eig, ORTHONORMAL_TOL),
-        residual,
-    )
+    let matvec = |x: &[f64], y: &mut [f64]| graph.matvec(x, y);
+    let passed = residual_converged(matvec, eig, RESIDUAL_TOL) && orthonormal(eig, ORTHONORMAL_TOL);
+    (passed, residual)
 }
 
 /// Columns `start..start + k` of `eig`, `n` and the tail of `values` along with them.
@@ -100,11 +98,10 @@ pub(super) fn solve_component(graph: &ComponentGraph, width: Width) -> Solve {
     if lobpcg.eig.is_some() || graph.size() > shift_invert::DENSE_INVERT_LIMIT {
         return lobpcg;
     }
-    let retry = retry_tier(graph, dims, dims_eff);
-    if retry.is_some() {
-        return accept(Tier::ShiftInvert, None, retry.expect("just checked"), graph);
+    match retry_tier(graph, dims, dims_eff) {
+        Some(candidate) => accept(Tier::ShiftInvert, None, candidate, graph),
+        None => lobpcg,
     }
-    lobpcg
 }
 
 /// Tier I: `maxiter`/`tol` the port's own measured values (`docs/decisions/eigensolver.md`),
@@ -130,7 +127,12 @@ fn retry_tier(graph: &ComponentGraph, dims: usize, dims_eff: usize) -> Option<Ei
 
 /// Runs the gate and packs the verdict. `peak_residual` is `None` only when no candidate was
 /// produced at all (the retry's Cholesky refused), never when one was and the gate said no.
-fn accept(tier: Tier, iterations: Option<u32>, candidate: EigBlock, graph: &ComponentGraph) -> Solve {
+fn accept(
+    tier: Tier,
+    iterations: Option<u32>,
+    candidate: EigBlock,
+    graph: &ComponentGraph,
+) -> Solve {
     let (passed, residual) = converged(graph, &candidate);
     Solve {
         eig: passed.then_some(candidate),

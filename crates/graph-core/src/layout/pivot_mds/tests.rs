@@ -201,8 +201,7 @@ fn a_rotated_tied_basis_gives_the_same_canonical_coordinates() {
         rotated.column_mut(1)[r] = sin * a + cos * b;
     }
     assert_ne!(
-        rotated.vectors,
-        straight.vectors,
+        rotated.vectors, straight.vectors,
         "the negative control: the rotation must actually change the input"
     );
 
@@ -352,4 +351,3 @@ fn in_place_walks_choose_the_reference_pivots_and_hops() {
         "the grid and the random part are separate components"
     );
 }
-

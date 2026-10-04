@@ -115,9 +115,7 @@ fn the_seeded_gate_model_solves_in_three_dimensions_up_to_the_registry_ceiling()
         assert!(
             reports[0].solved,
             "n={n}: size {} missed the gate at residual {:?} on tier {:?}",
-            reports[0].size,
-            reports[0].peak_residual,
-            reports[0].tier,
+            reports[0].size, reports[0].peak_residual, reports[0].tier,
         );
     }
 }
@@ -220,7 +218,10 @@ fn the_reported_peak_residual_is_the_number_the_gate_decided_on() {
         let t = gate_model(n);
         let (solve, members, neighbors, local_of) = one_component(&t, width);
         let reported = solve.peak_residual.expect("a candidate was produced");
-        assert!(reported > 0.0, "n={n}: a reported residual is measured, not 0");
+        assert!(
+            reported > 0.0,
+            "n={n}: a reported residual is measured, not 0"
+        );
         if let Some(eig) = &solve.eig {
             let graph = ComponentGraph::build(&members, &neighbors, &local_of);
             let matvec = |x: &[f64], y: &mut [f64]| graph.matvec(x, y);
@@ -244,10 +245,7 @@ fn the_reported_peak_residual_is_the_number_the_gate_decided_on() {
 
 /// The gate model's one component, and the pieces its `ComponentGraph` borrows — bundled
 /// because the borrow outlives the solve it is handed.
-fn one_component(
-    t: &Topology,
-    width: Width,
-) -> (solve::Solve, Vec<u32>, Neighbors, Vec<u32>) {
+fn one_component(t: &Topology, width: Width) -> (solve::Solve, Vec<u32>, Neighbors, Vec<u32>) {
     let members: Vec<u32> = (0..t.node_count()).collect();
     let neighbors = simple_neighbors(t);
     let local_of = local_positions(std::slice::from_ref(&members), members.len());

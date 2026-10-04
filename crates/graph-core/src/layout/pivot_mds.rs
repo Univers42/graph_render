@@ -162,7 +162,9 @@ fn converged(gram: &[f64], k: usize, eig: &EigBlock) -> (bool, f64) {
     let mut av = vec![0.0; k];
     for j in 0..eig.k {
         for row in 0..k {
-            av[row] = (0..k).map(|col| gram[row * k + col] * eig.column(j)[col]).sum();
+            av[row] = (0..k)
+                .map(|col| gram[row * k + col] * eig.column(j)[col])
+                .sum();
         }
         let norm: f64 = av
             .iter()

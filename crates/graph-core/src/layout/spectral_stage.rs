@@ -114,9 +114,9 @@ impl Solved for pivot_mds::ComponentReport {
 mod tests {
     use super::*;
     use crate::records::build::{edge, node};
-    use graph_contract::geometry::NodeGeometry;
     use crate::stage::{gate_node_count, run_with, seeded_model};
     use crate::weights::REFERENCE_DEGREE;
+    use graph_contract::geometry::NodeGeometry;
 
     #[test]
     fn both_entry_points_agree_with_the_layouts_they_wrap() {
@@ -142,7 +142,8 @@ mod tests {
     #[test]
     fn a_component_that_misses_the_gate_is_refused_rather_than_collapsed() {
         let t = unplaceable_plus_small();
-        let (geometry, reports) = spectral::run(&t).expect("the 4-path solved, so not NothingSolved");
+        let (geometry, reports) =
+            spectral::run(&t).expect("the 4-path solved, so not NothingSolved");
         assert_eq!(reports.len(), 2, "both components are attempted");
         let (solved, unsolved): (Vec<_>, Vec<_>) = reports.iter().partition(|r| r.solved);
         assert_eq!(solved.len(), 1, "the 4-path placed");
@@ -171,8 +172,7 @@ mod tests {
 
         let err = spectral(&t).expect_err("the stage must not return a collapsed picture");
         assert_eq!(
-            err,
-            UNSOLVED_COMPONENT,
+            err, UNSOLVED_COMPONENT,
             "a different condition from NOTHING_SOLVED and a different message"
         );
         assert!(
@@ -226,8 +226,7 @@ mod tests {
             .map(|i| edge(&format!("e{i}"), &i.to_string(), &(i + 1).to_string()))
             .collect();
         edges.extend(
-            (0..3)
-                .map(|i| edge(&format!("s{i}"), &format!("s{i}"), &format!("s{}", i + 1))),
+            (0..3).map(|i| edge(&format!("s{i}"), &format!("s{i}"), &format!("s{}", i + 1))),
         );
         crate::index::index_model(&nodes, &edges).expect("fits")
     }

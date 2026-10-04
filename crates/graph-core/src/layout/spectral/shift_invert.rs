@@ -26,9 +26,9 @@
 //! `1e-6`, already the reference's own (`:111`).
 
 use super::graph::ComponentGraph;
+use crate::linalg::EigBlock;
 use crate::linalg::dense_sym::eigh;
 use crate::linalg::lobpcg::lobpcg_smallest;
-use crate::linalg::EigBlock;
 
 /// `eigsh(L, sigma=-1e-3)` (`networkx_layouts.py:121`). Negative, so `M = L - sigma I` is
 /// `L + 1e-3 I` — positive definite even on the Laplacian's one-dimensional null space,
@@ -94,7 +94,10 @@ fn cholesky(a: &mut [f64], n: usize) -> Option<()> {
         for k in 0..j {
             diag -= a[j * n + k] * a[j * n + k];
         }
-        if !(diag > CHOL_MIN_PIVOT) {
+        // `is_finite` first so a NaN pivot is refused too: `M = L + 1e-3 I` is positive
+        // definite for every graph this module builds, so a NaN here is an overflow upstream
+        // and a Cholesky through it would return a factorisation of nothing.
+        if !diag.is_finite() || diag <= CHOL_MIN_PIVOT {
             return None;
         }
         a[j * n + j] = libm::sqrt(diag);
