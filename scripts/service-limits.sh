@@ -180,12 +180,14 @@ image=$(scripts/service.sh image) || die "no image: scripts/service.sh build"
 mkdir -p "$work"
 install -m 0640 /dev/null "$work/keys"
 key=$(scripts/service.sh keygen svc-limits-gate "$work/keys") || die "keygen refused"
+load_start=$(cut -d' ' -f1 /proc/loadavg)
 log "image $image, M $budget B (per slot $per_slot + base $base, rounded up), limit $limit"
 
 note "image $image"
 note "M $budget bytes = per_slot $per_slot + base $base, rounded up to a whole MiB"
 note "container limit $limit"
 note "GRAPH_WORKERS=1, GRAPH_MAX_BODY default (64 MiB), GRAPH_AUTH on with a minted key"
+note "load1 start $load_start ($(cat /proc/loadavg))"
 
 scripts/orch/drun -d --name "$name" --memory "$limit" --memory-swap "$limit" \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -222,6 +224,7 @@ note "memory.peak ${peak:-unreadable} bytes (M $budget)"
 check oom "$([[ $oom == false && $running == true ]] && echo 0 || echo 1)" "OOMKilled $oom, running $running"
 check peak "$([[ -n $peak && $peak =~ ^[0-9]+$ && $peak -le $budget ]] && echo 0 || echo 1)" \
   "memory.peak ${peak:-unreadable} at most $budget"
+note "load1 end $(cut -d' ' -f1 /proc/loadavg) ($(cat /proc/loadavg))"
 
 log "$(grep -c '^FAIL' "$report" || true) failing checks in $report"
 ((fails == 0))
