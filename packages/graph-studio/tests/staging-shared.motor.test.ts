@@ -13,6 +13,7 @@ import { buildStaged, type StagedBuild, type StagingExports } from "../../../cra
 const SPEC: StagedBuild = {
   buffer: "ingest",
   call: "gm_build",
+  payload: "text",
   refusal: "gm_build refused",
   refuse: (message) => new Error(message),
 };

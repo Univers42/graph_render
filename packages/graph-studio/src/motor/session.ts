@@ -58,6 +58,13 @@ export interface MotorLike<Handle> {
    * without it — and every test double — still satisfies it, and a batch is then refused.
    */
   extend?(handle: Handle, batch: GraphBatch): void;
+  /**
+   * The same append over the columnar batch `gm_graph_extend_columns` reads
+   * (`docs/decisions/extend-columns.md`). Optional for the same reason `extend` is, and it is
+   * preferred where it exists: the JSON path spends a `JSON.stringify` per batch on bytes the
+   * module reads as columns anyway.
+   */
+  extendColumns?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
   forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): (ForcePort & Growable<Handle>) | null;
 }
@@ -154,12 +161,7 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     },
     // Both refusals are the queue's to answer: `force.deltas` turns a throw here into a
     // `failed` result carrying the message, and the graph is untouched either way.
-    extend: (batch) => {
-      if (motor.extend === undefined) throw new SessionRefusal("this motor cannot add to a built graph");
-      motor.extend(built.handle, batch);
-      // After the motor: a refusal leaves the graph and this list as they were.
-      built.nodes = [...built.nodes, ...batch.nodes];
-    },
+    extend: (batch) => appendBatch(motor, built, batch),
     grow: () => {
       if (deps.breakDeltas?.() === true) return;
       // Read late: "Animate" restarts the session, so a captured binding is a released one.
