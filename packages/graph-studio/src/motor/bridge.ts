@@ -21,7 +21,7 @@
  */
 import type { ForceLink } from "../actions/forces.ts";
 import { DEFAULT_KNOBS, type ForceKnobs, settlesLive } from "./live.ts";
-import type { ForceFrame, ForceRequest, Result } from "./protocol.ts";
+import type { ForceFrame, ForceRequest, Result, RunReport } from "./protocol.ts";
 import { type Watchdog, createWatchdog, later } from "./watchdog.ts";
 import type { Store } from "../state/store.ts";
 import { type Bar, HIDDEN, batchBar, frameBar } from "../ui/progress.ts";
@@ -39,6 +39,11 @@ export interface LiveDeps {
   readonly onFail?: (handler: (detail: string) => void) => () => void;
   /** One line in the console, naming why a live session ended; absent in a bare test. */
   readonly report?: (reason: string) => void;
+  /**
+   * The structure snapshot the worker rebuilt after a delta batch, so the new nodes are drawn.
+   * Absent where nothing draws: the frames still paint.
+   */
+  readonly structure?: (run: RunReport) => void;
   /** Over the watchdog's timer; the wall clock when left out. */
   readonly schedule?: (run: () => void, ms: number) => () => void;
 }
@@ -187,6 +192,12 @@ function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Resul
       desk.settling = frameBar(result.frame);
       deps.paint(result.frame);
       show(desk, publish);
+      return;
+    }
+    if (result.type === "deltas-structure") {
+      // No `show`: a structure snapshot is a drawing, not a claim that a settle is talking, so
+      // it must not re-arm the watchdog on its own.
+      deps.structure?.(result.run);
       return;
     }
     if (result.type === "force-state") {

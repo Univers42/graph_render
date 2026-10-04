@@ -46,7 +46,7 @@ export class ForceLoop {
   private paused = false;
   private ticks = 0;
   /** The batches a host is waiting on; drained at the top of every frame. */
-  private readonly deltas: DeltaQueue;
+  private readonly queued: DeltaQueue;
 
   private readonly live: LiveForce;
   private readonly deps: LoopDeps;
@@ -55,7 +55,7 @@ export class ForceLoop {
   constructor(live: LiveForce, deps: LoopDeps) {
     this.live = live;
     this.deps = deps;
-    this.deltas = createDeltaQueue({
+    this.queued = createDeltaQueue({
       ...(live.extend === undefined ? {} : { extend: live.extend }),
       ...(live.grow === undefined ? {} : { grow: live.grow }),
       reheat: (alpha) => this.live.reheat(alpha),
@@ -94,7 +94,7 @@ export class ForceLoop {
     this.ticks += 1;
     // Before the pins and the step, and not awaited: the extends and the grow run synchronously,
     // so the tick below steps a session that covers the new nodes.
-    void this.deltas.drain(this.ticks);
+    void this.queued.drain(this.ticks);
     for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
     this.alpha = this.live.step(TICKS_PER_FRAME);
     const running = this.alpha >= ALPHA_MIN || this.held.size > 0;
@@ -137,7 +137,7 @@ export class ForceLoop {
     this.cancel = null;
     // A batch waiting for a tick that will never come is refused, not left hanging: the page's
     // `applyDeltas` promise is the only thing that would notice, and it must not hang on a stop.
-    this.deltas.refuse("the live session ended before the batch was applied");
+    this.queued.refuse("the live session ended before the batch was applied");
     this.drop();
   }
 
@@ -193,13 +193,13 @@ export class ForceLoop {
    */
   deltas(batch: GraphBatch): Promise<Result> {
     if (this.paused) return Promise.resolve({ type: "failed", error: describeError(new DeltaRefusal(PAUSED_REASON)) });
-    const answer = this.deltas.push(batch);
+    const answer = this.queued.push(batch);
     this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
     return answer;
   }
 
   grows(): readonly GrowMark[] {
-    return this.deltas.grows();
+    return this.queued.grows();
   }
 
   apply(request: ForceRequest): void {

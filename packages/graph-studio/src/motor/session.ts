@@ -43,10 +43,9 @@ export interface MotorLike<Handle> {
   toBytes(handle: Handle): Uint8Array;
   release(handle: Handle): void;
   /**
-   * Appends a batch to a built graph (`Motor.extend`); whole or not at all, and the graph is
-   * as it was when it refuses. Optional so a motor built before the extend path — and every
-   * test double — still satisfies this interface, and a delta batch is refused with a reason
-   * rather than dropped.
+   * Appends a batch to a built graph (`Motor.extend`); whole or not at all. Optional so a motor
+   * without it — and every test double — still satisfies this interface, and a delta batch is
+   * then refused with a reason rather than dropped.
    */
   extend?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
@@ -69,6 +68,8 @@ export interface SessionDeps<Handle> {
    * called to ask whether there is a session: that would make one as a side effect.
    */
   readonly onForget?: () => void;
+  /** The gate's negative control: true drops the grow after an extend, so nothing moves. */
+  readonly breakDeltas?: () => boolean;
 }
 
 export interface Session {
@@ -200,6 +201,7 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
       motor.extend(built.handle, batch);
     },
     grow: () => {
+      if (deps.breakDeltas?.() === true) return;
       if (session.grow === undefined) throw new SessionRefusal("this motor's live session cannot grow");
       session.grow();
     },

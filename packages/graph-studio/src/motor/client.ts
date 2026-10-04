@@ -119,7 +119,10 @@ function exchange(state: State, port: Port, body: Request): Promise<Result> {
 
 async function openOn(state: State, port: Port, assets: Assets): Promise<Catalog> {
   const threads = assets.threads === undefined ? {} : { threads: assets.threads };
-  const opened = await exchange(state, port, { type: "open", wasmUrl: assets.wasmUrl, ...threads });
+  // The gate's negative control, carried on `open` because that is the one request the worker
+  // sees before anything else; a page that did not ask for it never sends the member.
+  const gate = assets.breakDeltas === true ? { breakDeltas: true } : {};
+  const opened = await exchange(state, port, { type: "open", wasmUrl: assets.wasmUrl, ...threads, ...gate });
   if (opened.type !== "opened") throw mismatch("open", opened);
   if (state.loaded !== null) {
     await exchange(state, port, { type: "load", source: state.loaded, fixturesUrl: assets.fixturesUrl });

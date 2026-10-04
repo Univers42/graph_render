@@ -13,6 +13,8 @@ import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
 
 import { createLiveDrag } from "./motor/liveDrag.ts";
+import { type Deltas, createDeltas } from "./actions/registry.ts";
+import { type DeltasPage, createDeltasPage } from "./motor/deltasPage.ts";
 import { type BackendChoice, type View, createView } from "../../graph-render/src/view.ts";
 
 /** The host reads `?backend=` with this, so it never imports the renderer itself. */
@@ -49,6 +51,17 @@ export interface GraphStudioElement extends HTMLElement {
    */
   readonly view: View | null;
   /**
+   * Adds one batch of nodes and edges to the graph the live settle is running on, and grows
+   * that session to cover them. Atomic per call, never coalesced across calls: the batch goes
+   * in whole or is refused whole, and each call resolves with the nodes it added. The work is
+   * coalesced per animation frame (`docs/contract/delta.md`).
+   *
+   * Caveat: the new nodes move from the tick that applied them but are drawn only once the
+   * structure snapshot lands, at most 500 ms later. A refusal rejects with the motor's own
+   * typed error and dispatches `graph-error` here, whose `detail.error` is that error's `name`.
+   */
+  applyDeltas(batch: unknown): Promise<{ readonly applied: number }>;
+  /**
    * Stops the motor worker where it stands and lets nothing replace it: the live settle
    * ends at once, and the watchdog puts the strip away and names the cause. This is the
    * one verb a gate needs to watch a dead worker from the outside; the studio never calls
@@ -70,6 +83,8 @@ interface Mounted {
   readonly root: Root;
   /** The live bridge: the drag, the forces panel and the progress strip all read it. */
   readonly bridge: LiveBridge;
+  /** The page's half of a delta batch: the structure it needs drawn, and the frame up to it. */
+  readonly deltas: DeltasPage;
   /** Stops watching the studio's state for a layout that settles live. */
   readonly unwatch: () => void;
   /** Stops measuring the panels over the canvas (ST-4). */
@@ -109,7 +124,10 @@ function within(tag: string, className: string): HTMLElement {
 function assetsOf(host: HTMLElement, threads: number | undefined): Assets {
   const absolute = (name: string, fallback: string): string => new URL(host.getAttribute(name) ?? fallback, document.baseURI).href;
   const assets = { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
-  return threads === undefined ? assets : { ...assets, threads };
+  // `?break-deltas=1` is the gate's negative control and nothing else: the worker drops the grow
+  // after an extend, so the batch is applied and the new nodes never move.
+  const gate = new URL(document.baseURI).searchParams.get("break-deltas") === "1" ? { breakDeltas: true } : {};
+  return threads === undefined ? { ...assets, ...gate } : { ...assets, threads, ...gate };
 }
 
 /** `localStorage`, or null where reading the property itself throws (blocked site data). */
@@ -138,6 +156,7 @@ interface Shown {
 function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, backend: BackendChoice): {
   readonly view: View;
   readonly bridge: LiveBridge;
+  readonly page: DeltasPage;
 } {
   const wires: { bridge: LiveBridge | null } = { bridge: null };
   // WHY an explicit `undefined` test and not `??`: the link answers `null` when the simulation
@@ -155,15 +174,23 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, 
       send: (request) => client.force?.(request),
     }),
   });
+  // The store is the studio's and the studio is made after this, so both are read late.
+  const page = createDeltasPage(
+    view,
+    () => shown.studio?.store.get().meta ?? null,
+    (meta) => { shown.studio?.store.update((state) => ({ ...state, meta })); },
+  );
   const bridge = createLiveBridge({
     send: (request) => client.force?.(request),
     onPush: (handler) => client.onForce?.(handler) ?? (() => undefined),
     onFail: (handler) => client.onFail?.(handler) ?? (() => undefined),
-    paint: (frame) => view.setPositions(frame.xs, frame.ys),
+    paint: (frame) => page.frame(frame.xs, frame.ys),
+    // The structure a delta batch needs drawn; the frames above are drawn up to its count.
+    structure: (run) => page.structure(run),
     report: (reason) => shown.note(reason),
   });
   wires.bridge = bridge;
-  return { view, bridge };
+  return { view, bridge, page };
 }
 
 function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
@@ -179,7 +206,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
   // The view is made before the studio, and the ids live in the studio's state: read late.
   const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
-  const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");
+  const { view, bridge, page } = livePair(canvas, client, shown, options.backend ?? "auto");
   const storage = pageStorage();
   const studio = createStudio({
     client,
@@ -199,7 +226,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
   // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
   const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
-  return { studio, view, client, root, bridge, unwatch, unwatchArea };
+  return { studio, view, client, root, bridge, deltas: page, unwatch, unwatchArea };
 }
 
 function unmount(mounted: Mounted | null): void {
@@ -230,6 +257,28 @@ export function defineGraphStudio(options: StudioElementOptions = {}, tag = "gra
       // `close`, not `destroy`: the studio and its chrome stay, so the page reads as a studio
       // that lost its motor rather than one that was taken down.
       this.#mounted?.client.close();
+    }
+
+    /** One batch into the live graph, through the registry's own verb, so the arguments are
+     * checked where every other value is. A refusal is reported twice: the promise rejects, and
+     * the same error's name is dispatched, because a host that only listens sees no promise. */
+    async applyDeltas(batch: unknown): Promise<{ readonly applied: number }> {
+      const mounted = this.#mounted;
+      if (mounted === null) throw new Error("the studio is not in a document");
+      const send = mounted.client.deltas;
+      if (send === undefined) throw new Error("this motor client cannot add to a built graph");
+      const deltas: Deltas = createDeltas(
+        () => (this.#mounted === null ? "the element is not in a document" : null),
+        send,
+      );
+      try {
+        return { applied: await deltas.apply(batch) };
+      } catch (error) {
+        const refusal = error instanceof Error ? error : new Error(String(error));
+        const detail = { error: refusal.name, detail: refusal.message };
+        this.dispatchEvent(new CustomEvent("graph-error", { detail }));
+        throw refusal;
+      }
     }
 
     get watchdogBoundMs(): number {

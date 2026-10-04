@@ -2,6 +2,7 @@
  * The one list of things the studio can do. The dock, the console, the shortcuts and a
  * host all go through `resolve`, so a value is read, checked and refused in one place.
  */
+import type { DeltaEdge, DeltaNode, GraphBatch } from "../motor/protocol.ts";
 
 export type ArgValue = string | number | boolean;
 export type Args = Readonly<Record<string, ArgValue>>;
@@ -195,6 +196,107 @@ export function createRegistry<State, Context>(actions: readonly Action<State, C
       const reason = action.available?.(state) ?? null;
       if (reason !== null) throw new ActionRefusal("unavailable", `\`${action.alias}\` cannot run: ${reason}`);
       return { action, args: argsFrom(action, raw, state) };
+    },
+  };
+}
+
+/** The verb a host feature-tests with (`"applyDeltas" in el`, host-api condition 8). */
+export const APPLY_DELTAS = "applyDeltas";
+
+/** An object of named members, which is what a batch of nodes and edges arrives as. */
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function recordOf(value: unknown, at: string): Readonly<Record<string, unknown>> {
+  if (!isRecord(value)) throw bad(at, "must be objects");
+  return value;
+}
+
+function text(record: Readonly<Record<string, unknown>>, name: string, at: string): string {
+  const value = record[name];
+  if (typeof value !== "string") throw bad(`${at}.${name}`, `must be text, not ${JSON.stringify(value ?? null)}`);
+  return value;
+}
+
+function maybeText(record: Readonly<Record<string, unknown>>, name: string, at: string): string | null {
+  const value = record[name];
+  if (value === null) return null;
+  if (typeof value !== "string") throw bad(`${at}.${name}`, `must be text or null, not ${JSON.stringify(value)}`);
+  return value;
+}
+
+function count(record: Readonly<Record<string, unknown>>, name: string, at: string): number {
+  const value = record[name];
+  if (typeof value !== "number" || !Number.isFinite(value)) throw bad(`${at}.${name}`, `must be a number, not ${JSON.stringify(value ?? null)}`);
+  return value;
+}
+
+function flag(record: Readonly<Record<string, unknown>>, name: string, at: string): boolean {
+  const value = record[name];
+  if (typeof value !== "boolean") throw bad(`${at}.${name}`, `must be on or off, not ${JSON.stringify(value ?? null)}`);
+  return value;
+}
+
+function nodeOf(value: unknown, at: string): DeltaNode {
+  const record = recordOf(value, at);
+  return {
+    id: text(record, "id", at), kind: text(record, "kind", at), database_id: maybeText(record, "database_id", at),
+    source: text(record, "source", at), label: text(record, "label", at), group: maybeText(record, "group", at),
+    weight: count(record, "weight", at), version: count(record, "version", at),
+    has_note: flag(record, "has_note", at), icon: maybeText(record, "icon", at),
+  };
+}
+
+function edgeOf(value: unknown, at: string): DeltaEdge {
+  const record = recordOf(value, at);
+  return {
+    id: text(record, "id", at), source: text(record, "source", at), target: text(record, "target", at),
+    kind: text(record, "kind", at), label: text(record, "label", at), strength: count(record, "strength", at),
+    directed: flag(record, "directed", at), record_id: maybeText(record, "record_id", at),
+    child_first: flag(record, "child_first", at),
+  };
+}
+
+function entriesOf<T extends DeltaNode | DeltaEdge>(value: unknown, name: string, of: (entry: unknown, at: string) => T): readonly T[] {
+  if (!Array.isArray(value)) throw bad(name, `must be an array, not ${JSON.stringify(value ?? null)}`);
+  return value.map((entry, index) => of(entry, `${name}[${index}]`));
+}
+
+/**
+ * The batch `applyDeltas` takes, checked here where every other value is, and rebuilt member by
+ * member: the motor's reader refuses an unknown member, so a host's batch is normalised to the
+ * shape it reads rather than passed through and found wanting.
+ */
+export function deltaBatch(raw: unknown): GraphBatch {
+  if (!isRecord(raw)) throw bad("batch", "must be an object with a nodes array and an edges array");
+  return { nodes: entriesOf(raw["nodes"], "nodes", nodeOf), edges: entriesOf(raw["edges"], "edges", edgeOf) };
+}
+
+export interface Deltas {
+  readonly id: typeof APPLY_DELTAS;
+  /** Checks the batch and sends it; rejects with an `ActionRefusal` or the motor's own error. */
+  readonly apply: (batch: unknown) => Promise<number>;
+}
+
+/**
+ * `applyDeltas`, registered and resolved in this file next to every other verb — asked before
+ * the batch is read, refused with a reason when no live session can take it.
+ *
+ * Ponytail: a sibling of `resolve` rather than an entry in the dock's actions, because an
+ * `Action`'s arguments are `Args` (`Record<string, ArgValue>`) and no control, console line or
+ * dock button can carry a batch of nodes. Failing input: a batch that is not `{nodes, edges}` of
+ * objects is refused here, before the worker is asked. Direction: the batch is rebuilt member
+ * by member, so what the motor stages is what this read. Escape hatch: the batch succeeds whole
+ * or is refused whole; there is no per-id refusal.
+ */
+export function createDeltas(reason: () => string | null, send: (batch: GraphBatch) => Promise<number>): Deltas {
+  return {
+    id: APPLY_DELTAS,
+    apply: async (batch) => {
+      const because = reason();
+      if (because !== null) throw new ActionRefusal("unavailable", `\`${APPLY_DELTAS}\` cannot run: ${because}`);
+      return send(deltaBatch(batch));
     },
   };
 }

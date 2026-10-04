@@ -111,8 +111,8 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
    * last one — nothing was queued for the tick before, so nothing more is on its way and the
    * nodes can be drawn at once instead of waiting out the cadence.
    */
-  const due = (landed: number): boolean => landed > 0
-    && (deps.now() - lastStructure >= STRUCTURE_MS || drainedLast);
+  const due = (landed: number, wasIdle: boolean): boolean => landed > 0
+    && (deps.now() - lastStructure >= STRUCTURE_MS || wasIdle);
 
   async function rebuild(): Promise<void> {
     if (deps.structure === undefined || building) return;
@@ -143,6 +143,9 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
   async function drain(tick: number): Promise<void> {
     const burst = pending.splice(0, pending.length);
     const landed = burst.length;
+    // Read before it is written: what `due` wants to know is whether the tick BEFORE this one
+    // found nothing, which is what says this burst is the last one.
+    const wasIdle = drainedLast;
     drainedLast = landed === 0;
     if (landed === 0) return;
     const applied = extendAll(burst);
@@ -161,7 +164,7 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
     }
     const count = deps.nodeCount();
     for (const one of applied) answer(one, count);
-    if (any && due(landed)) await rebuild();
+    if (any && due(landed, wasIdle)) await rebuild();
   }
 
   return {
