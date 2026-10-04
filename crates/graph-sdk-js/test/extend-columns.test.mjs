@@ -125,9 +125,9 @@ test("each extendColumns refusal is ColumnsRefusedError, and the graph is unchan
   const dangling = { nodes: [], edges: [edge("e9", "a", "nowhere")] };
   assertRefused(() => motor.extendColumns(graph, taken), ColumnsRefusedError, COLUMNS_INVALID, "a taken id");
   assertRefused(() => motor.extendColumns(graph, dangling), ColumnsRefusedError, COLUMNS_INVALID, "a dangling endpoint");
-  const error = await caught(() => motor.extendColumns(graph, encodeBatch({})));
-  assert.ok(error instanceof ColumnsRefusedError, `no batch at all: got ${String(error)}`);
-  assert.equal(error.codeName, "ColumnsInvalid");
+  const error = await caught(() => motor.extendColumns(graph, { nodes: [node("z")] }));
+  assert.ok(error instanceof ColumnsRefusedError, `no edges member: got ${String(error)}`);
+  assert.equal(error.code, undefined, "and it never reached the ABI");
   assert.equal(motor.nodeCount(graph), 4, "a refused batch claimed no id");
   motor.extendColumns(graph, BATCH);
   assert.equal(motor.nodeCount(graph), 6);
@@ -136,17 +136,21 @@ test("each extendColumns refusal is ColumnsRefusedError, and the graph is unchan
   assertRefused(() => motor.extendColumns(graph, BATCH), InvalidHandleError, INVALID_HANDLE, "a released graph");
 });
 
-test("each reader refuses the other format's bytes, by class", async () => {
+test("a GMX1 batch is refused at the document build, and GMC1 bytes cannot reach the batch export", async () => {
   const graph = motor.build(JSON.stringify(BASE));
-  // A whole document's `GMC1` at the batch export: dense rows are not string indices, and the
-  // magic is what says so.
-  const wrong = await caught(() => motor.extendColumns(graph, encodeColumns(BASE)));
-  assert.ok(wrong instanceof ColumnsRefusedError, `GMC1 at the batch export: got ${String(wrong)}`);
+  // The reachable half of "each reader refuses the other's bytes", from the host: a batch handed
+  // to `buildColumns` is `ColumnsInvalid`, because its magic says batch and that reader says
+  // document.
+  const wrong = await caught(() => motor.buildColumns(encodeBatch(BATCH)));
+  assert.ok(wrong instanceof ColumnsRefusedError, `GMX1 at the document build: got ${String(wrong)}`);
   assert.equal(wrong.code, COLUMNS_INVALID);
-  // And a `GMX1` batch at the document build, which is the other direction of the same rule.
-  const other = await caught(() => motor.buildColumns(encodeBatch(BATCH)));
-  assert.ok(other instanceof ColumnsRefusedError, `GMX1 at the document build: got ${String(other)}`);
-  assert.equal(other.code, COLUMNS_INVALID);
+  assert.equal(wrong.codeName, "ColumnsInvalid");
+  // The other half is unreachable through this SDK by construction: `extendColumns` encodes the
+  // batch itself, so bytes a caller already holds are not a batch and are refused on their shape
+  // rather than read. That is why the refusal names the member instead of the magic.
+  const notABatch = await caught(() => motor.extendColumns(graph, encodeColumns(BASE)));
+  assert.ok(notABatch instanceof ColumnsRefusedError, `GMC1 bytes: got ${String(notABatch)}`);
+  assert.match(String(notABatch.message), /nodes array and an edges array/);
   assert.equal(motor.nodeCount(graph), 4);
   motor.release(graph);
 });

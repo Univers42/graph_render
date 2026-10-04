@@ -11,26 +11,22 @@
 // others' documents with its own error class; `staging.ts` carries why they stay separate.
 //
 // The class lives here and `index.ts`, the barrel, publishes it. The stages it delegates to are
-// `stages.ts`, and growing a built graph is `extend.ts`.
+// `stages.ts`, growing a built graph is `extend.ts`, and what a loaded module becomes before any
+// of that is `motor-context.ts`.
 
-import { loadMotor, toU32, type WasmSource } from "./wasm.ts";
-import { loadThreaded } from "./threads.ts";
-import { ColumnViews, isRegisteredColumn } from "./views.ts";
+import { toU32, type WasmSource } from "./wasm.ts";
+import { isRegisteredColumn } from "./views.ts";
 import { ForceSession } from "./force.ts";
 import { AbiContractError, InvalidHandleError, WasmUnavailableError } from "./errors.ts";
 import { INVALID_HANDLE_CODE, invoke, lastError } from "./calls.ts";
 import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type ForceSeed, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunOptions, RunResult } from "./types.ts";
 import { checkOptions } from "./options.ts";
-import type { GeometryKinds } from "./geometry-kinds.ts";
-import { Registries } from "./registries.ts";
 import { COLUMNS_BUILD, CONTRACT_BUILD, INGEST_BUILD, buildStaged } from "./staging.ts";
 import { extendColumnsGraph, extendGraph, type GraphBatch } from "./extend.ts";
-import { LayoutParams, type LayoutParamSpec } from "./params.ts";
-import {
-  nodeCount, postGraph, readLayoutParams, runAnalysis, runGraph, snapshotBytes, snapshotText,
-  type StageContext,
-} from "./stages.ts";
+import { loadContext } from "./motor-context.ts";
+import type { LayoutParamSpec } from "./params.ts";
+import { nodeCount, postGraph, readLayoutParams, runAnalysis, runGraph, snapshotBytes, snapshotText, type StageContext } from "./stages.ts";
 
 /** One loaded wasm module and every graph built against it. `createMotor` is the only way
  * to get one — the constructor is private so a `Motor` is never in play without having
@@ -58,15 +54,7 @@ export class Motor {
   static async create(source: WasmSource, options?: MotorOptions): Promise<Motor> {
     checkOptions(options);
     try {
-      const exports = await (options?.threads === undefined ? loadMotor(source) : loadThreaded(source, options.threads));
-      const context: StageContext = {
-        exports,
-        views: new ColumnViews(exports),
-        registries: new Registries(),
-        kinds: new Map<Handle, GeometryKinds>(),
-        params: new LayoutParams(),
-      };
-      return new Motor(context, null);
+      return new Motor(await loadContext(source, options), null);
     } catch (error) {
       const failure = error instanceof WasmUnavailableError ? error : new WasmUnavailableError("wasm module failed to load", error);
       return new Motor(null, failure);
