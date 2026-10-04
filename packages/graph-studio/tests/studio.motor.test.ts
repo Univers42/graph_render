@@ -121,7 +121,7 @@ test("an unknown command, parameter or value is refused and nothing changes", { 
 
 test("a line typed in the console runs what a dispatch runs", { skip: SKIP }, async () => {
   const { studio } = await started();
-  assert.equal((await studio.run("layout mds")).command, "layout layout.mds.pivot");
+  assert.equal((await studio.run("layout pivot")).command, "layout layout.mds.pivot");
   assert.equal(studio.store.get().settings.layout, "layout.mds.pivot");
   const open = await studio.run('filter "unclosed');
   assert.deepEqual([open.ok, open.command, open.error?.title], [false, 'filter "unclosed', "CommandRefusal"]);
