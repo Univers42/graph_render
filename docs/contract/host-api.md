@@ -161,8 +161,9 @@ disagree, the condition wins.
    - **A refusal names the class, not the code.** The rejection's `name` is `ColumnsRefusedError`
      (`crates/graph-sdk-js/src/errors.ts:86`), the sibling of `BuildRefusedError`; the ABI code
      behind it is `ColumnsInvalid`, and that is what the one `graph-error` carries in
-     `detail.error`. `loadGraph` names a refusal by its wire code instead, so on this verb the two
-     are deliberately not the same string, as they are for `loadGraph`.
+     `detail.error` — `code 23 (ColumnsInvalid)`, measured by row `embed-columns-refused`. `loadGraph`
+     names a refusal by its wire code instead, so on this verb the two are deliberately not the same
+     string, as they are for `loadGraph`.
    - A refused *field* — `rows` that is not an object, a column that is not the typed array
      `ColumnRowsLike` names, a cell array that is not a whole number of rows, or an `f64` column
      whose length is not the count `ingest-columns.md:19-21` states — rejects with a `TypeError`

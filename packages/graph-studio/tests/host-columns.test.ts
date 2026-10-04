@@ -107,9 +107,11 @@ test("the worker builds Document.nodes from the rows, in row order, and assemble
   assert.deepEqual(nodes.map((node) => node.kind), ["record", "record", "record"]);
   assert.deepEqual(nodes.map((node) => node.source), ["file", "file", "file"]);
   assert.deepEqual(nodes.map((node) => node.weight), [0.5, 0.5, 0.5]);
-  assert.equal(nodes[0].database_id, null);
-  assert.equal(nodes[0].group, null);
-  assert.equal(nodes[0].has_note, false);
+  const first = nodes[0];
+  assert.ok(first !== undefined, "one node per row, so the first exists");
+  assert.equal(first.database_id, null);
+  assert.equal(first.group, null);
+  assert.equal(first.has_note, false);
   assert.equal(document.edgeCount, 2);
   assert.deepEqual(document.notes, []);
   assert.equal(document.payload.kind, "columns");
@@ -161,7 +163,7 @@ function columnsRefusing(): MotorClient {
   const scripted = scriptedClient();
   let loads = 0;
   const refused = Object.assign(new Error("the node id is already taken"), {
-    name: "ColumnsRefusedError", code: 32, codeName: "ColumnsInvalid",
+    name: "ColumnsRefusedError", code: 23, codeName: "ColumnsInvalid",
   });
   // The first load is the studio's own start; the host's is the second.
   return { ...scripted, load: (source) => (loads++ === 0 ? scripted.load(source) : Promise.reject(refused)) };
@@ -172,7 +174,7 @@ test("a refused loadColumns rejects as ColumnsRefusedError, and its graph-error 
   const refused: unknown = await subject.columns(columns()).then(() => null, (error: unknown) => error);
   assert.ok(refused instanceof Error);
   assert.equal(refused.name, "ColumnsRefusedError");
-  assert.deepEqual(subject.heard, ['graph-error {"error":"code 32 (ColumnsInvalid)","message":"the node id is already taken"}']);
+  assert.deepEqual(subject.heard, ['graph-error {"error":"code 23 (ColumnsInvalid)","message":"the node id is already taken"}']);
 });
 
 const ELEMENT = readFileSync(new URL("../src/element.ts", import.meta.url), "utf8");

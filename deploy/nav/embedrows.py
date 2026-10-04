@@ -108,12 +108,12 @@ def step_columns_refused(page, ctx):
     """The refused columnar load: the class name, the ABI code behind it, and the studio's own hint."""
     name = "embed-columns-refused"
     expectation = ("loadColumns on a two-row columnar document whose node id is repeated rejects as "
-                   "ColumnsRefusedError, the one graph-error `document` hears says `code 32 (ColumnsInvalid)`, "
+                   "ColumnsRefusedError, the one graph-error `document` hears says `code 23 (ColumnsInvalid)`, "
                    "and the studio's own error carries a hint that is not the default one")
     refused = embedpage.on_element(page, COLUMNS_REFUSED)
     errors, hint = refused["errors"], refused["hint"]
     passed = (refused["name"] == "ColumnsRefusedError" and len(errors) == 1
-              and errors[0]["error"] == "code 32 (ColumnsInvalid)"
+              and errors[0]["error"] == "code 23 (ColumnsInvalid)"
               and isinstance(hint, str) and "Unexpected studio error" not in hint)
     measured = judge.short(f"rejected as {json.dumps(refused['name'])}; graph-error {json.dumps(errors)}; "
                            f"hint {json.dumps(hint)}", 400)
