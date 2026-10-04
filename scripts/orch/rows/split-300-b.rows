@@ -1,0 +1,7 @@
+# split-300-b: the oracle's TypeScript tests and the SDK's column tests, split under 300 lines.
+# sdk-test reads the release wasm artifact, so wasm-release precedes it.
+ge-check|0|scripts/orch/ge-check.sh
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
+drun-check|0|scripts/orch/drun-check.sh

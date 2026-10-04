@@ -401,7 +401,7 @@ A gate that cannot fail is not a gate. This proves it is wired to something.
 
 `buildSyntheticModel` is exported and is the obvious fixture source, but it **builds ids as literal
 template strings and never calls `makeEdgeId`** — so no fixture derived from it can exercise the
-riskiest cross-language function. The existing unit test (`tests/graph-engine.test.ts:61-64`) uses ids
+riskiest cross-language function. The existing unit test (`tests/graph-engine-core.test.ts:33-36`) uses ids
 `"a"` and `"b"`, where `localeCompare` and byte order **agree**. Both the pixel rig and the unit test are
 blind to H1 by construction.
 
