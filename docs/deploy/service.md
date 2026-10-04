@@ -27,6 +27,9 @@ scripts/service.sh version    # <version>, the path segment hosts put in their t
   `graph_wasm.wasm` and `graph_wasm_threads.wasm`.
 - `embed/VERSION`: `<version>` followed by a newline.
 
+`graph-sdk.js` is the motor's JS SDK (`crates/graph-sdk-js`) for a host that runs layouts without
+the element; a host imports it from `/embed/<version>/graph-sdk.js`, and its gate is `embed-sdk`.
+
 Those three are the only paths staged, and staging them one by one is what excludes everything else:
 the build context *is* `target/service/stage`, so no key file, `.env`, `.git` or scratch path can
 reach the build, and there is no separate ignore file to keep in step with it. The `svc-no-leak` scan
