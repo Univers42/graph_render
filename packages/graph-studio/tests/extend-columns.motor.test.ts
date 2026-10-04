@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { assembleColumns, createMotor, type Handle } from "../../../crates/graph-sdk-js/src/index.ts";
-import type { GraphBatch } from "../src/motor/protocol.ts";
+import type { DeltaNode, GraphBatch } from "../src/motor/protocol.ts";
 import { type MotorLike, type Session, createSession } from "../src/motor/session.ts";
 import { FIXTURES_URL, SKIP, WASM } from "./motor.ts";
 
@@ -23,7 +23,7 @@ interface Paths {
   readonly columns: boolean;
 }
 
-const node = (id: string) => ({
+const node = (id: string): DeltaNode => ({
   id, kind: "record", database_id: null, source: "studio", label: id,
   group: null, weight: 1, version: 1, has_note: false, icon: null,
 });
