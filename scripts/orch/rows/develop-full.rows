@@ -111,7 +111,10 @@ bench-mds|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.m
 bellman-ford-negative-weight|0|scripts/orch/gr cargo test -p graph-core bellman_ford_negative_weight
 negative-cycle-detected|0|scripts/orch/gr cargo test -p graph-core negative_cycle_detected
 analysis-determinism|0|scripts/orch/gr cargo test -p graph-core analysis_determinism
-only-petgraph-added|0|scripts/orch/gr bash -c 'cargo tree -p graph-core --depth 1 >target/graph-core-deps.txt; grep -vE "libm|indexmap|petgraph|graph-contract" target/graph-core-deps.txt && exit 1 || exit 0'
+only-petgraph-added|0|scripts/orch/gr bash -c 'cargo tree -p graph-core --depth 1 >target/graph-core-deps.txt; grep -vE "^graph-core v|libm|indexmap|petgraph|graph-contract" target/graph-core-deps.txt && exit 1 || exit 0'
+# negctl-only-petgraph-added: the same filter over the same tree plus one dependency outside the
+# allow-list must leave a residual, so a green row is the list and not a filter that drops everything.
+negctl-only-petgraph-added|0|scripts/orch/gr bash -c '{ cargo tree -p graph-core --depth 1; echo "├── serde v1.0.0"; } | grep -vE "^graph-core v|libm|indexmap|petgraph|graph-contract"'
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-08.md:119 — p8 post-processing and bundling.
@@ -119,6 +122,9 @@ only-petgraph-added|0|scripts/orch/gr bash -c 'cargo tree -p graph-core --depth 
 edge-geometry-invariants|0|scripts/orch/gr cargo test -p graph-core edge_geometry_invariants
 post-composability|0|scripts/orch/gr cargo test -p graph-core post_composability
 ink-hairball|0|scripts/orch/gr cargo run -q -p graph-cli -- ink --fixture hairball
+# negctl-ink-hairball: at 400 hairball nodes the 128x128 raster saturates and FDEB saves no cell
+# (docs/reports/phase-08.md, ink), so the same rule must exit 1 there: exit 2 would be a run that failed.
+negctl-ink-hairball|0|scripts/orch/gr cargo run -q -p graph-cli -- ink --nodes 400; test $? -eq 1
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-10-progress.md:260 — p10 ingest, SDK publish and the wasm ABI.
