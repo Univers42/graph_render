@@ -3,8 +3,8 @@
 //! move without one of these going red.
 
 use super::{
-    Findings, OTHER_LAYOUTS, body, progress_line, snapshot_total, sweep, sweep_with,
-    swept_layouts, verdict, write_findings,
+    Findings, OTHER_LAYOUTS, body, progress_line, snapshot_total, sweep, sweep_with, swept_layouts,
+    verdict, write_findings,
 };
 
 /// A clean run of `seeds` seeds: every check empty, every notes case drawn, at least one
@@ -184,7 +184,10 @@ fn every_seed_is_reported_before_it_is_worked() {
     for (i, line) in lines.iter().enumerate() {
         assert_eq!(line, &progress_line(i as u32, 5));
         assert!(line.contains(&format!("seed {i}/5")), "{line}");
-        assert!(line.contains(&format!("nodes {}", super::gate_node_count(i as u32))), "{line}");
+        assert!(
+            line.contains(&format!("nodes {}", super::gate_node_count(i as u32))),
+            "{line}"
+        );
     }
 }
 
@@ -195,7 +198,10 @@ fn every_seed_is_reported_before_it_is_worked() {
 fn progress_is_one_line_per_seed_not_a_sample() {
     let mut count = 0;
     sweep_with(7, |_| count += 1).expect("runs");
-    assert_eq!(count, 7, "a sampled or deduplicated progress line hides the stall");
+    assert_eq!(
+        count, 7,
+        "a sampled or deduplicated progress line hides the stall"
+    );
     let text = progress_line(0, 1000);
     assert!(text.starts_with("roundtrip: seed 0/1000 nodes 2"), "{text}");
 }

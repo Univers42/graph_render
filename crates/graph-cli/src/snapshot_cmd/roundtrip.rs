@@ -93,8 +93,7 @@ impl Findings {
 pub fn run(seeds: u32) -> ExitCode {
     // One line per seed on standard error: a stall in the middle of a long sweep is then a
     // named seed in the log rather than an empty file.
-    let swept =
-        evidence::Stamp::take().and_then(|stamp| Ok((stamp, sweep_with(seeds, progress)?)));
+    let swept = evidence::Stamp::take().and_then(|stamp| Ok((stamp, sweep_with(seeds, progress)?)));
     let (stamp, found) = match swept {
         Ok(swept) => swept,
         Err(err) => {

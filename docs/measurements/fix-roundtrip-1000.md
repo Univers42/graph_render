@@ -94,19 +94,29 @@ sweep loop was split so `sweep` keeps its test-only signature.
 
 ## Before / after
 
-`scripts/orch/gr ./target/release/graph-cli roundtrip --seeds N`, seconds, same host:
+`scripts/orch/gr ./target/release/graph-cli roundtrip --seeds N`, seconds, same host. The
+"before" column is the release build of the pre-fix tree; the "after" column is this tree.
 
-| N | release before | release after |
-| --- | --- | --- |
-| 8 | 0.61 | 0.55 |
-| 32 | 2.21 | 1.94 |
-| 128 | 42.82 | 26.7 |
-| 256 | 292.3 | 168.9 |
-| 1000 | (2 h, killed, debug) | see below |
+| N | release before | release after | debug after | exit |
+| --- | --- | --- | --- | --- |
+| 8 | 0.61 | 0.76 | — | 0 |
+| 32 | 2.21 | 2.62 | 30.27 | 0 |
+| 128 | 42.82 | 31.05 | 333.12 | 0 |
+| 256 | 292.34 | 252.41 | — | 0 |
+| 1000 | (2 h, killed, debug) | see below | — | — |
 
-Growth is not linear in N, and now visibly is not: with per-seed node count capped at 601
-the sweep cannot keep scaling past 600 seeds, so the 128 → 256 step (nodes 2…129 vs 2…257)
-is the steepest one in the table.
+N=8 and N=32 are inside process-startup noise (~0.2 s of it) and the layout work at those
+sizes is sub-second, so those two rows are not a measurement of the fix. The rows that
+are: 128 seeds, 42.8 s → 31.1 s, and 256 seeds, 292.3 s → 252.4 s.
+
+Debug is 10.7x release at 128 seeds (333.12 s vs 31.05 s) — the whole reason the row was
+killed. That ratio alone accounts for the missing factor of ten; the crossing-cache change
+accounts for the rest.
+
+Growth is not linear in N: with per-seed node count capped at 601 the sweep cannot keep
+scaling past 600 seeds, and the 128 → 256 step (nodes 2…129 vs 2…257) is the steepest in
+the table. Extrapolating the `O(n^2)`-ish layout terms over 1000 seeds lands where the
+600-seed measurement below puts it.
 
 **`roundtrip --seeds 1000` (release), the row as committed:** see the return block for the
 measured wall time and exit code.
