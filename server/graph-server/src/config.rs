@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
+mod origins;
 mod slots;
+use origins::read_origins;
 use slots::cgroup_memory_max;
 pub use slots::{BASE_BYTES, PER_SLOT_BYTES, default_workers};
 
@@ -152,6 +154,24 @@ fn read_auth(env: &Env<'_>, bind: IpAddr) -> Result<(bool, Option<PathBuf>), Con
     Ok((auth, keys_file))
 }
 
+/// The compute limits. Caveat on every default below, and each is one the operator may want to
+/// move, so none of them is a measurement:
+///
+/// - `GRAPH_WORKERS` defaults to `default_workers(cores, memory.max)`, and 1024 is its ceiling. The
+///   derivation reads `/sys/fs/cgroup/memory.max`, so outside a cgroup it is just the core count and
+///   the budget is gone; an explicit count overrides it and then nothing checks it against memory.
+/// - `GRAPH_MAX_BODY` defaults to 64 MiB and stops at the motor's own 1 GiB ingest ceiling. It is a
+///   buffer bound, not a work bound: a 64 MiB document can still be refused by a layout's cap.
+/// - `GRAPH_QUEUE` defaults to 2 × the worker count, so a burst waits for roughly two run lengths
+///   and a longer burst is 429. Raising it raises the memory each queued request holds.
+/// - `GRAPH_TIMEOUT_MS` defaults to 30 000 ms, under the caps' measured ladder with room for it;
+///   the times are measured off the image's CPU, so a slower host answers 503 for work that did
+///   finish. It is also the drain budget, so raising it makes a SIGTERM slower.
+/// - `GRAPH_BODY_TIMEOUT_MS` defaults to 10 000 ms, which must stay under `GRAPH_TIMEOUT_MS` or a
+///   slow body gets a 503 instead of a 408. Nothing enforces that ordering.
+///
+/// The escape hatch for all of them is the variable itself; an unset one falls back here, and a
+/// refused value is exit 2 naming the variable and never its value.
 fn read_limits(env: &Env<'_>, memory_max: Option<u64>) -> Result<Limits, ConfigError> {
     let workers = read_workers(env, memory_max)?;
     Ok(Limits {
@@ -175,46 +195,26 @@ fn read_workers(env: &Env<'_>, memory_max: Option<u64>) -> Result<usize, ConfigE
     env.number("GRAPH_WORKERS", fallback, 1..=1024)
 }
 
+/// The connection limits hyper enforces. Caveat on every default below; all three are guesses
+/// about a caller, not measurements of one:
+///
+/// - `GRAPH_HEADER_TIMEOUT_MS` defaults to 5 000 ms and is the whole head, so a slow mobile client
+///   is cut before a body is read. It is a read timeout per read, not for the head as a whole.
+/// - `GRAPH_MAX_HEADER_BYTES` defaults to 16 384 and cannot go below 8 192, which is hyper's own
+///   floor. Past the default a head is refused by hyper with a bare 431, not the JSON error body,
+///   and a request that large never reaches the router or a log line.
+/// - `GRAPH_MAX_CONNECTIONS` defaults to 256 and holds its permit from before `accept`, so past it
+///   a connection waits in the kernel backlog and then the client, not the server, gives up. There
+///   is no rejection response and no refusal log line for the overflow.
+///
+/// The escape hatch is the variable; past 256 the refusals are the kernel's and a client's, so
+/// raising it trades a refusal log line for a slower failure.
 fn read_connections(env: &Env<'_>) -> Result<Connections, ConfigError> {
     Ok(Connections {
         header_timeout: env.millis("GRAPH_HEADER_TIMEOUT_MS", 5_000)?,
         // hyper refuses a read buffer under 8 KiB.
         max_header_bytes: env.number("GRAPH_MAX_HEADER_BYTES", 16_384, 8_192..=1 << 20)?,
         max_connections: env.number("GRAPH_MAX_CONNECTIONS", 256, 1..=65_536)?,
-    })
-}
-
-fn read_origins(env: &Env<'_>) -> Result<Vec<String>, ConfigError> {
-    let Some(list) = env.text("GRAPH_CORS_ORIGINS")? else {
-        return Ok(Vec::new());
-    };
-    let origins: Vec<String> = list
-        .split(',')
-        .map(str::trim)
-        .filter(|origin| !origin.is_empty())
-        .map(str::to_owned)
-        .collect();
-    for origin in &origins {
-        if !is_origin(origin) {
-            return Err(refuse(
-                "GRAPH_CORS_ORIGINS",
-                "each entry is an http(s) origin with no path; a wildcard is refused",
-            ));
-        }
-    }
-    Ok(origins)
-}
-
-/// A serialized origin: a scheme, a host and an optional port, no path and no wildcard.
-fn is_origin(text: &str) -> bool {
-    let rest = text
-        .strip_prefix("https://")
-        .or_else(|| text.strip_prefix("http://"));
-    rest.is_some_and(|host| {
-        !host.is_empty()
-            && host
-                .bytes()
-                .all(|b| b.is_ascii_graphic() && !matches!(b, b'/' | b'*' | b','))
     })
 }
 

@@ -15,13 +15,26 @@ use subtle::ConstantTimeEq;
 /// Every key starts with this, so a key in a log or a query is recognisable.
 pub const KEY_PREFIX: &str = "gm_";
 /// The random bytes in a key: 43 base64url characters after the prefix.
+/// Caveat: 32 bytes is the sha256 width, chosen so a key and its stored hash are the same size;
+/// nothing here needs a wider key, and a wider one would only lengthen the file.
 const KEY_BYTES: usize = 32;
 /// The largest key file read; past it the file is refused rather than truncated.
+/// Caveat: 1 MiB against the 4096 keys below (about 256 bytes a line), so a bigger file is a paste
+/// mistake or an attack; it bounds the read, not the parse.
 const MAX_FILE_BYTES: u64 = 1 << 20;
 /// The most keys one file may hold.
+/// Caveat: a guess at the largest real deployment, not a measurement; the constant-time compare is
+/// linear in it, so a larger file costs latency on every request, not only at start.
 const MAX_KEYS: usize = 4096;
 /// The longest key name.
+/// Caveat: 64, wide enough for a service and a team; the name is the one key fact that reaches a
+/// log line, so this is also the longest string a caller's naming choice puts there.
 const MAX_NAME: usize = 64;
+/// The mode bits a key file may not carry: group write or exec, and every bit for others, read
+/// included. That is why `0644` is refused and `0640` is not.
+/// Caveat: the mode bits are all it checks; a setgid bit, an ACL or a read-only bind mount that
+/// still resolves elsewhere is outside what a `mode()` says, so the refusal can be bypassed there.
+const GROUP_AND_OTHERS: u32 = 0o037;
 
 /// A refused key file. `line` is 1-based; 0 means the file as a whole.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,8 +61,9 @@ pub struct KeySet {
 }
 
 impl KeySet {
-    /// Reads and parses the key file. A group- or world-writable file is refused: anyone who
-    /// can write it can mint a key.
+    /// Reads and parses the key file. Only 0640 or stricter is accepted: no group write or exec,
+    /// and nothing at all for others, because anyone who can write or read it can mint a key or
+    /// read the hashes.
     pub fn load(path: &Path) -> Result<Self, KeyFileError> {
         let whole = |reason| KeyFileError { line: 0, reason };
         let file = std::fs::File::open(path).map_err(|_| whole("cannot be opened"))?;
@@ -57,10 +71,9 @@ impl KeySet {
         if !meta.is_file() {
             return Err(whole("is not a regular file"));
         }
-        if meta.permissions().mode() & 0o022 != 0 && !breaks::on("accept-group-writable") {
-            return Err(whole(
-                "is group- or world-writable (0640 or stricter is accepted)",
-            ));
+        if meta.permissions().mode() & GROUP_AND_OTHERS != 0 && !breaks::on("accept-group-writable")
+        {
+            return Err(whole("is not 0640 or stricter"));
         }
         let mut bytes = Vec::new();
         let read = file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes);

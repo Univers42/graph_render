@@ -110,6 +110,14 @@ fn read_version(path: &Path) -> Result<String, String> {
 
 /// Every regular file under `root`, keyed by its `/`-joined path. Symlinks and names starting
 /// with `.` are skipped at any depth.
+/// Caveat (TOCTOU): the type is checked here by `symlink_metadata` and the bytes are read by path
+/// a few lines below, with no `O_NOFOLLOW` and no `openat` on the dirfd, so an entry swapped in
+/// between is followed. Reaching that needs write access to the embed directory, which the image's
+/// root-owned read-only tree (`deploy/service.Dockerfile`, `--read-only` at run) denies; a writable
+/// embed directory on a host deployment is the case this does not cover. The failing input is a
+/// writable embed dir; the direction of the risk is outward, to a file the operator cannot see; the
+/// escape hatch is to make the tree root-owned and read-only, and the fix would be to read through
+/// the already-open dirfd.
 fn walk(root: &Path, files: &mut BTreeMap<String, Asset>) -> Result<(), String> {
     let mut tree = Tree {
         pending: vec![(root.to_owned(), String::new())],

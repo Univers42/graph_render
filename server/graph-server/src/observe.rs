@@ -17,6 +17,9 @@ use std::time::Instant;
 /// The request id header, read and echoed.
 pub const REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 /// The longest caller id kept; a longer one is replaced.
+/// Caveat: 128 is wider than any proxy's id and narrow enough that the id cannot be a place to hide
+/// a key; a longer one is replaced by a generated id, not refused, so a caller with a long id still
+/// gets a traceable answer and loses only the correlation.
 const MAX_REQUEST_ID: usize = 128;
 /// The preflight's answers.
 const PREFLIGHT: [(HeaderName, &str); 3] = [
@@ -207,4 +210,67 @@ pub fn stdout_sink() -> LogSink {
         // A closed stdout leaves nowhere to report the failure; the request is still served.
         let _ = writeln!(std::io::stdout().lock(), "{line}");
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::App;
+    use crate::config::Settings;
+    use axum::Router;
+    use axum::body::Body;
+    use axum::routing::get;
+    use std::ffi::OsString;
+    use std::sync::atomic::AtomicBool;
+    use tower::ServiceExt;
+
+    /// `observe` flags the `Authorization` before the layer below can read, print or index it.
+    /// The probe layer sits inside `observe`, so it sees the header exactly as a handler does:
+    /// delete `mark_sensitive` from `observe` and this goes red.
+    #[tokio::test]
+    async fn the_authorization_reaching_the_handler_is_marked_sensitive() {
+        let marked = Arc::new(AtomicBool::new(false));
+        let probe = Arc::clone(&marked);
+        let app = Arc::new(App::from_settings(&dev(), Arc::new(|_| {})).expect("the app"));
+        let layer = axum::middleware::from_fn_with_state(Arc::clone(&app), super::observe);
+        let router = Router::new()
+            .route("/probe", get(|| async { StatusCode::OK }))
+            .layer(axum::middleware::from_fn(
+                move |request: Request, next: Next| {
+                    let probe = Arc::clone(&probe);
+                    async move {
+                        let value = request.headers().get(header::AUTHORIZATION);
+                        probe.store(
+                            value.is_some_and(HeaderValue::is_sensitive),
+                            Ordering::SeqCst,
+                        );
+                        next.run(request).await
+                    }
+                },
+            ))
+            .layer(layer)
+            .with_state(app);
+        let request = Request::builder()
+            .uri("/probe")
+            .header(header::AUTHORIZATION, "Bearer gm_probe")
+            .body(Body::empty())
+            .expect("the request");
+        let answered = router.oneshot(request).await.expect("the response");
+        assert_eq!(answered.status(), StatusCode::OK);
+        assert!(
+            marked.load(Ordering::SeqCst),
+            "the Authorization the handler sees is not marked sensitive"
+        );
+    }
+
+    /// Auth off and one worker, so the state builds without a key file or a memory ceiling.
+    fn dev() -> Settings {
+        let vars = [("GRAPH_AUTH", "off"), ("GRAPH_WORKERS", "1")];
+        Settings::from_env(&|name| {
+            vars.iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| OsString::from(*value))
+        })
+        .expect("the settings")
+    }
 }

@@ -7,9 +7,15 @@ use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 /// The whole check's budget: connect, write and read together.
+/// Caveat: 2 s is the image's `HEALTHCHECK` interval and docker's own start-period reasoning, not a
+/// measurement of a loaded server; it fails fast on a server too busy to answer `/healthz` in 2 s,
+/// which restarts it. There is no retry inside the budget, so one lost segment counts as unhealthy.
 pub const BUDGET: Duration = Duration::from_secs(2);
 
 /// The request head is never longer than this; a status line that does not fit is not a 200.
+/// Caveat: 1024 bytes is wider than any status line an HTTP/1.1 server writes and narrow enough to
+/// stay off the heap; the loop stops there and treats what it has as not-a-200, so a server that
+/// prefixes a long reason phrase reads as unhealthy rather than as malformed.
 const MAX_STATUS_LINE: usize = 1024;
 
 /// True only when `127.0.0.1:port/healthz` answers 200 within [`BUDGET`].

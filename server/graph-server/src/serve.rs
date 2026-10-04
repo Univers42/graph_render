@@ -23,6 +23,9 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// How long the runtime waits for blocking work after the drain. A run cannot be preempted, so
 /// a run past its request's timeout is abandoned here rather than waited for.
+/// Caveat: 100 ms is short enough that a container stop is quick and long enough for a finished
+/// blocking task to hand its result back; past it the process exits with the run still going, so the
+/// only way to wait longer is `GRAPH_TIMEOUT_MS`, which `drain` already spends.
 const RUNTIME_GRACE: Duration = Duration::from_millis(100);
 
 /// The pause after a failed `accept`. Caveat: a guess, not a measurement; a persistent failure

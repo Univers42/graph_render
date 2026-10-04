@@ -85,9 +85,13 @@ fn the_file_mode_is_checked() {
     std::fs::write(&path, format!("a {HASH_A}\n")).expect("write");
     for (mode, accepted) in [
         (0o600, true),
+        (0o400, true),
         (0o640, true),
-        (0o644, true),
+        (0o700, true),
+        (0o710, false),
         (0o660, false),
+        (0o644, false),
+        (0o604, false),
         (0o602, false),
     ] {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).expect("chmod");

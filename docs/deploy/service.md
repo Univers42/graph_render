@@ -9,7 +9,6 @@ page explains how the parts fit together.
 |---|---|
 | `scripts/service.sh` | `build`, `run`, `keygen`, `version`, `image` |
 | `deploy/service.Dockerfile` | trixie-slim pinned by digest. It copies the staged artifacts in and builds nothing |
-| `deploy/service.Dockerfile.dockerignore` | the context admits `bin/graph-server` and `embed/` only |
 | `app/vite.embed.config.ts`, `app/src/embed.ts` | the bundle (`scripts/studio.sh embed DIR`) |
 | `scripts/service-image.sh`, `scripts/orch/rows/service-image.rows` | the gate and the SDK row, each with its negative controls |
 
@@ -27,6 +26,12 @@ scripts/service.sh version    # <version>, the path segment hosts put in their t
 - `embed/<version>/`: `graph-studio.js`, `graph-sdk.js`, their chunks under `assets/`,
   `graph_wasm.wasm` and `graph_wasm_threads.wasm`.
 - `embed/VERSION`: `<version>` followed by a newline.
+
+Those three are the only paths staged, and staging them one by one is what excludes everything else:
+the build context *is* `target/service/stage`, so no key file, `.env`, `.git` or scratch path can
+reach the build, and there is no separate ignore file to keep in step with it. The `svc-no-leak` scan
+in `scripts/service-image.sh` checks the image that context produces, so a path that slipped into the
+stage is caught after the fact rather than assumed away.
 
 `<version>` is a content hash: the first 16 hex characters of the sha256 over `sha256sum` of every
 bundle file, sorted by path. Two different bundles therefore never share a URL, and that is what makes
@@ -60,9 +65,9 @@ which exits 0 only on a 200 from `/healthz` and gives up after 2 s.
 
 The key file holds `<name> <sha256-hex>` lines and never a key, and it is mounted read-only at
 run time. The process runs as uid 10001 and reads the file through the file's group
-(`--group-add`), so the file mode is `0640`. Group- or world-writable is refused at start
-(contract C9). No key, `.env` or `.git` is ever in the image: row `svc-no-leak` lists the image's
-files to check.
+(`--group-add`), so the file mode is `0640`. Anything but 0640 or stricter — group write or exec, or
+any bit for others, read included, because the file holds hashes — is refused at start
+(contract C9).
 
 ### Rotate a key
 

@@ -6,6 +6,9 @@
 # its break in `GM_SVC_BREAK`.
 # A `negctl-` row asserts exit 101 and a `test result: FAILED` line: `cargo test` maps both a test
 # failure and a build failure to 101, and only a test that ran and failed prints that line.
+# The four rows added in round 2 also name the test function their break must turn red, and they
+# drop `-q` so that `test <fn> ... FAILED` is in the log: without it a red test binary that failed
+# for some other reason would still pass the row.
 
 # Condition 4, request order and connection limits: a keyless body is refused before a byte of it
 # is buffered, and a head sent at 1 byte/s is cut at GRAPH_HEADER_TIMEOUT_MS.
@@ -37,6 +40,31 @@ negctl-shutdown|0|out=$(scripts/orch/gr -e GM_SVC_BREAK=no-drain cargo test -q -
 # `--release` because that one-second bound is for an optimised build and is ignored in debug.
 svc-caps|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --release --test caps
 negctl-caps|0|out=$(scripts/orch/gr -e GM_SVC_BREAK=lift-caps cargo test -q --manifest-path server/Cargo.toml --features negctl --release --test caps 2>&1); rc=$?; printf '%s\n' "$out"; test $rc -eq 101 && grep -q '^test result: FAILED' <<<"$out"
+
+# Condition 9, auth.rs: a missing, wrong or truncated key is the same 401 with a
+# `WWW-Authenticate: Bearer`, and a good key is 200. Negctl: `any-key` (src/auth.rs) makes every
+# well-formed credential the key name "any-key", so the named test must go red.
+svc-auth|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test auth
+negctl-svc-auth|0|out=$(scripts/orch/gr -e GM_SVC_BREAK=any-key cargo test --manifest-path server/Cargo.toml --features negctl --test auth 2>&1); rc=$?; printf '%s\n' "$out"; test $rc -eq 101 && grep -q '^test result: FAILED' <<<"$out" && grep -q '^test a_missing_wrong_or_truncated_key_is_401_with_a_challenge \.\.\. FAILED$' <<<"$out"
+
+# Condition 9 and 12, observe.rs: no log line holds the key, its hash, or the word that introduces
+# one. Negctl: `log-header` (src/observe.rs) puts the raw `Authorization` on the line.
+svc-log|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test log
+negctl-svc-log|0|out=$(scripts/orch/gr -e GM_SVC_BREAK=log-header cargo test --manifest-path server/Cargo.toml --features negctl --test log 2>&1); rc=$?; printf '%s\n' "$out"; test $rc -eq 101 && grep -q '^test result: FAILED' <<<"$out" && grep -q '^test no_line_holds_the_key_or_its_hash \.\.\. FAILED$' <<<"$out"
+
+# Condition 10, embed.rs: a file is served public and immutable under its content version, and
+# every path outside the table is a 404 — traversal, a directory, a dotfile, `VERSION`, and both
+# symlinks that point out of GRAPH_EMBED_DIR. Negctl: `follow-symlinks` (src/embed.rs) walks with
+# `metadata` instead of `symlink_metadata`, so `escape.js` and `linked/secret.js` come back 200.
+svc-embed|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test embed
+negctl-svc-embed|0|out=$(scripts/orch/gr -e GM_SVC_BREAK=follow-symlinks cargo test --manifest-path server/Cargo.toml --features negctl --test embed 2>&1); rc=$?; printf '%s\n' "$out"; test $rc -eq 101 && grep -q '^test result: FAILED' <<<"$out" && grep -q '^test every_path_outside_the_files_is_404 \.\.\. FAILED$' <<<"$out"
+
+# Condition 5, layout.rs: the permit moves into the blocking closure, so a run answered 503 at its
+# deadline keeps its slot until it ends — workers + queue more requests are 429 until then — and a
+# panic is a 500 with the next run a 200. Negctl: `drop-permit` (src/layout.rs) leaves the permit
+# outside the closure, so the slot frees at the timeout.
+svc-slots|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test limits
+negctl-svc-slots|0|out=$(scripts/orch/gr -e GM_SVC_BREAK=drop-permit cargo test --manifest-path server/Cargo.toml --features negctl --test limits 2>&1); rc=$?; printf '%s\n' "$out"; test $rc -eq 101 && grep -q '^test result: FAILED' <<<"$out" && grep -q '^test a_timed_out_run_keeps_its_slot_until_it_ends \.\.\. FAILED$' <<<"$out"
 
 # Condition 3, memory budget: the worker count is min(cores, floor(memory.max / PER_SLOT_BYTES)),
 # from src/config/slots.rs (4_635_677_069, the contract ingest term binding). Eight GiB holds one

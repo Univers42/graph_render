@@ -15,6 +15,7 @@ use graph_server::config::Settings;
 use graph_server::keys;
 use http_body_util::BodyExt;
 use std::collections::BTreeMap;
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -76,6 +77,10 @@ pub fn scratch() -> PathBuf {
         NEXT.fetch_add(1, Ordering::Relaxed)
     );
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
+    // The name is a pid and a counter, and a pid is reused: a leftover from an earlier run used
+    // to make the fixture's own `symlink` and `create_dir_all` calls fail with AlreadyExists,
+    // which turned a negative control red for the wrong reason. Start empty.
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("a scratch directory");
     dir
 }
@@ -91,6 +96,11 @@ pub fn server_with(env: &[(&str, &str)], hooks: Hooks) -> Server {
     let minted = keys::keygen("tester").expect("a key from /dev/urandom");
     let keys_file = dir.join("keys");
     std::fs::write(&keys_file, format!("{}\n", minted.line)).expect("the key file");
+    // 0640, not whatever the umask gave it: the service refuses anything wider than 0640
+    // (src/keys.rs), and `std::fs::write` follows the umask, so without this every test server
+    // would refuse to build its state.
+    let readable = std::fs::Permissions::from_mode(0o640);
+    std::fs::set_permissions(&keys_file, readable).expect("the key file mode");
     let mut vars: BTreeMap<String, String> = BTreeMap::new();
     vars.insert(
         "GRAPH_API_KEYS_FILE".into(),

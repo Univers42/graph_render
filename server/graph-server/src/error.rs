@@ -9,6 +9,9 @@ use axum::response::{IntoResponse, Response};
 /// The longest message an error body carries, in bytes. A refusal can quote the caller's own
 /// text (an unknown member's key, a duplicate id), and without a bound a 64 MiB key would be
 /// echoed back whole.
+/// Caveat: 256 bytes, truncated at a character boundary and marked with `...`, so a message past it
+/// is a prefix and not the whole reason; 256 is a guess at one screen line, and the body that
+/// matters — the `error` name — is never truncated.
 const MAX_MESSAGE: usize = 256;
 
 /// A refusal: the status it answers with, its code name and a one-line reason.

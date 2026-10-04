@@ -52,14 +52,23 @@ fn a_missing_key_file_is_exit_2() {
 fn a_group_writable_key_file_is_exit_2() {
     let setup = setup(&[]);
     chmod(&setup, 0o620);
-    refuses(&setup, "key file: is group- or world-writable", &[]);
+    refuses(&setup, "key file: is not 0640 or stricter", &[]);
 }
 
 #[test]
 fn a_world_writable_key_file_is_exit_2() {
     let setup = setup(&[]);
     chmod(&setup, 0o602);
-    refuses(&setup, "key file: is group- or world-writable", &[]);
+    refuses(&setup, "key file: is not 0640 or stricter", &[]);
+}
+
+/// The hashes in the file are secrets too, so a world-readable file is refused as well: only
+/// 0640 or stricter starts.
+#[test]
+fn a_world_readable_key_file_is_exit_2() {
+    let setup = setup(&[]);
+    chmod(&setup, 0o644);
+    refuses(&setup, "key file: is not 0640 or stricter", &[]);
 }
 
 #[test]
