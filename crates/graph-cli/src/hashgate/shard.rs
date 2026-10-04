@@ -90,7 +90,9 @@ impl fmt::Display for Shard {
 /// arms are sequential, but the tier arms are not) and past that the queue is what the
 /// budget was for.
 pub fn per_arm() -> u32 {
-    std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8)
+    std::thread::available_parallelism()
+        .map_or(1, |cores| u32::try_from(cores.get()).unwrap_or(u32::MAX))
+        .clamp(1, 8)
 }
 
 /// `work` once per shard of `count`, concurrently, and the results **in shard order**.
@@ -150,12 +152,13 @@ pub fn merge(seeds: u32, stages: &[&str], shards: &[Vec<String>]) -> Result<Vec<
                 ));
             };
             let slot = stage_index * seeds as usize + seed as usize;
+            let stage = stages[stage_index];
             let Some(held) = slots[slot].take() else {
                 slots[slot] = Some(line.clone());
                 continue;
             };
             return Err(format!(
-                "slot {slot} ({stages[stage_index]} {seed}) filled twice: {held:?} and {line:?}"
+                "slot {slot} ({stage} {seed}) filled twice: {held:?} and {line:?}"
             ));
         }
     }

@@ -14,6 +14,16 @@ use std::time::Duration;
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
 /// child is a gate that could not run (exit 2), never one that waits forever.
 ///
+/// **It bounds one shard of one arm, not a whole arm.** `hashgate/shard.rs` splits an arm's
+/// seeds across `shard::per_arm()` children, so the budget is per shard: the arm's cost is
+/// divided rather than the timeout raised, which is why `--seeds 1000` fits in it again.
+/// On this host one native arm at 1000 seeds is roughly 3000–4000s of one-core work
+/// (measured: the layouts alone are 2.8s per seed at n=300 and 10.2s at n=600, and a
+/// native arm runs 67 stages per seed); over 8 shards that is ~500s per child, against a
+/// 2700s budget. The merge is the check on the split: `shard::merge` refuses a line that is
+/// missing, doubled, or in a stage or seed the run does not have, so a shard that died
+/// cannot be mistaken for an arm that agreed.
+///
 /// Phase 3 deviation: raised from 900s to 2700s. `layout.packing.circle`'s non-planar
 /// fallback is O(n^2) per seed (`docs/decisions/planarity-fallback.md`), and a random
 /// synthetic graph at gate density is essentially always non-planar, so `hashgate-arm
@@ -24,12 +34,15 @@ use std::time::Duration;
 ///
 /// Ponytail: the limit is a guess about how long an honest run takes, so it is a guess
 /// about the host as much as about the work. Failing input: a hashgate or roundtrip child
-/// still running at 2700s — `--seeds 1000` on a loaded or shared host, say. Direction: a
-/// correct but slow run is reported as a failure ("killed after 2700000ms without
-/// exiting", exit 2), which reads as a broken gate rather than a slow one. Escape hatch:
-/// re-run on an idle host; fewer seeds is for exploration only, never for a gate row,
-/// whose seed count is the row's own claim. Phase 9 removes the O(n^2) fallback this
-/// budget exists for, and the limit goes back to what the two-stage gate needs.
+/// still running at 2700s — one *shard* of a `--seeds 1000` run on a loaded or shared host,
+/// or a `roundtrip` run, which is not sharded. Direction: a correct but slow run is
+/// reported as a failure ("killed after 2700000ms without exiting", exit 2), which reads as
+/// a broken gate rather than a slow one — and for a sharded arm it names one shard, so the
+/// seed it never reached is a hole `merge` then refuses rather than a lost line the
+/// comparison would accept. Escape hatch: re-run on an idle host; fewer seeds is for
+/// exploration only, never for a gate row, whose seed count is the row's own claim. Phase 9
+/// removes the O(n^2) fallback this budget exists for, and the limit goes back to what the
+/// two-stage gate needs.
 pub const CHILD_TIMEOUT: Duration = Duration::from_secs(2700);
 
 pub fn sha256_hex(bytes: &[u8]) -> String {

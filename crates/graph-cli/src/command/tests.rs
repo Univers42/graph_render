@@ -7,6 +7,7 @@
 
 use super::*;
 use clap::Parser;
+use hashgate::shard::Shard;
 use std::ffi::OsStr;
 
 /// The crate's own command enum behind a `Parser`. `Command` derives `Subcommand`, which
@@ -77,11 +78,15 @@ fn an_ingest_check_must_name_the_member_it_parses() {
     assert!(parses(&write).is_ok());
 }
 
-/// The arm's shard, as the parser read it.
-fn arm_shard(args: &[&str]) -> Result<Shard, clap::Error> {
-    match parses(args)?.command {
+/// The arm's shard, as the parser read it, or why the parser refused the line.
+///
+/// The clap error is a string because it is compared by text: `assert_eq!` on
+/// `Result<_, clap::Error>` cannot work, and what this test claims is that the flag parsed,
+/// not how clap phrases a refusal.
+fn arm_shard(args: &[&str]) -> Result<Shard, String> {
+    match parses(args).map_err(|e| e.to_string())?.command {
         Command::HashgateArm { shard, .. } => Ok(shard),
-        other => panic!("not hashgate-arm: {other:?}"),
+        Command::HashgateArm { .. } => unreachable!(),
     }
 }
 
@@ -95,7 +100,10 @@ fn hashgate_arm_defaults_to_the_whole_run_and_refuses_an_impossible_shard() {
         arm_shard(&["hashgate-arm", "--seeds", "4", "--shard", "2/3"]),
         Ok(Shard { index: 2, count: 3 })
     );
-    assert_eq!(arm_shard(&["hashgate-arm", "--seeds", "4"]).map(|s| s.to_string()), Ok("0/1".into()));
+    assert_eq!(
+        arm_shard(&["hashgate-arm", "--seeds", "4"]).map(|s| s.to_string()),
+        Ok("0/1".to_owned())
+    );
     for bad in ["1/0", "3/3", "x/2", "2"] {
         assert!(arm_shard(&["hashgate-arm", "--seeds", "4", "--shard", bad]).is_err(), "{bad}");
     }

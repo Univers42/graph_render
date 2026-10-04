@@ -27,7 +27,6 @@ mod transport;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
-use std::path::Path;
 pub(crate) use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::layout::force::Split;
 use graph_core::layout::force::spring::SpringParams;

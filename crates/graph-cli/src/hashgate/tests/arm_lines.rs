@@ -6,6 +6,7 @@ use super::super::knob::setting::setting;
 use super::super::stages::stage_bytes;
 use super::super::stages::stages as stage_ids;
 use super::super::transport;
+use super::super::shard::Shard;
 use super::super::{LAYOUT, TRANSPORT, arm_lines, stage_bytes_threaded, threads_lines};
 use super::env;
 use super::honest;
@@ -15,7 +16,7 @@ use graph_core::layout::force::{BarnesHut, ParticleMesh, Split, YifanHu};
 
 #[test]
 fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
-    let lines = arm_lines(2, &honest()).expect("runs");
+    let lines = arm_lines(2, Shard::WHOLE, &honest()).expect("runs");
     let prefixes: Vec<_> = lines
         .lines()
         .map(|l| l.rsplit_once(' ').expect("digest").0)
@@ -30,7 +31,7 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
         ..honest()
     };
     assert!(
-        arm_lines(2, &refused)
+        arm_lines(2, Shard::WHOLE, &refused)
             .expect_err("refused")
             .starts_with("seed 0: ")
     );
@@ -58,13 +59,13 @@ fn transport_arm(fill: char) -> Vec<String> {
 #[test]
 fn the_threaded_arm_prints_its_stages_in_the_same_order_as_the_scalar_one() {
     let setting = honest();
-    let scalar: Vec<String> = arm_lines(2, &setting)
+    let scalar: Vec<String> = arm_lines(2, Shard::WHOLE, &setting)
         .expect("runs")
         .lines()
         .map(str::to_owned)
         .collect();
     for workers in super::tier::WORKER_COUNTS {
-        let threaded = threads_lines(2, &setting, workers).expect("runs");
+        let threaded = threads_lines(2, Shard::WHOLE, &setting, workers).expect("runs");
         assert_eq!(
             threaded.len(),
             scalar.len(),
