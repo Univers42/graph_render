@@ -81,7 +81,13 @@ class RunSpec:
 
 
 GATE = (RunSpec("plain", FULL), RunSpec("isolated", FULL, isolated=True),
-        RunSpec("csp", ("load", "channels", "replay"), csp=HOST_CSP))
+        # `pick` then `select` is what opens the hover card: the pointer move in `select`
+        # (`embedrows.step_select`, the `mouseMoved` dispatch) is the hover the card follows, and
+        # `pick` is the node it moves onto. `resolve` then reads the inspector the same gesture
+        # opened. All three render React inline styles (`ui/HoverCard.tsx`), which is the claim
+        # under test here: a host CSP without 'unsafe-inline' admits them, and the proof is
+        # `embed-no-console-error` PASSing over a run that opened one.
+        RunSpec("csp", ("load", "pick", "select", "resolve", "channels", "replay"), csp=HOST_CSP))
 
 # One run per fault, and one fault per row it targets: a row with no fault of its own, or with a
 # fault that leaves it NOT-RUN, is a row whose regression nothing would ever catch.

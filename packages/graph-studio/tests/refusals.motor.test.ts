@@ -50,7 +50,7 @@ async function settled(): Promise<void> {
   for (let round = 0; round < 8; round += 1) await Promise.resolve();
 }
 
-test("a source whose layout is refused is loaded and shows nothing", async () => {
+test("a source whose layout is refused is rolled back with the frame and shows nothing", async () => {
   const client = scripted();
   const { studio, seen } = desk(client);
   const starting = studio.start();
@@ -59,7 +59,9 @@ test("a source whose layout is refused is loaded and shows nothing", async () =>
   const entry = await starting;
   const state = studio.store.get();
   assert.deepEqual([entry.ok, entry.error?.title, entry.error?.code], [false, "RunRefusedError", "code 8 (LayoutFailed)"]);
-  assert.deepEqual([state.graph?.nodeCount, state.run, state.meta], [400, null, null]);
+  // The layout was refused, so the graph it was for is not on screen and the store must not claim
+  // it: the clear that empties the frame rolls `graph` back with it (`studio/pipeline/clear.ts`).
+  assert.deepEqual([state.graph, state.run, state.meta], [null, null, null]);
   assert.equal(seen.frames.at(-1)?.frame.nodeCount, 0);
   assert.equal(state.error?.title, "RunRefusedError");
   assert.deepEqual(state.busy, []);

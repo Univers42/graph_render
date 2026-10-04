@@ -175,3 +175,13 @@ service itself up. An exit of 2, or a red row for some other reason, turns the c
   `deploy/nav/serviceproxy.py`, which forwards headers the same way. Caveat: a proxy that strips
   or rewrites `Cross-Origin-*` headers leaves the page unisolated, and the studio then runs on one
   thread.
+
+## Supply chain
+
+`scripts/orch/rows/audit.rows` (also in `develop-full.rows`) runs `cargo deny` over both lockfiles —
+`Cargo.lock` for the motor, `server/Cargo.lock` for this service, one policy in `deny.toml` passed
+with `--config` — checking RustSec advisories, the SPDX `allow` list, duplicate versions and crate
+provenance, plus `npm audit --omit=dev` over the shipped bundle's runtime deps. A known-vuln
+dependency fails the gate. Every row fetches over the network, so one can go red with no change in
+the tree; the log tells a finding from a failed fetch. `deny.toml` carries no `ignore`: adding one
+needs a linked issue and a one-line reason on the entry, and never goes in to make a row green.
