@@ -77,6 +77,8 @@ export interface LiveForce {
   shuffle?(): number;
   /** The parameters the motor itself holds, by the wire's own field names. */
   params?(): ForceParams;
+  /** The knobs last set on this port, which the next session over the graph starts with. */
+  knobs?(): ForceKnobs;
 }
 
 /** The wire's own parameter names, in `LiveParams`' declaration order. */
@@ -122,3 +124,6 @@ export function settlesLive(layoutId: string): boolean {
 
 /** The tick a live session runs, by the SDK's own name for it. */
 export type ForceEngine = "barnes_hut" | "particle_mesh";
+
+/** Where a new session puts the nodes: the motor's spiral, or the last layout's positions. */
+export type ForceSeed = "spiral" | "layout";

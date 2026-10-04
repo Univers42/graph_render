@@ -19,7 +19,7 @@ import { ColumnViews, isRegisteredColumn } from "./views.ts";
 import { ForceSession } from "./force.ts";
 import { AbiContractError, InvalidHandleError, WasmUnavailableError } from "./errors.ts";
 import { INVALID_HANDLE_CODE, invoke, lastError } from "./calls.ts";
-import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
+import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type ForceSeed, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunOptions, RunResult } from "./types.ts";
 import { checkOptions } from "./options.ts";
 import type { GeometryKinds } from "./geometry-kinds.ts";
@@ -277,18 +277,18 @@ export class Motor {
    *  **never clamped**, so an out-of-range value is a refusal with the session left exactly as
    *  it was — and a refused creation leaves no session behind.
    *
-   *  **No layout run is required**, exactly as for {@link Motor.analysis}: the session is built
-   *  from the topology and seeded on the engine's own spiral. It does not read the graph
-   *  handle's snapshot, does not replace it, and **outlives it** — {@link Motor.release} on
-   *  `handle` leaves the session running, and the session is released with its own
-   *  {@link ForceSession.release}.
+   *  **No layout run is required** at the default `seed` (`"spiral"`), as for {@link Motor.analysis}:
+   *  the session starts on the engine's spiral, straight after {@link Motor.build}. `seed` `"layout"`
+   *  ({@link ForceSeed}) starts it on the centres of `handle`'s last run, refused with `NoGeometryYet`
+   *  before one. Either way the session never replaces the handle's snapshot and **outlives it**:
+   *  {@link Motor.release} on `handle` leaves it running; {@link ForceSession.release} releases it.
    *
    *  The two have separate id spaces and separate error codes (`InvalidHandle` against
    *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other.
    *
    *  `engine` picks the tick ({@link ForceEngine}); every other method is the same for both. */
-  forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForceSession {
-    return new ForceSession(this.#requireLoaded(), handle, params, engine);
+  forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): ForceSession {
+    return new ForceSession(this.#requireLoaded(), handle, params, { engine, seed });
   }
 }
 

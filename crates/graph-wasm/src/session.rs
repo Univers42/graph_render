@@ -34,8 +34,10 @@ pub(crate) mod params;
 mod grow;
 #[cfg(test)]
 mod tests;
+mod warm;
 
 pub use grow::grow;
+pub use warm::create_warm;
 
 /// The parameter buffer's byte length: one `f64` per [`LiveParams`] field, little-endian.
 /// Re-exported from `params` because it is the number the wire's two parameter calls are
@@ -120,6 +122,10 @@ pub fn create(
     engine: Engine,
 ) -> Result<u32, Code> {
     let session = ForceSession::new(topology, params).map_err(|_| Code::SessionRefused)?;
+    insert(graph, session, engine)
+}
+
+fn insert(graph: u32, session: ForceSession, engine: Engine) -> Result<u32, Code> {
     let session = match engine {
         Engine::BarnesHut => session,
         Engine::ParticleMesh => session.with_particle_mesh(),
@@ -217,7 +223,8 @@ pub fn unpin_all(id: u32) -> Result<(), Code> {
 /// `gm_force_session_grow` or tick (C7): [`grow`] pushes a row per node `gm_graph_extend`
 /// appended, which may move the `Vec`'s storage, and a particle-mesh tick swaps the column
 /// with its scratch. `set_positions`, the other writer that could move it, is reachable
-/// solely from `ForceSession::from_positions`, which this ABI does not export. A host still
+/// solely from `ForceSession::from_positions`, which this ABI calls only to build a new session
+/// ([`create_warm`]), never on a live one. A host still
 /// treats a view as good only until the next motor call, because a wasm memory growth
 /// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's. An address
 /// or length the wire's `u32` cannot carry is refused with [`Code::IndexOutOfRange`], never
