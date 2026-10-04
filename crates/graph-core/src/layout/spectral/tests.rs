@@ -117,7 +117,7 @@ fn check_spectrum(neighbors: Vec<Vec<u32>>, n: usize, want: &[f64], expected_tie
     let local_of = local_positions(std::slice::from_ref(&members), n);
     let graph = ComponentGraph::build(&members, &neighbors, &local_of);
     let dims_eff = DIMS.min(n - 1);
-    let (solved, tier, iterations) = solve_component(&graph, dims_eff);
+    let (solved, tier, iterations) = solve_component(&graph, Width::Spectral2d);
     assert_eq!(tier, expected_tier, "n={n}");
     let eig = solved.unwrap_or_else(|| {
         panic!("n={n} tier={tier:?} did not solve (lobpcg iterations={iterations:?})")
@@ -225,3 +225,4 @@ fn nothing_solved_only_when_something_was_attempted_and_none_solved() {
 }
 
 mod end_to_end;
+mod three_d;

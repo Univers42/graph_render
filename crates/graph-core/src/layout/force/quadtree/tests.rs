@@ -252,3 +252,16 @@ fn a_cell_s_bounds_are_its_parent_s_quadrant() {
         "the root's run is the whole arena"
     );
 }
+
+/// Two points one `f64` step apart in `y` and equal in `x` split for 33 levels before the
+/// `x` span stops shrinking at 1e6, so `insert_leaf` bails after pushing internal nodes.
+#[test]
+fn a_bail_after_a_split_keeps_both_points_in_one_leaf() {
+    let (tree, ..) = built(&[(1e6, 0.0), (1e6, 1e-300)]);
+    let mut seen = visited_points(&tree);
+    seen.sort_unstable();
+    assert_eq!(seen, [0, 1], "every point is in a leaf");
+    for (k, cell) in tree.cells().iter().enumerate() {
+        assert!(cell.end > cell.start, "cell {k} holds a point");
+    }
+}

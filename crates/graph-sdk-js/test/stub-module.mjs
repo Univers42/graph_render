@@ -17,7 +17,8 @@ import { readFileSync } from "node:fs";
  *  `src/wasm.ts` itself when this module is loaded, so it cannot silently fall behind again. */
 export const REQUIRED_EXPORT_NAMES = [
   "gm_abi_version", "gm_alloc", "gm_free", "gm_layout_count", "gm_layout_id", "gm_layout_params",
-  "gm_build", "gm_build_contract", "gm_run", "gm_node_count", "gm_geometry_kind",
+  "gm_build", "gm_build_contract", "gm_build_columns", "gm_run", "gm_node_count",
+  "gm_geometry_kind",
   "gm_edge_geometry_kind", "gm_dim", "gm_column_ptr", "gm_column_len", "gm_snapshot_json",
   "gm_snapshot_bytes", "gm_post_count", "gm_post_id", "gm_post_run", "gm_analysis_count",
   "gm_analysis_id", "gm_analysis_run", "gm_release", "gm_last_error", "gm_force_session_create",

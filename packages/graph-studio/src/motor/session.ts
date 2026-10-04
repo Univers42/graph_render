@@ -5,14 +5,12 @@
  * Knows the motor only by the members it calls, so it runs the same in a worker, on the
  * page with the worker switched off, and under node with the real module.
  */
-import { decodeSnapshot, idAt } from "../../../graph-render/src/snapshot/decode.ts";
-import { type Document, documentFor } from "../source/document.ts";
-import type { IngestNode } from "../source/ingest.ts";
-import { type GraphMeta, metaOf } from "../source/meta.ts";
+import { type Built, describe } from "./built.ts";
+import { type Assembler, type Document, documentFor } from "./documents.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
 import {
-  DEFAULT_KNOBS, type ForceEngine, type ForceKnobs, type ForceParams, type ForcePort, type ForceSeed, type LiveForce,
+  DEFAULT_KNOBS, type ForceEngine, type ForceParams, type ForcePort, type ForceSeed, type LiveForce,
 } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
@@ -32,6 +30,13 @@ export interface MotorLike<Handle> {
   posts(): readonly string[];
   analyses(): readonly string[];
   build(ingestJson: string): Handle;
+  /**
+   * Builds a graph from the **binary** columnar document (`docs/contract/ingest-columns.md`).
+   * Separate from `build` because it is a separate export in the module and stays separate: a
+   * caller holding columns must not be routed through a JSON text it would have to build
+   * first, and a caller holding text must not be routed through an encoder it does not need.
+   */
+  buildColumns(bytes: Uint8Array): Handle;
   layout(handle: Handle, layoutId: string): unknown;
   post(handle: Handle, postId: string): unknown;
   analysis(handle: Handle, analysisId: string): AnalysisFace;
@@ -45,6 +50,12 @@ export interface SessionDeps<Handle> {
   readonly motorFrom: (wasmUrl: string, threads?: number) => Promise<MotorLike<Handle>>;
   readonly fetchText: (url: string) => Promise<string>;
   readonly digest: (bytes: Uint8Array) => Promise<string | null>;
+  /**
+   * Turns a generated graph's columns into the binary document. Injected for the same reason
+   * `digest` is: this module may not import the motor's SDK (`app/eslint.config.js`), and the
+   * SDK owns the encoder.
+   */
+  readonly assemble: Assembler;
   readonly now: () => number;
   /**
    * Told when a force session is released, so whatever is stepping it stops at once. Never
@@ -72,25 +83,6 @@ export interface Session {
   forces(): LiveForce | null;
 }
 
-interface Built<Handle> {
-  readonly handle: Handle;
-  readonly nodes: readonly IngestNode[];
-  /** The id table the description was last built against; `null` before the first run. */
-  described: Uint8Array | null;
-  /** The motor's live session over this graph, made when one is first asked for. */
-  forced: ForcePort | null;
-  /** The port over it, cached so the loop sees one object for one session. */
-  port: LiveForce | null;
-  /** Node ids in the force session's dense row order; `null` until a layout has run. */
-  order: readonly string[] | null;
-  /** The tick the live session is made with, set by each run. */
-  engine: ForceEngine;
-  /** True when the last run drew a picture the session starts from, false after a scatter. */
-  warm: boolean;
-  /** The knobs the last session ran with, so a re-layout keeps what the user tuned. */
-  knobs: ForceKnobs;
-}
-
 /** Nothing can run in the state the session is in. */
 export class SessionRefusal extends Error {
   constructor(message: string) {
@@ -105,23 +97,6 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
   if (typeof crypto === "undefined" || !("subtle" in crypto)) return null;
   const digest = await crypto.subtle.digest("SHA-256", bytes.slice());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
-  return true;
-}
-
-/** The description of the graph in the order this snapshot uses, if that order is news. */
-function describe<Handle>(built: Built<Handle>, bytes: Uint8Array): GraphMeta | null {
-  const snapshot = decodeSnapshot(bytes);
-  const table = snapshot.nodeIds.bytes;
-  if (built.described !== null && sameBytes(built.described, table)) return null;
-  const order = Array.from({ length: snapshot.nodeCount }, (_, i) => idAt(snapshot.nodeIds, i));
-  built.described = table.slice();
-  built.order = order;
-  return metaOf(built.nodes, order, snapshot);
 }
 
 interface Pass {
@@ -273,11 +248,14 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     if (built === null) throw new SessionRefusal("no graph is loaded");
     return { motor, built };
   };
-  /** Builds the next graph and lets the last one go, force session and all. */
+  /** Builds the next graph and lets the last one go, force session and all. Which build is
+   *  called follows the document: a generated graph is already columns, a document or a
+   *  fixture is already text, and neither is ever converted to the other's form. */
   const replace = (document: Document, started: number): GraphSummary => {
     const open = motor;
     if (open === null) throw new SessionRefusal("the motor is not open");
-    const handle = open.build(document.json);
+    const payload = document.payload;
+    const handle = payload.kind === "columns" ? open.buildColumns(payload.bytes) : open.build(payload.text);
     if (built !== null) open.release(built.handle);
     forget(built, deps.onForget);
     built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null,
@@ -290,7 +268,7 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
       return { layouts: motor.layouts(), posts: motor.posts(), analyses: motor.analyses() };
     },
     load: async (source, fixturesUrl) => {
-      const document = await documentFor(source, fixturesUrl, deps.fetchText);
+      const document = await documentFor(source, fixturesUrl, deps.fetchText, deps.assemble);
       return replace(document, deps.now());
     },
     layout: async (layoutId, postId) => runLayout(ready(), deps, layoutId, postId),
