@@ -186,6 +186,9 @@ negctl-reference-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 
 negctl-grid-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_GRID_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-sugiyama-layer-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_SUGIYAMA_LAYER_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+# copied verbatim from scripts/orch/rows/p12-t3.rows:84 — the strong form of `negctl-dim-z-mismatch`
+# above, which only checks `ne 0` and so would pass on an exit 2 for the wrong reason.
+negctl-node-z|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8 2>&1); rc=$?; [ "$rc" = 2 ] || { echo "expected exit 2 (the z-length refusal), got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "perturbed exercise seed .*: node\.z: 4 values, need 3" || { echo "the run did not refuse on the z column it perturbed:"; echo "$out"; exit 1; }'
 negctl-force-theta|nonzero|scripts/orch/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-fa2-scaling-ratio|nonzero|scripts/orch/gr -e GM_MUTATE_FA2_SCALING_RATIO=3 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
