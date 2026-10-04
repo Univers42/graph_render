@@ -4,6 +4,8 @@
 //!
 //! The whole batch is validated before the first write. Interning writes to the arena and
 //! claiming writes to the id tables, so a refusal found halfway would leave a half state.
+//! [`columns`] is the same append over a `GMX1` batch's rows, and keeps that rule.
+mod columns;
 
 use super::Topology;
 use crate::arena::{CapacityError, FixedState};

@@ -52,7 +52,9 @@ pub use ids::{
     EdgeIdParts, RecordRef, hash_string, make_edge_id, make_note_node_id, make_record_node_id,
     make_tag_node_id, parse_node_id,
 };
-pub use index::columns::{ColumnsRefusal, EdgeCells, EntryTable, NodeCells, index_columns};
+pub use index::columns::{
+    BatchEdgeCells, ColumnsRefusal, EdgeCells, EntryTable, NodeCells, index_columns,
+};
 pub use index::{ExtendError, Stats, Topology, empty_model, index_model, nodes_equal};
 pub use layout::Geometry;
 pub use layout::grid::{Grid, GridParams};
