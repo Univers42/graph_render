@@ -17,20 +17,21 @@ sign flip, a column swap or an in-span rotation scores 0.0 on the span metric an
 otherwise leave no trace at all. It is recorded, not gated: measured on this tree, our basis
 inside a non-degenerate span differs from the reference's by a rotation on some components
 (see `docs/measurements/fix-harness-py.md`, M20), and gating it would turn a green row red
-over a port divergence rather than over a harness defect.
-A component whose eigenvalues leave the compared object undefined (a tie across the
-`dims`-column boundary for either layout; a tie inside the `dims` columns for pivot_mds) is
-counted under "degenerate", not compared. The result holds the worst value per layout, keyed
-by the fixture's own ids; graph-cli holds the ceilings.
+over a port divergence rather than over a harness defect. A component whose eigenvalues leave
+the compared object undefined (a tie across the `dims`-column boundary for either layout; a tie
+inside the `dims` columns for pivot_mds) is counted under "degenerate", not compared. The
+result holds the worst value per layout, keyed by the fixture's own ids; graph-cli holds the
+ceilings.
 
 Ponytail: the reference seeds LOBPCG's extra start columns randomly, so the spectral worst
 carries some of the reference's own run-to-run noise, and no span metric can see a rotation
 *inside* a degenerate pair — that is what the "degenerate" bucket is for. The gate model is
 one connected graph per seed, so a fully degenerate eigenspace is not exercised.
 Ponytail (the 3-D arms): at `dims = 3` the span carries one more ill-conditioned direction to
-resolve on the same solver pair, so the 3-D worst is expected to sit slightly above the 2-D one
-at the same median; and the metric still cannot see a reflection or a rotation inside the span,
-where a 3-D basis leaves three columns of orthogonal freedom rather than one.
+resolve on the same solver pair, so the 3-D worst sits slightly above the 2-D one at the same
+median (measured, 1.030e-5 against 7.178e-6), and the metric still cannot see a reflection or
+a rotation inside the span, where a 3-D basis leaves three columns of orthogonal freedom rather
+than one (`docs/measurements/p12-3d-oracles.md`).
 """
 import contextlib
 import json
@@ -190,9 +191,13 @@ def reference_of(graph, key, dims):
     return ref._pivot_mds_component_coordinates(graph, dims, ref._MDS_PIVOTS)
 
 
-def metric_of(key, dims, graph, idx, ours, theirs):
+def metric_of(key, dims, component, blocks):
     """One component's `(gated metric, recorded oriented gap)`, or None when its eigenspectrum
     leaves the comparison undefined.
+
+    `component` is `(graph, idx)` and `blocks` is `(ours, theirs)` -- the two pairs that always
+    travel together, bundled to stay inside the house limit of four parameters (this took five
+    before the 3-D arms and six after `dims` was threaded through).
 
     `spectral` stays on the span metric: measured on this tree our basis inside a
     non-degenerate `dims`-column span differs from the reference's by a **rotation** on some
@@ -201,10 +206,12 @@ def metric_of(key, dims, graph, idx, ours, theirs):
 
     Every degeneracy threshold is indexed by `dims` because the compared object is a
     `dims`-column span: "enough eigenvalues to define that span" and "a tie at the span's
-    boundary" are both functions of the width, and hard-coding the 2-D numbers would let a
-    3-D arm compare a component whose span the reference itself leaves arbitrary. At
-    `dims = 2` each expression below is the literal it replaced.
+    boundary" are both functions of the width, and hard-coding the 2-D numbers would let a 3-D
+    arm compare a component whose span the reference itself leaves arbitrary. At `dims = 2`
+    each expression below is the literal it replaced.
     """
+    graph, idx = component
+    ours, theirs = blocks
     if key.startswith("spectral"):
         values = laplacian_spectrum(graph, idx)
         # The Laplacian spectrum carries the trivial zero at index 0, so `dims` kept
@@ -241,15 +248,10 @@ def block(case, key):
     return np.column_stack(columns).astype(float)
 
 
-# layout key -> (the JSON key the fixture carries, the reference's `dims` for it). The 3-D
-# arms are the same two reference functions asked for three columns, which is the only thing
-# that makes them a third column.
-ARMS = {
-    "spectral": ("spectral", 2),
-    "pivot_mds": ("pivot_mds", 2),
-    "spectral_3d": ("spectral_3d", 3),
-    "pivot_mds_3d": ("pivot_mds_3d", 3),
-}
+# Arm key -> the reference's `dims` for it. The key doubles as the JSON key the fixture
+# carries, which is why there is no pair here. The 3-D arms are the same two reference
+# functions asked for three columns, which is the only thing that makes them a third column.
+ARMS = {"spectral": 2, "pivot_mds": 2, "spectral_3d": 3, "pivot_mds_3d": 3}
 
 layouts = {
     key: {"cases": 0, "degenerate": 0, "worst": 0.0, "oriented_worst": 0.0}
@@ -258,7 +260,7 @@ layouts = {
 for text in lines:
     case = json.loads(text)
     graph = graph_of(case)
-    for key, (_, dims) in ARMS.items():
+    for key, dims in ARMS.items():
         ours = block(case, key)
         assert ours.shape[1] == dims, f"{key}: {dims} columns expected, got {ours.shape[1]}"
         # The reference prints progress and fallback notices; stdout is this arm's own
@@ -271,7 +273,7 @@ for text in lines:
             # the 3-D arms inherit the 2-D floor unchanged.
             if len(idx) < 3:
                 continue
-            found = metric_of(key, dims, graph, idx, ours, theirs)
+            found = metric_of(key, dims, (graph, idx), (ours, theirs))
             if found is None:
                 layouts[key]["degenerate"] += 1
                 continue
