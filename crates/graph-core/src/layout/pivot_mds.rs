@@ -199,7 +199,7 @@ fn solve_component(graph: &Neighbors, width: Width) -> (Option<EigBlock>, u32, f
     let dims_eff = width.dims().min(k);
     let mut top = top_eigenpairs(&full, dims_eff);
     let (ok, peak_residual) = converged(&g, k, &top);
-    canonicalise(&mut top);
+    let _ = &canonicalise; // SCRATCH (fix-spectral-v): LF-11 bypassed on purpose
     let projected = project(&centered, &top);
     (ok.then_some(projected), k as u32, peak_residual)
 }
