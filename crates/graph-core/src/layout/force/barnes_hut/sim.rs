@@ -11,6 +11,7 @@
 //! session step and a batch step are the same computation and not two that agree.
 
 use super::seed::golden_spiral;
+pub(in crate::layout::force) use super::seed::spiral_point;
 use crate::index::Topology;
 use crate::layout::force::LiveParams;
 use crate::layout::force::quadtree::Quadtree;

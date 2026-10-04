@@ -148,8 +148,8 @@ fn a_session_is_never_created_with_parameters_it_would_refuse() {
 ///
 /// The address's *stability* is not testable here — on a 64-bit host it is never reportable —
 /// so it is stated where it is true: `Sim`'s columns are never resized (the only writer that
-/// could is `ForceSession::set_positions`, behind `from_positions`, which this ABI does not
-/// export), and the session table holds each session behind a `Box` so an insert cannot move it.
+/// could is `ForceSession::set_positions`, behind `from_positions`, which this ABI calls only to
+/// build a new session), and the session table holds each session behind a `Box` so an insert cannot move it.
 /// `graph-cli force-gate`'s wasm arm reads these columns through the wire's `(ptr, len)` on every
 /// seed, which is where a moved address would show up.
 #[test]
