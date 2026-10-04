@@ -7,7 +7,7 @@
 # The chain per oracle is the p12-t2 three-arm shape: emit fixtures, run the harness in the
 # python image, ingest the verdict. Both oracles run over the 1000 gate seeds.
 #
-# The `*-py` rows are plain `docker run` rather than `scripts/orch/gr`, because the harness
+# The `*-py` rows go through `scripts/orch/drun` rather than `scripts/orch/gr`, because the harness
 # needs the `ge-python-oracle` image and not the Rust one; every other row goes through `gr`.
 # The two longer checks live in `harness/` scripts rather than inline shell, so this file
 # stays readable and the logic is testable.
@@ -46,7 +46,7 @@ golden-2d-negctl|nonzero|scripts/orch/gr bash -c "sed 's/^layout.grid 0 ./layout
 # 3. The 3D igraph arms. Fixtures carry 3D starts and `dim = 3` reference calls, which is
 #    why this is a separate set from the 2D `oracle-igraph`.
 emit-igraph3d-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-igraph3d-fixtures --seeds 1000 --out target/igraph3d-fixtures
-igraph3d-py|0|docker run --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-igraph.py target/igraph3d-fixtures
+igraph3d-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-igraph.py target/igraph3d-fixtures
 igraph3d|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-igraph3d --dir target/igraph3d-fixtures
 # The negative control: no fixtures, so no measured worst, so the differential is NOT-RUN
 # rather than green. Exit 2, and the row expects non-zero.
@@ -55,7 +55,7 @@ igraph3d-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-igra
 # 4. FA2's 3D arm, on the same harness as the 2D one but under its own key (`fa2_3d`) and
 #    its own measured ceiling.
 emit-fa2-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fa2-fixtures --seeds 1000 --out target/fa2-fixtures
-fa2-py|0|docker run --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-fa2.py target/fa2-fixtures
+fa2-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-fa2.py target/fa2-fixtures
 fa2|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-fa2 --dir target/fa2-fixtures
 fa2-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-fa2 --dir target/fa2-fixtures-absent
 
