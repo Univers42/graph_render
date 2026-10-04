@@ -40,7 +40,7 @@ use std::process::{Command, Output};
 /// this list is what clears a knob out of a test run's environment, so a name it failed to
 /// carry would let a control leak in and turn an honest run red. Being an independent copy is
 /// the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 49] = [
+pub const KNOBS: [&str; 50] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -90,6 +90,7 @@ pub const KNOBS: [&str; 49] = [
     "GM_MUTATE_OVERLAP_RELAXATION",
     "GM_MUTATE_LAYOUT_PARAM_DEFAULT",
     "GM_MUTATE_FORCE_SESSION_GRAVITY",
+    "GM_MUTATE_DROP_DELTA",
 ];
 
 /// `graph-cli` recording under `gates`, never `target/gates` (a test run must not stand

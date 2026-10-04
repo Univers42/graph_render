@@ -95,6 +95,13 @@ pub(crate) struct Setting {
     /// honest value unreachable. Reach it through [`Setting::live_force_params`], which is the
     /// only reader and lives in this module with the field.
     pub(in crate::hashgate) live_gravity: Option<f64>,
+    /// Which batch of the force gate's stream stage the native arm skips
+    /// ([`Knob::DropDelta`]), as a 1-based batch index. `None` is the honest run.
+    ///
+    /// A `u32` batch index rather than a flag because a control that cannot say *which*
+    /// batch is a control that can only ever be tested against the first one. Reach it
+    /// through [`Setting::drop_delta`], the only reader, beside the field.
+    pub(in crate::hashgate) drop_delta: Option<u32>,
     /// Which published default [`Knob::LayoutParamDefault`] perturbs, as an index into
     /// [`PARAM_DEFAULT_STAGE`]'s parameter list. `None` is the honest run. An index and not
     /// a `(name, value)` pair because the control is *over the default*: the value it runs
@@ -125,6 +132,7 @@ impl Setting {
             split_sum: Split::None,
             split_rescale: false,
             live_gravity: None,
+            drop_delta: None,
             layout_param_default: None,
             control: None,
         }
@@ -143,6 +151,15 @@ impl Setting {
             gravity: self.live_gravity.unwrap_or(LiveParams::default().gravity),
             ..LiveParams::default()
         }
+    }
+
+    /// The batch the force gate's native stream arm skips ([`Knob::DropDelta`]), or `None`
+    /// when it skips none.
+    ///
+    /// One reader, beside the field it reads, so the number the arm acts on and the number
+    /// the run was given cannot disagree — the whole control is that one number.
+    pub(crate) fn drop_delta(&self) -> Option<u32> {
+        self.drop_delta
     }
 
     /// The `epsilon` `layout.force.neato` runs at: the registry's own `EPSILON`, or
@@ -347,6 +364,21 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         // one thing it is, while a typo is an error at the parse.
         Knob::ForceSessionGravity => {
             setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
+        }
+        // Parsed as a batch index rather than a flag, and `0` is refused here rather than
+        // reaching [`refuse_a_no_op`]: batch 0 is the initial graph, not a delta, so
+        // skipping it drops nothing at all — a control that perturbs nothing by a different
+        // route. `u32`, so a negative index is a parse error, not a silent wrap.
+        Knob::DropDelta => {
+            let batch: u32 = text.parse().map_err(|e| bad(&e))?;
+            if batch == 0 {
+                return Err(format!(
+                    "{}={text:?}: batch 0 is the initial graph, not a delta, so dropping it \
+                     perturbs nothing",
+                    knob.env()
+                ));
+            }
+            setting.drop_delta = Some(batch);
         }
         Knob::LayoutParamDefault => {
             setting.layout_param_default = Some(param_index(text, knob)?);

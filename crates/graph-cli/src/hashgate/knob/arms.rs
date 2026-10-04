@@ -68,6 +68,7 @@ pub const ALL: [Knob; 49] = [
     Knob::OverlapRelaxation,
     Knob::LayoutParamDefault,
     Knob::ForceSessionGravity,
+    Knob::DropDelta,
 ];
 
 /// The variable that sets `knob`.
@@ -122,6 +123,7 @@ pub const fn env(knob: Knob) -> &'static str {
         Knob::OverlapRelaxation => "GM_MUTATE_OVERLAP_RELAXATION",
         Knob::LayoutParamDefault => "GM_MUTATE_LAYOUT_PARAM_DEFAULT",
         Knob::ForceSessionGravity => "GM_MUTATE_FORCE_SESSION_GRAVITY",
+        Knob::DropDelta => "GM_MUTATE_DROP_DELTA",
     }
 }
 
