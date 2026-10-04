@@ -79,7 +79,7 @@ pub struct EdgeCells {
 /// 4 bytes per table entry for the handles and 1 for each kind memo, held for the build only.
 /// A table whose kind names sit at its end pays a full-length kind memo for a handful of
 /// kinds.
-pub(super) struct Entries<'t, T: ?Sized> {
+pub(in crate::index) struct Entries<'t, T: ?Sized> {
     table: &'t T,
     handles: Memo<Interned>,
     node_kinds: Memo<NodeKind>,
@@ -89,7 +89,7 @@ pub(super) struct Entries<'t, T: ?Sized> {
 impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
     /// `reserved` is the handle memo's starting capacity; it grows past that as entries are
     /// named, exactly as an empty memo would.
-    pub(super) fn new(table: &'t T, reserved: usize) -> Self {
+    pub(in crate::index) fn new(table: &'t T, reserved: usize) -> Self {
         Self {
             table,
             handles: Memo(Vec::with_capacity(reserved)),
@@ -99,7 +99,7 @@ impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
     }
 
     /// The handle `arena.intern` gives entry `entry`'s text.
-    pub(super) fn string(
+    pub(in crate::index) fn string(
         &mut self,
         arena: &mut StringArena,
         entry: u32,
@@ -110,7 +110,7 @@ impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
     }
 
     /// [`string`](Self::string) for an optional cell.
-    pub(super) fn optional(
+    pub(in crate::index) fn optional(
         &mut self,
         arena: &mut StringArena,
         entry: Option<u32>,
@@ -119,7 +119,7 @@ impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
     }
 
     /// The node kind entry `entry` names, refused as node row `row`'s if it names none.
-    pub(super) fn node_kind(&mut self, entry: u32, row: u32) -> Result<NodeKind, ColumnsRefusal> {
+    pub(in crate::index) fn node_kind(&mut self, entry: u32, row: u32) -> Result<NodeKind, ColumnsRefusal> {
         let table = self.table;
         self.node_kinds.get(entry, || {
             NodeKind::from_name(text(table, entry)?).ok_or(ColumnsRefusal::NodeKind { row })
@@ -127,7 +127,7 @@ impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
     }
 
     /// The edge kind entry `entry` names, refused as edge row `row`'s if it names none.
-    pub(super) fn edge_kind(&mut self, entry: u32, row: u32) -> Result<EdgeKind, ColumnsRefusal> {
+    pub(in crate::index) fn edge_kind(&mut self, entry: u32, row: u32) -> Result<EdgeKind, ColumnsRefusal> {
         let table = self.table;
         self.edge_kinds.get(entry, || {
             EdgeKind::from_name(text(table, entry)?).ok_or(ColumnsRefusal::EdgeKind { row })

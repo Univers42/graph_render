@@ -177,6 +177,19 @@ pub mod service;
 /// parses can only be one writer's if the gate that reads them is to be a check at all.
 /// Ungated, unlike the module's other gates, because this caller is native.
 pub use seed_ingest::document as ingest_document;
+/// The `GMX1` batch document for `nodes` and `edges` — what `gm_graph_extend_columns`
+/// appends, written by the same argument as [`ingest_document`] is written by: the bytes a
+/// measurement times and the bytes the ABI parses have to be one writer's.
+///
+/// An edge endpoint names a node id, so a batch may point at a node the graph already holds;
+/// this writer interns such a name on demand, which is the one thing a whole document's
+/// writer cannot do.
+pub use seed_ingest::columns_batch;
+/// The provisional ingest JSON **reader** `service::extend` reads, under the name a native
+/// caller reaches it by. The force-gate's columns arm and `tick --path columns` need the
+/// records to re-encode as a batch, and the point of both is that the line is read by the
+/// same reader the JSON path uses — so it is this one and not a second parse.
+pub use ingest::read_records as ingest_records;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod session;
 #[cfg(any(test, target_arch = "wasm32"))]

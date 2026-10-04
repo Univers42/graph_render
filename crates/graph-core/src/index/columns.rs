@@ -21,10 +21,13 @@
 use super::Topology;
 use super::admit::{InternedEdge, InternedNode};
 use crate::arena::{CapacityError, StringArena};
-use cells::Entries;
 use core::fmt;
 
 pub use cells::{EdgeCells, EntryTable, NodeCells};
+// `index_columns`'s own pieces, widened one level for `index::extend::columns`: the append
+// path reaches them rather than reimplementing them, which is what keeps its intern order
+// equal to `index_columns`'s (`docs/decisions/extend-columns.md`, condition 7).
+pub(in crate::index) use cells::Entries;
 
 /// Why a columnar document could not be indexed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,7 +122,7 @@ pub fn index_columns<T: EntryTable + ?Sized>(
 ///
 /// **Caveat:** over-counts by repeated entries and absent optional cells, and is never more
 /// than an all-distinct build would grow to.
-fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
+pub(in crate::index) fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
     let named = nodes
         .saturating_mul(6)
         .saturating_add(edges.saturating_mul(3));
@@ -127,7 +130,7 @@ fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
 }
 
 /// Admits the next node row, interning its strings in `admit_node`'s order.
-fn index_node<T: EntryTable + ?Sized>(
+pub(in crate::index) fn index_node<T: EntryTable + ?Sized>(
     topology: &mut Topology,
     entries: &mut Entries<'_, T>,
     cells: &NodeCells,
@@ -154,7 +157,7 @@ fn index_node<T: EntryTable + ?Sized>(
 }
 
 /// Admits the next edge row: the endpoint-row check, then `admit_edge`'s intern order.
-fn index_edge<T: EntryTable + ?Sized>(
+pub(in crate::index) fn index_edge<T: EntryTable + ?Sized>(
     topology: &mut Topology,
     entries: &mut Entries<'_, T>,
     cells: &EdgeCells,

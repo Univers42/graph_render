@@ -8,10 +8,18 @@
 //! Target-independent: pure string building, no wasm pointer. Round-tripped through
 //! [`crate::ingest::read`] in this module's own tests, so the two are proven consistent
 //! natively, with no wasm build in the loop.
+//!
+//! [`columns_batch`] is the same idea for the columnar format: `GMX1` is what
+//! `gm_graph_extend_columns` reads, so a bench row and a gate digest can both be taken over
+//! a batch document rather than over JSON text.
 
 use crate::json_string::push_quoted as string;
 use graph_core::{EdgeRecord, NodeRecord};
 use std::fmt::Write as _;
+
+mod columns;
+
+pub use columns::columns_batch;
 
 /// The provisional ingest JSON for the hash gate's model at `seed`, at the gate's
 /// standard node count and reference degree (`graph_core::gate_node_count`,

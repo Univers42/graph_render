@@ -38,8 +38,9 @@ pub(super) fn cell_at(column: &[u8], cell: usize) -> Option<u32> {
 }
 
 /// Refuses every value the contract does not allow: a string index that names nothing, a
-/// `u32::MAX` in a column where absent is not a meaning, an endpoint past the last node, a
-/// boolean that is not `0` or `1`, and a float that is not finite.
+/// `u32::MAX` in a column where absent is not a meaning, an endpoint past the last node (or,
+/// in a `GMX1` batch, an endpoint naming no string), a boolean that is not `0` or `1`, and a
+/// float that is not finite.
 pub(super) fn check(columns: &Columns<'_>, shape: Shape) -> Result<(), ColumnsError> {
     for row in 0..node_count(shape) {
         required(columns.id, "node id", row, shape)?;

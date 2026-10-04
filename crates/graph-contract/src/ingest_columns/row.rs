@@ -42,14 +42,17 @@ pub struct NodeCells {
     pub icon: Option<u32>,
 }
 
-/// One edge row with every string left as its string-table entry, endpoints as node rows.
+/// One edge row with every string left as its string-table entry. The two endpoints are
+/// node rows under [`Format::Document`](super::Format::Document) and string entries naming
+/// node ids under [`Format::Batch`](super::Format::Batch); [`ColumnsDoc::format`] says which
+/// the buffer was read as, and nothing else in this type can.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EdgeCells {
     /// Entry of the content-addressed id.
     pub id: u32,
-    /// Dense index of the source node.
+    /// Dense index of the source node, or the entry its node id is in.
     pub source_row: u32,
-    /// Dense index of the target node.
+    /// Dense index of the target node, or the entry its node id is in.
     pub target_row: u32,
     /// Entry of the kind name.
     pub kind: u32,
@@ -91,7 +94,8 @@ impl<'a> ColumnsDoc<'a> {
         })
     }
 
-    /// Edge row `row` as table entries, or `None` if `row` is past `edge_count`.
+    /// Edge row `row` as table entries, or `None` if `row` is past `edge_count`. The two
+    /// endpoint cells are node rows or string entries as [`ColumnsDoc::format`] says.
     pub fn edge_cells(&self, row: u32) -> Option<EdgeCells> {
         if row >= self.edges {
             return None;

@@ -47,12 +47,14 @@ impl Shape {
     /// The exact total the header declares, and the zero pad that precedes the columns.
     /// Section order: offsets, blob, pad, then `node weight`, `node version`,
     /// `edge strength`, then the eight node `u32` columns and the eight edge ones.
+    /// `format` is not read here: every section is the same length in both formats.
     fn declared(&self) -> Result<(u64, u64), ColumnsError> {
         let Self {
             nodes,
             edges,
             strings,
             blob,
+            ..
         } = *self;
         let table = HEADER_BYTES
             .checked_add(strings.checked_add(1).ok_or(ColumnsError::SizeOverflow)? * 4)

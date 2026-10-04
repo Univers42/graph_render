@@ -19,6 +19,11 @@ pub use row::{EdgeCells, NodeCells};
 
 use check::cell_at;
 
+/// The version word both formats spell in header word 1. Public because a writer in another
+/// crate writes it into the same header the reader refuses, and two statements of it would
+/// be two chances to disagree.
+pub const VERSION: u32 = layout::VERSION;
+
 /// Which of the two columnar documents a buffer holds: a whole graph, or one extend batch.
 ///
 /// One enum rather than two readers, because the two documents differ in exactly one rule —
@@ -38,8 +43,10 @@ pub enum Format {
 }
 
 impl Format {
-    /// The magic word a buffer of this format starts with, as a little-endian `u32`.
-    pub(super) fn magic(self) -> u32 {
+    /// The magic word a buffer of this format starts with, as a little-endian `u32`: the one
+    /// header word a writer has to spell, and the one a reader decides by. Public so a
+    /// writer in another crate cannot drift from the reader it is checked against.
+    pub fn magic(self) -> u32 {
         match self {
             Self::Document => layout::MAGIC,
             Self::Batch => layout::BATCH_MAGIC,
