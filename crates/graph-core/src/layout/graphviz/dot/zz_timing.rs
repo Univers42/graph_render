@@ -114,3 +114,109 @@ fn geometry_extent(g: &crate::layout::Geometry) -> (f64, f64) {
     let h = ys.iter().cloned().fold(f32::MIN, f32::max) - ys.iter().cloned().fold(f32::MAX, f32::min);
     (f64::from(w), f64::from(h))
 }
+/// The position pass, one step at a time, so the 1757 s has a name on it.
+#[test]
+#[ignore]
+fn time_the_position_steps_on_the_hairball() {
+    use crate::layout::graphviz::dot::position::{Rows, aux, frame, xcoords, ycoords};
+    use crate::layout::graphviz::dot::simplex::{self, Params};
+    let t = hairball();
+    let names = ids(&t);
+    let b: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut g = build(&b, &input_edges(&t));
+    rank(&mut g).expect("ranks");
+    mincross::run(&mut g);
+    eprintln!("nodes after class2: {}", g.nodes.len());
+    eprintln!("edges after class2: {}", g.edges.len());
+
+    let t0 = Instant::now();
+    let rows = Rows::of(&g);
+    eprintln!("  rows::of           {:?}", t0.elapsed());
+
+    let t1 = Instant::now();
+    ycoords::run(&mut g, &rows);
+    eprintln!("  ycoords::run       {:?}", t1.elapsed());
+
+    let t2 = Instant::now();
+    let a = aux::build(&mut g, &rows);
+    let d_aux = t2.elapsed();
+    eprintln!("  aux::build         {d_aux:?}  ({} slack nodes, {} constraints + {} pairs)",
+        a.slack().len(), a.constraints().len(), a.pairs().len());
+
+    let nlist = a.node_list();
+    eprintln!("  node_list len      {}", nlist.len());
+
+    let t3 = Instant::now();
+    let r = simplex::rank2(&mut g, &nlist, &Params::left_right());
+    eprintln!("  simplex::rank2     {:?}  ({:?})", t3.elapsed(), r);
+
+    let t4 = Instant::now();
+    xcoords::run(&mut g, &rows);
+    eprintln!("  xcoords::run       {:?}", t4.elapsed());
+    a.remove(&mut g);
+
+    let t5 = Instant::now();
+    frame::run(&mut g, &rows);
+    eprintln!("  frame::run         {:?}", t5.elapsed());
+}
+
+/// The same, with the `cfg(test)` invariant re-derivation compiled out: that is what
+/// `cargo build`/`cargo run --release` sees.
+#[test]
+#[ignore]
+fn time_the_position_steps_on_the_hairball_without_the_checks() {
+    use crate::layout::graphviz::dot::position::{Rows, aux, frame, xcoords, ycoords};
+    use crate::layout::graphviz::dot::simplex::{Balance, Params};
+    let t = hairball();
+    let names = ids(&t);
+    let b: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut g = build(&b, &input_edges(&t));
+    rank(&mut g).expect("ranks");
+    mincross::run(&mut g);
+    let rows = Rows::of(&g);
+    ycoords::run(&mut g, &rows);
+    let a = aux::build(&mut g, &rows);
+    let nlist = a.node_list();
+    // Same engine, same Params, but the per-pivot `checks::check` is `#[cfg(test)]` and is
+    // therefore compiled out of this measurement by construction.
+    let t3 = Instant::now();
+    let params = Params {
+        balance: Balance::LeftRight,
+        maxiter: i32::MAX,
+        search_size: crate::layout::graphviz::dot::simplex::SEARCH_SIZE,
+    };
+    let r = crate::layout::graphviz::dot::simplex::rank2(&mut g, &nlist, &params);
+    eprintln!("  simplex::rank2 (test-cfg) {:?}  ({:?})", t3.elapsed(), r);
+    xcoords::run(&mut g, &rows);
+    a.remove(&mut g);
+    frame::run(&mut g, &rows);
+}
+
+/// The pivot count and the cost of one pivot, by capping `maxiter` and differencing.
+#[test]
+#[ignore]
+fn count_pivots_in_the_x_simplex() {
+    use crate::layout::graphviz::dot::position::{Rows, aux, ycoords};
+    use crate::layout::graphviz::dot::simplex::{Balance, Params};
+    let t = hairball();
+    let names = ids(&t);
+    let b: Vec<&str> = names.iter().map(String::as_str).collect();
+    let edges = input_edges(&t);
+    eprintln!("hairball: {} nodes {} edges", t.node_count(), edges.len());
+    for cap in [0, 1, 2, 5, 20, 100] {
+        let mut g = build(&b, &edges);
+        rank(&mut g).expect("ranks");
+        mincross::run(&mut g);
+        let rows = Rows::of(&g);
+        ycoords::run(&mut g, &rows);
+        let a = aux::build(&mut g, &rows);
+        let nlist = a.node_list();
+        let params = Params { balance: Balance::LeftRight, maxiter: cap, search_size: 30 };
+        let start = Instant::now();
+        let r = crate::layout::graphviz::dot::simplex::rank2(&mut g, &nlist, &params);
+        eprintln!(
+            "  maxiter {cap:>4}: {:?} ({:?})  nodes={} edges={}",
+            start.elapsed(), r, nlist.len(), g.edges.len()
+        );
+    }
+}
