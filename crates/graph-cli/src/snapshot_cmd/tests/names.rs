@@ -106,6 +106,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "force.drl.3d",
             "layout.forceatlas2.3d",
             "forceatlas2.3d",
+            "layout.dag.dot",
+            "dag.dot",
         ]
     );
     let mut once = names.clone();

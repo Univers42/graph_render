@@ -1,6 +1,7 @@
 //! Layouts whose oracle differential is not a byte comparison or has no recorded run,
 //! so their row is `implemented`, never `gated`.
 
+use super::layout_row::UNPROVEN_RECORD;
 use super::super::Status;
 
 /// The six igraph 2D layouts, held to `harness/oracle-igraph.py`'s stress ratio.
@@ -236,6 +237,22 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // status; `Gated` would claim a byte-agreement this job did not reach, and widening
         // the ceiling until the row passed would be the same claim with a bigger number.
         "layout.force.sfdp" => Some(("oracle-sfdp", Status::Implemented)),
+        // ---- p13-gv3-dot-position: Graphviz's own layered engine. **The Graphviz family
+        // arm that names no oracle, and that is the honest status rather than a gap.**
+        //
+        // Every other Graphviz row above names a differential this tree runs. `dot` has none
+        // yet: `crates/graph-cli/src/oracle_python/dot.rs` is named as the next job by
+        // `docs/measurements/p13-gv2-dot.md`'s "The remaining passes", and the hashgate knob
+        // is named with it. So the arm says so in writing rather than letting the row fall
+        // through — which is the whole reason this chain enumerates ids at all.
+        //
+        // `Implemented`, never `gated`, on `layout.packing.osage`'s stated precedent: the
+        // layout draws, its six closed cases match the oracle's printed coordinates byte for
+        // byte, and what the missing differential withholds is a measured *ceiling*, not the
+        // layout. `unproven` is the record name a row of no consequence carries, and it is
+        // read as "not backed: no unproven record: run the gate" — the truth about a row with
+        // no gate behind it yet.
+        "layout.dag.dot" => Some((UNPROVEN_RECORD, Status::Implemented)),
         _ => None,
     }
 }
