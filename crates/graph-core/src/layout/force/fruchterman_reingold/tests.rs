@@ -110,7 +110,42 @@ fn coincident_start_is_separated_without_nan() {
             niter: 3,
             start_temp: Some(0.0),
             seed: 0,
+            dim: 2,
         },
     );
     assert!(x.iter().chain(&y).all(|v| v.is_finite()));
+}
+
+/// The 3D arm is this kernel at `dim = 3`, and both halves of that have to be true: the
+/// geometry carries a z column (so a snapshot of it is `dim = 1`), **and** the third
+/// coordinate is a real one rather than a column of zeros — a label on a 2D picture would
+/// satisfy the first half alone.
+#[test]
+fn the_3d_arm_carries_a_live_z_column() {
+    let t = graph(6, &[(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]);
+    let flat = FruchtermanReingold::run(&t, &FrParams::default()).expect("2D runs");
+    let solid = super::run_3d(&t, &FrParams::default()).expect("3D runs");
+    assert!(flat.z.is_none(), "the 2D arm carries no z column");
+    let z = solid.z.expect("the 3D arm carries one");
+    assert_eq!(z.len(), 6, "one z per node");
+    assert!(z.iter().any(|v| *v != 0.0), "z is not a column of zeros");
+    assert!(z.iter().all(|v| v.is_finite()));
+}
+
+/// A dimension the kernel does not implement is refused, not clamped: a caller asking for
+/// four dimensions and silently getting three would not know it had been refused.
+#[test]
+fn an_unimplemented_dimension_is_refused_rather_than_clamped() {
+    let t = graph(3, &[(0, 1)]);
+    let err = FruchtermanReingold::run(
+        &t,
+        &FrParams {
+            dim: 4,
+            ..FrParams::default()
+        },
+    );
+    assert!(matches!(
+        err,
+        Err(crate::stage::StageError::Param { name: "dim", .. })
+    ));
 }
