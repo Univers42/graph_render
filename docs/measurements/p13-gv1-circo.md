@@ -326,3 +326,110 @@ our own bytes cannot say we match Graphviz and §3 says we do not.
   half-node offset) is one table in one file rather than a second rendering in the driver. The
   refactor was verified byte-identical: the 20-seed determinism subset through the refactored
   harness `cmp`s equal to the pre-refactor output, exit 0.
+
+## 4c. A node placed twice (2026-10-04)
+
+**The shape.** `longest_path` (`circo/skeleton/tree.rs:73`) builds the circle order out of two
+walks up the thinned spanning forest: one from the branch node's best leaf, one from its
+runner-up. When those two leaves sit in the *same* child subtree of the branch node, the walks
+share the stretch between the branch node and the node they diverge below, and the node on that
+stretch is named twice. The circle is then sized by the order's own length — `N` is the list's
+size (`blockpath.c:568`), and it sets both the radius (`:571-576`) and every node's slot
+(`theta = k * 2*PI / N`, `:600`) — so a block of 44 nodes is drawn on a 45-slot circle with one
+slot empty, and the crossing walk closes that node's already-closed edges a second time and
+counts them again.
+
+**§4b's attribution is corrected here.** §4b (and the finding that prompted this job) says the
+branch node's best and runner-up leaf "can be the same one". It cannot: `measure_distance`
+(`blockpath.c:224-260`) executes exactly one arm per (leaf, ancestor) visit, the arms that write
+`LEAFONE` (`:241`, `:250`) and `LEAFTWO` (`:253`) are mutually exclusive, and a leaf reaches any
+ancestor at most once in a forest, so the two leaves are always distinct nodes. **A forest is
+also not the mechanism** — a connected tree has the same shared stretch, and that is an argument
+from the arithmetic below rather than a measured case, the case measured here being a forest.
+The mechanism is the
+arithmetic: at the branch node the sum of the two best arms is `a + b`, and at the node where
+those two arms diverge it is `a + b - 2d` for the shared length `d > 0`, so the branch node wins
+and its two walks overlap by construction.
+
+**The reproducing input** is a chorded 8-cycle, as `circo/tests/path.rs` builds it: the cycle
+`n0..n7` plus `n0 n3`, `n0 n4`, `n0 n6`, `n1 n4`, `n1 n5`, `n2 n4`, `n4 n7`, `n5 n7`. Its thinned
+forest roots `n0` above `n1`, with two leaves under `n1` on either side, so `n0`'s two best leaves
+— `n7` at distance 4 and `n3` at distance 3 — are both in `n1`'s subtree and their walks share
+`n1`. `n4` is in no tree at all, so the residual pass is what names it. The port's order is
+`[7, 6, 5, 4, 1, 2, 3, 0, 1]` — nine names for eight nodes, `n1` twice — and
+`the_circle_order_of_a_chorded_eight_cycle_names_n1_twice_as_the_reference_does` pins it.
+
+**What the reference does with that input: the same thing.** `circo -Tplain -Gstart=1` over the
+same graph in the pinned image prints eight node lines, and fitting a circle to them gives centre
+`(2.73054, 2.71860)` inches and radius `2.50669` inches, which is `180.481` points — **nine
+slots** (`9 * 126 / 2*PI` = 180.4817) on eight nodes. The eight angles are `0`, `40`, `80`, `160`,
+`200`, `240`, `280` and `320` degrees: slot `120` is empty and `n1` sits at slot `4`, its *first*
+mention having been the empty slot `3` (a node's `POSITION` keeps its last mention, so the first
+copy's slot is the one that empties). Reading the order back off those slots gives
+`[7, 6, 5, 1, 1, 0, 4, 2, 3]`; this port's pre-change order is `[7, 6, 5, 4, 1, 2, 3, 0, 1]`.
+Both are nine entries with `n1` twice and the same empty slot; they differ only in where
+`reduce_edge_crossings` put the nodes, which is §5's disagreement and not this section's. So the
+duplicate is **the reference's own behaviour, reproduced**, not a port defect — and there is no
+node choice that both keeps Graphviz's answer and yields a permutation, because the overlap is
+what makes the branch node the argmax.
+
+**The decision: parity.** The job measured one alternative, `extend_once` in
+`circo/skeleton/tree.rs` (the second walk adds only the nodes the order does not already name,
+so the order becomes a permutation). It was **reverted** on review (2026-10-04): Graphviz engines
+must match Graphviz output (user decision, 2026-09-30), and the repeat above is Graphviz's own
+output. The port keeps `path.extend(second)` with a comment pointing here, and
+`circo/tests/path.rs` pins the repeat: the chorded 8-cycle's order is nine entries with `n1`
+twice. The rows below are the alternative's measured cost, kept so the question is not re-asked.
+
+**The cost, measured.** The four differential rows of `scripts/orch/rows/p13-gv1-circo.rows` were
+run by hand on both arms, each arm against its own fingerprint (the check row refuses a sweep whose
+tree is not the tree that emitted the fixtures, so the pre-change arm was measured with the
+pre-change tree in place):
+
+```
+scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine circo --seeds 1000
+scripts/orch/drun ... ge-graphviz-oracle python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-shards --differential --shards 8 --shard $i   # i = 0..7
+scripts/orch/drun ... ge-graphviz-oracle python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-shards --merge --shards 8
+scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo
+```
+
+| row | before | after |
+|---|---|---|
+| `circo-emit-1000` | exit 0, 8m43 | exit 0, 7m54 |
+| `circo-oracle-1000` | 8 shards, all exit 0; shard 0 `125 seeds, worst 5.982e+04 points; closed 14 of 14 exact: True` | 8 shards, all exit 0, same line |
+| `circo-merge-1000` | exit 0, `circo: 1000 seeds over 8 shards, worst 5.982e+04 points; closed 14 exact: True` | exit 0, identical line |
+| `circo-check-1000` | exit 0, `PASS`, `worst 5.982e4, ceiling 1e5: ok`, `closed cases: 14 compared byte for byte: ok` | exit 0, `PASS`, identical |
+
+Per seed, with the harness's own `gap` (`harness/gv_closed.py`) over both arms' fixtures and one
+copy of the oracle's points — all eight shard files are byte-identical before and after, so the
+two arms are compared against the same Graphviz:
+
+| quantity | before | after |
+|---|---|---|
+| seeds within 1 point | 16 | 16 |
+| worst gap | 5.9816e+04 (seed 592) | 5.9816e+04 (seed 592) |
+| seeds that moved | — | 2 grew, 0 shrank, 998 unchanged |
+| the two that grew | — | seed 94 and seed 694: 5.0262e+03 → 6.0838e+03 |
+
+**What the alternative would have bought: nothing measurable.** The 16 agreeing seeds are the
+same 16 on both arms, the worst case is the same seed at the same figure, and all 14 closed cases
+are byte-exact on both — so no analytically determined case ever carried a repeat. Two seeds of
+1000 get about one slot further from Graphviz under the alternative. With no gain and a measured
+loss, parity wins.
+
+**What this section does not claim.**
+
+- **Blast radius is 4 seeds, not 1000.** Walking the 1000 gate models' blocks for an order that
+  names a node twice finds **4**: seeds **68, 94, 668, 694**, one block each. Seed 68 is §4b's
+  44-node block. The other two, 68 and 668, are in the "998 unchanged" row because a per-seed gap
+  is a maximum over its nodes, so a block whose gap another node already sets cannot show the
+  change. That walk was run as a scratch test over the 1000 gate models and deliberately not
+  kept: 45 s in release, too slow to sit in `cargo test`, and its answer is the four seeds above.
+- **Seed 68's own slot count was not read off the oracle.** A multi-block drawing's circles are
+  moved and widened by `circpos` to clear each other, so fitting circles to seed 68's `-Tplain`
+  coordinates gives radii that are not whole numbers of slots and says nothing. The repeat is
+  *proven* on the single-block input above, where nothing moves the circle, and *derived* for seed
+  68 from the same code path; it is not measured there.
+- **The aggregate numbers do not say parity is free downstream.** With the repeat, the crossing
+  walk closes the repeated node's edges a second time and counts them again, as Graphviz's does;
+  the measured effect is the two seeds above, in the other direction.

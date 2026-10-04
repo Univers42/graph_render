@@ -100,6 +100,9 @@ pub(super) fn longest_path(tree: &Tree) -> Vec<u32> {
         let mut second = Vec::new();
         climb(leaves.runner_up(common), common, tree, &mut second);
         second.reverse();
+        // The two walks can share a stretch below `common`, so a node can be named twice. The
+        // reference does the same and sizes its circle by this list (`blockpath.c:568`), so the
+        // repeat is kept for parity: `docs/measurements/p13-gv1-circo.md` §4c.
         path.extend(second);
     }
     path
