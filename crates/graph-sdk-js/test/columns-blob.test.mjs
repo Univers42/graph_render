@@ -4,12 +4,10 @@
 // What it pins:
 //   * the table's total UTF-8 length decides the offsets, and the buffer is sized to it — never
 //     grown, because the decoder refuses a document whose sections do not sum to its length;
-//   * an all-ASCII table is placed by **one** `encodeInto` over the joined text, and a table with
-//     any code point wider than a byte is placed string by string, each into a slot its own
-//     offsets name;
-//   * a non-ASCII table is never joined. `docs/measurements/perf-p4f-wasm.md` measured the join
-//     as pure waste on the stream the studio generates (its icons are `🌿` and `📈`, so the exact
-//     path is the one that runs, and the joined copy was allocated and thrown away);
+//   * an all-ASCII table and one with any code point wider than a byte place their entries
+//     identically relative to their own widths, and **both** are placed by a single
+//     `encodeInto` over one join — the table is never placed entry by entry, which cost a
+//     `subarray` object per entry (`docs/measurements/perf-p4g-wasm.md`);
 //   * the two paths produce the **same bytes** for the same table, which is what makes the first
 //     bullet a claim about the format rather than about one code path.
 //
@@ -17,8 +15,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { TextEncoder } from "node:util";
 
 import { assembleColumns } from "../src/index.ts";
+import { blobAt } from "../src/columns-blob.ts";
 import { utf8Length } from "../src/columns-assemble.ts";
 
 import { ABSENT, rows } from "./columns-fixtures.mjs";
@@ -65,43 +65,102 @@ test("a table of ASCII and one with a wide code point place their entries the sa
   assert.deepEqual(offsetsOf(wideBytes, 4), [0, 3, 10, 14, 18], "UTF-8 byte counts");
 });
 
-test("a non-ASCII table is never joined into one string", () => {
-  // The regression this pins, stated as behaviour rather than as a profile: `join("")` copies the
-  // whole blob into a fresh string, and the exact path — the one any table holding an emoji
-  // takes — never reads it. At 1M nodes that copy is a megabyte a batch, allocated and dropped.
+test("a non-ASCII table is placed by one encodeInto over the join, never entry by entry", () => {
+  // The arrangement this pins as behaviour. Placing entry by entry meant a `subarray` object
+  // per entry — 160 000 throwaway views a batch — which `docs/measurements/perf-p4g-wasm.md`
+  // measures at 9.76 ms against this form's 3.80 ms. `perf-p4f-wasm.md` had removed a join
+  // whose product was *discarded*; this counts placements, so the copy is counted as one that
+  // is read and a regression to per-entry views is a failure here rather than a profile.
   const table = ["n-é", "record", "🌿", "note"];
   const joined = Array.prototype.join;
+  const encodeInto = TextEncoder.prototype.encodeInto;
   let joins = 0;
+  let placements = 0;
   Array.prototype.join = function patched(...args) {
     joins += 1;
     return joined.apply(this, args);
+  };
+  TextEncoder.prototype.encodeInto = function counted(...args) {
+    placements += 1;
+    return encodeInto.apply(this, args);
   };
   let bytes;
   try {
     bytes = assembleColumns(document(table));
   } finally {
     Array.prototype.join = joined;
+    TextEncoder.prototype.encodeInto = encodeInto;
   }
   assert.ok(bytes.length > 0, "the document was written");
-  assert.equal(joins, 0, "the exact path placed the table without joining it");
+  assert.equal(joins, 1, "the table is joined once");
+  assert.equal(placements, 1, "and placed by a single encodeInto, not one per entry");
+  // And the bytes are the entries' — one placement must not be one entry's worth of them.
+  const at = blobAt(table.length);
+  const total = table.map((v) => utf8Length(v)).reduce((a, b) => a + b, 0);
+  assert.equal(Buffer.from(bytes.subarray(at, at + total)).toString("utf8"), table.join(""));
 });
 
 test("an ASCII table is joined once, and placed by a single encodeInto over it", () => {
   const table = ["n-0", "record", "db-0", "note"];
   const joined = Array.prototype.join;
+  const encodeInto = TextEncoder.prototype.encodeInto;
   let joins = 0;
+  let placements = 0;
   Array.prototype.join = function patched(...args) {
     joins += 1;
     return joined.apply(this, args);
+  };
+  TextEncoder.prototype.encodeInto = function counted(...args) {
+    placements += 1;
+    return encodeInto.apply(this, args);
   };
   let bytes;
   try {
     bytes = assembleColumns(document(table));
   } finally {
     Array.prototype.join = joined;
+    TextEncoder.prototype.encodeInto = encodeInto;
   }
   assert.deepEqual(offsetsOf(bytes, 4), [0, 3, 9, 13, 17]);
-  assert.equal(joins, 1, "one join for the whole table, then one placement");
+  assert.equal(joins, 1, "one join for the whole table");
+  assert.equal(placements, 1, "then one placement of it");
+});
+
+test("an emoji beside a 2-byte and a 3-byte character: the widths are the sums, and the blob is theirs", () => {
+  // The three width classes inside one entry and beside each other across entries — the case
+  // a code-unit walk and a code-point walk part company on. `é` is two bytes, `€` three, `🌿`
+  // four, `𝄞` (a supplementary plane character, two code units) four, and `￿` (U+FFFF, one
+  // code unit, three bytes) three: so an entry's code-unit count and its byte count differ by
+  // a different amount on each row of this table.
+  const table = ["🌿é", "€", "a", "🌿🌿", "é€", "𝄞", "￿"];
+  const widths = table.map((value) => utf8Length(value));
+  assert.deepEqual(widths, [6, 3, 1, 8, 5, 4, 3], `the byte widths of ${JSON.stringify(table)}`);
+  const bytes = assembleColumns(document(table));
+  const total = widths.reduce((a, b) => a + b, 0);
+  assert.deepEqual(
+    offsetsOf(bytes, table.length),
+    [0, 6, 9, 10, 18, 23, 27, 30],
+    "the offsets are the running sums",
+  );
+  // And the blob is exactly the entries' encodings, so the decoder hands back the table: with
+  // the table placed by one `encodeInto` over the join, a skipped low surrogate or a miscounted
+  // class would move a byte and fail here rather than in a profile.
+  const at = blobAt(table.length);
+  assert.equal(Buffer.from(bytes.subarray(at, at + total)).toString("utf8"), table.join(""));
+  // The header's blob length is the same total, from the same widths, on the same pass.
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  assert.equal(view.getUint32(20, true), total);
+});
+
+test("a lone surrogate measures three bytes, the way the code-point walk measured it", () => {
+  // `exactWidth` refuses a lone surrogate before `utf8Length` ever sees one, so this is the
+  // exported function's own contract: the same number for every input, well-formed or not.
+  assert.equal(utf8Length("a\ud800b"), 5, "two ASCII and one lone surrogate between them");
+  assert.equal(utf8Length("\udc00"), 3, "a lone low surrogate");
+  assert.equal(utf8Length("\udc00\udc00"), 6, "a low surrogate is never the high half of a pair");
+  assert.equal(utf8Length("\ud800"), 3, "a lone high surrogate at the end");
+  assert.equal(utf8Length("🌿"), 4, "a whole pair is four");
+  assert.equal(utf8Length(""), 0);
 });
 
 test("a table with a lone surrogate is refused by index, and the refusal is not a byte count", () => {

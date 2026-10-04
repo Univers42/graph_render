@@ -307,3 +307,14 @@ was never the wasm motor — the copy into linear memory is 0.25 % and the motor
 the 6–8 ms left over. Removing the encoder's wasted work (a field path per field per row, a
 discarded `join` of the whole table, a second measurement of every entry) leaves the GMX1 bytes
 byte-identical, pinned by a literal and a SHA-256 with a verified negative control.
+
+## Result (P4g)
+
+[`perf-p4g-wasm.md`](../measurements/perf-p4g-wasm.md) closes the gap: `encode` falls 18.84 →
+16.43 ms (BH) and 20.02 → 14.40 ms (PM) and **all four arms are met** (28.37 / 27.62 ms against
+the 30 ms budget). The two wins are a `charCodeAt` walk where the width count used a code-point
+iterator, and one `encodeInto` over the joined table where it used one `subarray` per entry — the
+cost was never the encoding. The GMX1 bytes are unchanged and still pinned; the `join` P4f removed
+was a copy that was *discarded*, and this one is read, so `columns-blob.test.mjs`'s "never joined"
+assertion became "one `encodeInto` over the join" — **a changed test, deliberate and recorded**.
+The `StringArena` hash was measured and left alone: the probe is 70 % of `find`, the hash 29 %.

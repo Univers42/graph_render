@@ -32,8 +32,7 @@ import {
   columnsAt,
   exactWidth,
   measureBlob,
-  placeBlob,
-  placeJoined,
+  placeTable,
 } from "./columns-blob.ts";
 
 export { ColumnsEncoderError, NOT_WELL_FORMED } from "./columns-blob.ts";
@@ -102,27 +101,23 @@ export function assembleColumns(rows: ColumnRows): Uint8Array {
  *  from the package: it exists so a test can run the `DataView` writers on a little-endian
  *  host.
  *
- *  Two paths, and which one runs is decided by **one pass that measures nothing**:
+ *  Two **measuring** paths, and which one runs is decided by **one pass that measures nothing**:
  *
- *  - every code unit ASCII — the table is joined and placed by a single `encodeInto`, and the
- *    offsets are code-unit counts;
- *  - anything wider — every entry is measured with {@link utf8Length} and placed into the slot
- *    its own offsets name.
+ *  - every code unit ASCII — the offsets are code-unit counts;
+ *  - anything wider — every entry is measured with {@link utf8Length}, which is also where a
+ *    lone surrogate is refused.
  *
- *  Both write the same bytes for the same table, which is what
- *  `test/columns-blob.test.mjs` pins; the split exists because the two cost very different
- *  amounts, and the studio's own data (icons `🌿` and `📈`) is on the second one. */
+ *  Both are then placed by one `encodeInto` over the joined text. Both write the same bytes for
+ *  the same table, which is what `test/columns-blob.test.mjs` pins. */
 export function assembleColumnsAs(rows: ColumnRows, littleEndian: boolean): Uint8Array {
   checkLengths(rows);
-  // One measuring pass, then one writing pass, and the second reads its byte counts off the
-  // first's numbers. `columns-blob.ts` owns both, and with them the choice between the joined
-  // path and the entry-by-entry one — see there for why the studio's data takes the second.
+  // One measuring pass, then one writing pass, and the second is checked against the first's
+  // total. `columns-blob.ts` owns both, and with them the choice between the two width functions
+  // — see there for why the studio's data takes the second.
   const ascii = allAscii(rows.strings);
   const { widths, table } = measureBlob(rows.strings, ascii ? asciiWidth : exactWidth);
   const out = new Uint8Array(bufferLength(rows, table.blobBytes));
-  const at = blobAt(rows.strings.length);
-  if (ascii) placeJoined(out, at, rows.strings);
-  else placeBlob(out, at, rows.strings, widths);
+  placeTable(out, blobAt(rows.strings.length), rows.strings, widths);
   finish(out, rows, table, littleEndian);
   return out;
 }
