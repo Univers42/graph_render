@@ -307,3 +307,11 @@ was never the wasm motor — the copy into linear memory is 0.25 % and the motor
 the 6–8 ms left over. Removing the encoder's wasted work (a field path per field per row, a
 discarded `join` of the whole table, a second measurement of every entry) leaves the GMX1 bytes
 byte-identical, pinned by a literal and a SHA-256 with a verified negative control.
+
+## Result (P4g)
+
+[`perf-p4g-wasm.md`](../measurements/perf-p4g-wasm.md): growing the mesh in place cuts wasm PM `grow`
+10.02 → 3.93 ms, and a `charCodeAt` width walk plus one `encodeInto` over the joined table cut
+`encode` ~5 ms, GMX1 bytes unchanged (the "never joined" test became "one `encodeInto` over the
+join", deliberately). Against `75c885b6` at load 4–7: wasm BH 33.42 → 28.86, PM 38.05 → 28.36 ms —
+met on a quiet host, 1.1–2.4 ms headroom, missed under load. The arena hash stays (probe 70 % of `find`).
