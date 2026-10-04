@@ -202,6 +202,20 @@ impl Fast {
         }
     }
 
+    /// `make_aux_edge` (`position.c:183-199`): a positioning constraint of the given minimum
+    /// length and weight, filed in both directions. It is a copy of the reference's `agedge`
+    /// with `count` and `xpenalty` left at zero, which is what `gv_alloc` gives the record the
+    /// reference builds — the position pass is over before either field is read again, but the
+    /// record says so rather than the port assuming it.
+    pub fn add_aux(&mut self, tail: u32, head: u32, minlen: i32, weight: i32) -> u32 {
+        let mut edge = Edge::real(tail, head);
+        edge.minlen = minlen;
+        edge.weight = weight;
+        edge.count = 0;
+        edge.xpenalty = 0;
+        self.link(edge)
+    }
+
     /// `other_edge` (`fastgr.c:110`): file a self-loop under its node.
     pub fn other_edge(&mut self, edge: u32) {
         let tail = self.edges[edge as usize].tail;

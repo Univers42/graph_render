@@ -62,12 +62,11 @@ pub fn run(g: &mut Fast, rows: &Rows) {
 fn rank_lines(g: &Fast, rows: &Rows) -> Vec<f64> {
     let heights: Vec<f64> = rows.iter().map(|row| half_height(g, row)).collect();
     let mut lines = vec![0.0; rows.len()];
-    let Some(bottom) = rows.highest() else {
+    let Some(bottom) = rows.highest_rank() else {
         return lines;
     };
-    let base = rows.iter().rposition(|row| row.len() == bottom.len()).unwrap_or(0);
-    lines[base] = heights[base];
-    for r in (0..base).rev() {
+    lines[bottom] = heights[bottom];
+    for r in (0..bottom).rev() {
         lines[r] = lines[r + 1] + heights[r + 1] + heights[r] + RANKSEP;
     }
     lines

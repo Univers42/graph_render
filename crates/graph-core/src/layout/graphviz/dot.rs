@@ -8,7 +8,7 @@
 //! 2. `dot_mincross` — `build_ranks` for the initial order, then median/transpose passes.
 //!    **Ported**; see [`mincross`].
 //! 3. `dot_position` — y from the rank heights, then a second network simplex over an
-//!    auxiliary graph for x. Not ported; the engine it needs, [`simplex`], is.
+//!    auxiliary graph for x, then the frame `-Tplain` prints. **Ported**; see [`position`].
 //! 4. `dot_splines` — edges as splines through the virtual nodes. Not needed: the motor
 //!    emits polylines through the virtual nodes.
 //!
@@ -33,6 +33,7 @@ pub mod class2;
 pub mod decomp;
 pub mod fast;
 pub mod mincross;
+pub mod position;
 pub mod rank;
 pub mod simplex;
 
@@ -57,7 +58,9 @@ mod tests;
 
 use decomp::decompose;
 use fast::{Edge, Fast, Node};
+use text_width::{node_width, text_width};
 
+pub use position::position;
 pub use rank::rank;
 pub use simplex::Error;
 
@@ -71,12 +74,25 @@ pub const NODESEP: f64 = 0.25 * 72.0;
 /// `DEFAULT_RANKSEP` (`const.h:87`): the gap between two ranks.
 pub const RANKSEP: f64 = 0.5 * 72.0;
 
+/// The width every node gets from its own id, in points: `node_width(text_width(id))`.
+///
+/// This is where the port leaves Graphviz's font engine. Graphviz sizes a node from its
+/// *rendered* label, and the rendered width is a metric of a font the motor does not ship;
+/// `layout::graphviz::text_width` is the measured table that stands in for it, and this
+/// function is the only place that table reaches a drawing. The relation is exact for the
+/// labels the fixtures carry (`n` and ASCII digits, up to four characters, measured — see
+/// `text_width`'s own caveat for the rest).
+pub fn node_box(id: &str) -> (f64, f64) {
+    let width = text_width::node_width(text_width::text_width(id));
+    (width / 2.0, width / 2.0)
+}
+
 /// A fast graph with every node given Graphviz's default box and no edges yet.
 ///
-/// The box is the default rather than the width the node's own label needs, because the
-/// label is not known here and the default is what every fixture node below ten nodes gets
-/// anyway. `layout::graphviz::text_width` has the measured relation, and
-/// `p13-gv2-dot-position` is where the box is settled.
+/// The box is the default rather than the width the node's own label needs, because the label
+/// is not known here: [`node_box`] is the sized version, and [`build`] is where a real id gets
+/// in. Every fixture node of the first ten fits the default anyway, which is why the closed
+/// cases and seeds 0 to 9 are the same drawing either way.
 pub fn empty_graph(count: u32) -> Fast {
     let mut g = Fast::new();
     for _ in 0..count {
@@ -108,4 +124,19 @@ pub fn break_cycles(g: &mut Fast) -> Vec<Vec<u32>> {
         acyclic::run(g, component);
     }
     components
+}
+
+/// A fast graph with every node sized from its own id and the given edges in.
+///
+/// The rank and mincross passes do not read a node's width, so the sized and the default box
+/// give the same ranks and the same order. The position pass reads it, as a constraint length,
+/// so this is where `text_width` becomes a drawing.
+pub fn build(ids: &[&str], edges: &[(u32, u32)]) -> Fast {
+    let mut g = Fast::new();
+    for id in ids {
+        let (lw, rw) = node_box(id);
+        g.add_node(Node::normal(0, lw, rw, NODE_H));
+    }
+    add_edges(&mut g, edges);
+    g
 }
