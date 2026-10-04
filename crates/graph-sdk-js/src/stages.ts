@@ -16,8 +16,8 @@ import { parseAnalysisFace } from "./analysis-face.ts";
 import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import type { ColumnViews } from "./views.ts";
 import type { Registries } from "./registries.ts";
-import { runAtParams, type LayoutParams, type RunAtParams } from "./params.ts";
-import type { AnalysisResult, Handle } from "./types.ts";
+import { runAtParams, type LayoutParams, type LayoutParamSpec, type RunAtParams } from "./params.ts";
+import type { AnalysisResult, Handle, PostResult, RunResult } from "./types.ts";
 import type { RawExports } from "./wasm.ts";
 
 /** What the three stages share: the module, the view epoch, the registries, each layout's
@@ -108,6 +108,34 @@ export function nodeCount(exports: RawExports, handle: Handle): number {
     throw new InvalidHandleError(`handle ${handle} is not live`, INVALID_HANDLE_CODE);
   }
   return count;
+}
+
+/** {@link runLayout} plus the row count, as `Motor#run` publishes it: the caller gets the
+ *  handle, the geometry kinds and the count in one answer and never reads the kinds back. */
+export function runGraph(ctx: StageContext, handle: Handle, layoutId: string, values?: RunValues): RunResult {
+  const run = runLayout(ctx, handle, layoutId, values);
+  return {
+    handle, nodeKind: run.nodeKind, edgeKind: run.edgeKind, dim: run.dim,
+    nodeCount: nodeCount(ctx.exports, handle),
+  };
+}
+
+/** {@link runPost} plus the row count, for the same reason as {@link runGraph}. */
+export function postGraph(ctx: StageContext, handle: Handle, postId: string): PostResult {
+  const run = runPost(ctx, handle, postId);
+  return {
+    handle, id: postId, nodeKind: run.nodeKind, edgeKind: run.edgeKind, dim: run.dim,
+    nodeCount: nodeCount(ctx.exports, handle),
+  };
+}
+
+/** Every parameter `layoutId` publishes, in the order a run's parameter buffer carries them
+ *  (`docs/decisions/layout-params.md`). The id is resolved through `gm_layout_count`/
+ *  `gm_layout_id` like every other registry read (C1), so an unknown id is a `RangeError` from
+ *  the registry rather than a mis-addressed schema. */
+export function readLayoutParams(ctx: StageContext, layoutId: string): LayoutParamSpec[] {
+  const { exports, registries, params } = ctx;
+  return params.read(exports, layoutId, registries.layoutIndex(exports, layoutId));
 }
 
 /** The canonical JSON face of `handle`'s last run. Refuses with `TamperedGeometryError` if a

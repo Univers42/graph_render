@@ -25,9 +25,12 @@ import { checkOptions } from "./options.ts";
 import type { GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
 import { COLUMNS_BUILD, CONTRACT_BUILD, INGEST_BUILD, buildStaged } from "./staging.ts";
-import { extendGraph, type GraphBatch } from "./extend.ts";
+import { extendColumnsGraph, extendGraph, type GraphBatch } from "./extend.ts";
 import { LayoutParams, type LayoutParamSpec } from "./params.ts";
-import { nodeCount, runAnalysis, runLayout, runPost, snapshotBytes, snapshotText, type StageContext } from "./stages.ts";
+import {
+  nodeCount, postGraph, readLayoutParams, runAnalysis, runGraph, snapshotBytes, snapshotText,
+  type StageContext,
+} from "./stages.ts";
 
 /** One loaded wasm module and every graph built against it. `createMotor` is the only way
  * to get one — the constructor is private so a `Motor` is never in play without having
@@ -151,6 +154,15 @@ export class Motor {
     extendGraph(this.#requireLoaded(), handle, batch);
   }
 
+  /** {@link Motor.extend} over a `GMX1` columnar batch (`gm_graph_extend_columns`): the same
+   *  append over bytes encoded here, not a JSON document stringified here. Same invalidation.
+   *  Refused, graph unchanged, as InvalidHandleError or **ColumnsRefusedError** — the same
+   *  logical fault is `IngestInvalid` under {@link Motor.extend} and `ColumnsInvalid` here, so
+   *  the class is part of the contract (`docs/decisions/extend-columns.md` "U1"). */
+  extendColumns(handle: Handle, batch: GraphBatch): void {
+    extendColumnsGraph(this.#requireLoaded(), handle, batch);
+  }
+
   /** Nodes in `handle`'s topology — available right after {@link Motor.build}, before any run.
    *  `0` is ambiguous on the wire (a genuinely empty graph, or an invalid handle, C4): this
    *  method resolves it via `gm_last_error` so only the real refusal throws. */
@@ -163,8 +175,7 @@ export class Motor {
    *  parameter buffer carries them — `gm_layout_params` over the index {@link Motor.run}
    *  resolves the id to, read once per motor (`docs/decisions/layout-params.md`). */
   layoutParams(layoutId: string): LayoutParamSpec[] {
-    const { exports, registries, params } = this.#requireLoaded();
-    return params.read(exports, layoutId, registries.layoutIndex(exports, layoutId));
+    return readLayoutParams(this.#requireLoaded(), layoutId);
   }
 
   /** Runs the registered layout `layoutId` (from {@link Motor.layouts}; resolved through
@@ -173,9 +184,7 @@ export class Motor {
    *  {@link Motor.layoutParams} does not publish is a `RangeError`; a value is sent as written
    *  and the motor, not this SDK, refuses one out of range (`ParamOutOfRange`, never clamped). */
   run(handle: Handle, layoutId: string, options?: RunOptions): RunResult {
-    const ctx = this.#requireLoaded();
-    const run = runLayout(ctx, handle, layoutId, options?.params);
-    return { handle, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(ctx.exports, handle), dim: run.dim };
+    return runGraph(this.#requireLoaded(), handle, layoutId, options?.params);
   }
 
   /** {@link Motor.run} at the layout's defaults, kept so every pre-ABI-2 caller is unchanged. */
@@ -194,9 +203,7 @@ export class Motor {
    *  bundle gives the same answer as running bundle once. Only `post.separate.grid`
    *  ({@link Motor.separateNodes}) moves nodes; every other pass leaves `x`/`y` alone. */
   post(handle: Handle, postId: string): PostResult {
-    const ctx = this.#requireLoaded();
-    const run = runPost(ctx, handle, postId);
-    return { handle, id: postId, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(ctx.exports, handle), dim: run.dim };
+    return postGraph(this.#requireLoaded(), handle, postId);
   }
 
   /** `post.separate.grid`, the one pass that MOVES nodes: read `NodeX`/`NodeY` again after it,
