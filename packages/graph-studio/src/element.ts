@@ -85,12 +85,12 @@ class GraphStudio extends HTMLElement implements GraphStudioElement {
     return this.#mounted === null ? notConnected() : this.#mounted.verbs.loadGraph(doc);
   }
 
-  focusNode(id: string): boolean {
-    return this.#mounted?.verbs.focusNode(id) ?? false;
+  focusNode(id: string): Promise<boolean> {
+    return this.#mounted?.verbs.focusNode(id) ?? Promise.resolve(false);
   }
 
-  selectNodes(ids: readonly string[]): boolean {
-    return this.#mounted?.verbs.selectNodes(ids) ?? false;
+  selectNodes(ids: readonly string[]): Promise<boolean> {
+    return this.#mounted?.verbs.selectNodes(ids) ?? Promise.resolve(false);
   }
 
   invalidate(id: string): void {

@@ -34,7 +34,7 @@ async function started(client: MotorClient): Promise<{ readonly heard: string[];
     });
   }
   watchHost({ host, store: made.studio.store, view: { on: () => () => undefined }, previews: createPreviews({ resolver: () => null }) });
-  const verbs = hostVerbs(made.studio, Promise.resolve());
+  const verbs = hostVerbs(host, made.studio, Promise.resolve());
   return { heard, load: (doc) => verbs.loadGraph(doc) };
 }
 

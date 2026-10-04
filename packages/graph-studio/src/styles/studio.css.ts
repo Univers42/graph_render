@@ -1,6 +1,13 @@
 /**
- * The whole stylesheet, as one string: the host puts it in a `<style>` inside the shadow
- * root, so nothing here can reach the page and nothing on the page reaches in.
+ * The whole stylesheet, as one string: `mount.ts` builds a `CSSStyleSheet` from it and adopts it
+ * on the shadow root (`adoptedStyleSheets`), which is why nothing here needs a `<style>` element
+ * and a host need not allow `'unsafe-inline'` — under that CSP the browser refuses a `<style>`.
+ *
+ * The shadow root is `mode: "open"` so that a host can reach the studio's own chrome when it has
+ * to (`host.shadowRoot.querySelector`, as the gates do), and so that `view`, the panels' geometry
+ * and a11y tree are inspectable from the page. That is a deliberate trade, not an isolation claim:
+ * host script CAN walk in, so the rule below is that nothing the host supplies is ever put where
+ * a stylesheet could reach it — every host string is rendered as text.
  *
  * No backdrop-filter, no filter, no animation: each of them makes the browser recomposite
  * the canvas under the panels on every frame the graph draws.

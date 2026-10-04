@@ -234,6 +234,9 @@ export function createStudio(deps: StudioDeps): Studio {
     copy: (text) => copyText(store, text),
     dismiss: () => store.update((state) => ({ ...state, error: null })),
     destroy: () => {
+      // First: a reveal in flight holds a timer chain that patches the store and calls `setFrame`
+      // on a view that is about to be destroyed (`studio/reveal.ts`, `cancel`).
+      context.animation.cancel();
       unselect();
       unkeep();
       unselectMany();

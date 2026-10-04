@@ -22,7 +22,16 @@ OPEN_VIAS = ("dblclick", "enter", "inspector")
 INSPECTOR_TITLE = "const t = el.shadowRoot.querySelector('.gs-inspector .gs-preview-title'); return t === null ? null : t.textContent;"
 STORED = "Object.keys(localStorage).filter((key) => key.startsWith('graph-studio.')).sort()"
 # How long a preview has to arrive once its node is selected: no debounce for the inspector.
+# Caveat: 5 s is a wait for a resolve that may never come, so a host slower than that reads as one
+# that answered with nothing and the row fails on the missing title rather than on a timeout. The
+# way out is a `resolve` that answers in time, or a larger PREVIEW_CAP_S here.
 PREVIEW_CAP_S = 5.0
+
+# Every pause in this module, including the one inside the resolve poll: a fixed wait, never a
+# wait for a condition. Caveat: a page slower than 0.4 s to answer reads as one that never will, so
+# a row can fail on what it did not see yet; the way out is polling the value the step is waiting
+# for, as `step_resolve` does around its own poll, and a larger SETTLE_S here.
+SETTLE_S = 0.4
 
 
 def renamed(row, name):
@@ -41,6 +50,8 @@ def studio_of(health):
 def step_load(page, ctx):
     """Load the page, wait for it to answer, and judge the load as the smoke gate would."""
     page.set_viewport(VIEWPORT[0], VIEWPORT[1], 1)
+    # Before the first navigation: the harness's own `document` listener, for `step_composed`.
+    embedpage.install_harness(page)
     page.navigate("about:blank")
     page.navigate(ctx["url"])
     at = studio_of(embedpage.wait_loaded(page))
@@ -84,9 +95,9 @@ def step_select(page, ctx):
         return []
     page.call("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": point["x"], "y": point["y"],
                                            "button": "none", "buttons": 0})
-    time.sleep(0.4)
+    time.sleep(SETTLE_S)
     ctx["hand"].click((point["x"], point["y"]))
-    time.sleep(0.3)
+    time.sleep(SETTLE_S)
     selected = embedpage.on_element(page, "return el.selectedIds;")
     ctx["selected_by"] = "a click"
     if selected != [point["id"]]:
@@ -109,7 +120,7 @@ def step_resolve(page, ctx):
         asked = page.evaluate("window.__embed.asked")
         if (title == want and point["id"] in asked) or time.monotonic() > deadline:
             break
-        time.sleep(0.2)
+        time.sleep(SETTLE_S)
     measured = (f"inspector title {json.dumps(title)}; resolve asked about {judge.short(json.dumps(asked), 120)} "
                 f"(selected by {ctx.get('selected_by', '?')})")
     return [verdict.row(name, expectation, measured, title == want and point["id"] in asked)]
@@ -141,10 +152,17 @@ def plain_ids(heard):
 
 
 def step_composed(page, ctx):
+    """The browser's own `Event` properties, read by the harness's listener, not by the page.
+
+    `embedpage.HARNESS` is installed over CDP before the page's scripts, so `bubbles`, `composed`
+    and `frozen` are read off the event the browser dispatched and not off anything the page under
+    test recorded about it; a page that wrote `composed: true` for an event it never composed fails
+    here.
+    """
     name = "embed-composed"
     expectation = ("a `document` listener outside the page's own shadow root hears all five events, each "
                    "bubbling and composed, with a frozen detail of string ids")
-    heard = page.evaluate("window.__embed.heard")
+    heard = page.evaluate("window.__harness.heard")
     types = sorted({each["type"] for each in heard})
     missing = [kind for kind in HOST_TYPES if kind not in types]
     malformed = sorted({each["type"] for each in heard
@@ -162,7 +180,7 @@ def step_storage(page, ctx):
     page.navigate("about:blank")
     page.navigate(ctx["url"])
     embedpage.wait_loaded(page)
-    time.sleep(0.5)
+    time.sleep(SETTLE_S)
     shown = page.evaluate("({ heard: window.__embed.heard, at: window.__embed.loadCalledAt })")
     after = page.evaluate(STORED)
     loads = [(at, heard["detail"]["nodes"]) for at, heard in enumerate(shown["heard"]) if heard["type"] == "graph-load"]

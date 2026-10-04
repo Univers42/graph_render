@@ -13,7 +13,22 @@ from embedrows import no_point
 
 # Verdict 11: how many Tab presses the inspector's Open button may be behind. The dock, the search
 # box and every panel's controls come first; past this the button is called unreachable.
+# Caveat: the bound is on how far the button may sit, not on the studio: a host that puts the
+# element behind 200 focusable controls of its own reads as unreachable when it is merely last.
+# The way out is fewer controls before the inspector, or a larger TAB_CAP here.
 TAB_CAP = 200
+
+# Every pause in this module, and the deadline in `open_centre`: a fixed wait, never a wait for a
+# condition. Caveat: a page that needs longer than SETTLE_S to answer reads as one that never will,
+# so a row can fail on an open it would have seen; the way out is polling for the button's own
+# centre, as `open_centre` does, and a larger SETTLE_S here.
+SETTLE_S = 0.4
+
+# How long the Open button may take to be a pointer can reach, once a node is selected. It is
+# `open_centre`'s only wait, and it polls rather than sleeps; 3 s is the panel's own transition.
+# Caveat: past it the button reads as absent and `embed-open` fails as if there were none, on a
+# host that only needed longer; the way out is a wider OPEN_CAP_S here.
+OPEN_CAP_S = 3.0
 
 WHERE_FOCUS = """
 const inside = document.querySelector('#frame').shadowRoot.activeElement === el;
@@ -49,7 +64,7 @@ def step_dblclick(page, ctx):
         return [no_point(name, expectation)]
     start = page.evaluate(embedpage.HEARD_COUNT)
     ctx["hand"].double_click((point["x"], point["y"]))
-    time.sleep(0.4)
+    time.sleep(SETTLE_S)
     opens = opened(page, start, "dblclick")
     shown = page.evaluate("document.getElementById('opened').textContent")
     passed = opens == [{"id": point["id"], "via": "dblclick"}] and shown == point["id"]
@@ -74,7 +89,7 @@ def enter_case(page, ctx, case):
     where = embedpage.on_element(page, f"{focus} {WHERE_FOCUS}")
     start = page.evaluate(embedpage.HEARD_COUNT)
     ctx["hand"].key("Enter")
-    time.sleep(0.3)
+    time.sleep(SETTLE_S)
     opens = opened(page, start, "enter")
     count_right = len(opens) == wanted and all(each["id"] == point["id"] for each in opens)
     return where, len(opens), count_right and where_wanted in where
@@ -96,12 +111,12 @@ def step_enter(page, ctx):
 def open_centre(page, ctx):
     """The page point at the centre of the inspector's Open button, once one node is selected."""
     select(page, [ctx["point"]["id"]])
-    deadline = time.monotonic() + 3.0
+    deadline = time.monotonic() + OPEN_CAP_S
     while time.monotonic() < deadline:
         centre = embedpage.on_element(page, OPEN_CENTRE)
         if centre is not None:
             return centre
-        time.sleep(0.2)
+        time.sleep(SETTLE_S)
     return None
 
 
@@ -127,7 +142,7 @@ def step_open(page, ctx):
         return [verdict.row(name, expectation, "no Open button a pointer can reach", False)]
     start = page.evaluate(embedpage.HEARD_COUNT)
     ctx["hand"].click(tuple(centre))
-    time.sleep(0.4)
+    time.sleep(SETTLE_S)
     opens = opened(page, start, "inspector")
     presses = tabs_to_open(page, ctx["hand"])
     clicked = opens == [{"id": ctx["point"]["id"], "via": "inspector"}]
@@ -136,37 +151,92 @@ def step_open(page, ctx):
                         clicked and presses is not None)]
 
 
-OVERLAP = """
+# Two `loadGraph` calls of different sizes, as the two overlap rows race them. `chain(n, p)` is a
+# document of `n` nodes and `n - 1` edges, so the counts say which graph each answer carried.
+CHAIN = """
 const chain = (n, p) => ({ version: 1, nodes: Array.from({ length: n }, (_, i) => ({ id: p + i })),
   edges: Array.from({ length: n - 1 }, (_, i) => ({ id: `${p}${i}-${i + 1}`, source: p + i, target: p + (i + 1) })) });
 const settle = (call) => call.then((r) => ({ ok: true, nodes: r.nodes, edges: r.edges }),
   (e) => ({ ok: false, name: e instanceof Error ? e.name : String(e) }));
+const report = async (start, results) => {
+  await new Promise((done) => setTimeout(done, 500));
+  const heard = window.__embed.heard.slice(start).filter((h) => h.type === 'graph-load' || h.type === 'graph-error');
+  return { results, heard: heard.map((h) => ({ type: h.type, detail: h.detail })) };
+};
+"""
+
+# The sequential race: the second call is made in the same turn as the first. `%s` is where it is
+# made, and the negative control awaits the first there instead, which is the same two calls with
+# no overlap at all.
+SEQUENTIAL = CHAIN + """
 const start = window.__embed.heard.length;
 const first = settle(el.loadGraph(chain(30, 'a')));
 %s
 const second = settle(el.loadGraph(chain(20, 'b')));
-const results = [await first, await second];
-await new Promise((done) => setTimeout(done, 500));
-const heard = window.__embed.heard.slice(start).filter((h) => h.type === 'graph-load' || h.type === 'graph-error');
-return { results, heard: heard.map((h) => ({ type: h.type, detail: h.detail })) };
+return report(start, [await first, await second]);
+"""
+
+# The re-entrant race: the second call is made from inside the `graph-load` handler the first one
+# is being announced through, so the studio is between its own commits and the motor is idle. This
+# is the only probe that can see a supersede decision that is not a `cancel` of a busy motor, and
+# its break is the task-2 regression (`embedpage.FAULTS["supersede"]`).
+REENTERED = CHAIN + """
+const start = window.__embed.heard.length;
+let second = null;
+const reenter = () => {
+  document.removeEventListener('graph-load', reenter);
+  second = settle(el.loadGraph(chain(20, 'b')));
+};
+document.addEventListener('graph-load', reenter);
+const first = settle(el.loadGraph(chain(30, 'a')));
+return report(start, [await first, await second]);
 """
 
 
+def raced(page, body):
+    return page.evaluate(f"(async () => {{ const el = {embedpage.ELEMENT}; {body} }})()")
+
+
+def counts(heard):
+    """The `[nodes, edges]` every `graph-load` carried, and the `graph-error` details beside them."""
+    return ([[each["detail"]["nodes"], each["detail"]["edges"]] for each in heard if each["type"] == "graph-load"],
+            [each["detail"] for each in heard if each["type"] == "graph-error"])
+
+
 def step_overlap(page, ctx):
+    """Two rows: the sequential race for the counts, the re-entrant one for the `CancelledError`."""
+    return [row_sequential(page, ctx), row_reentered(page)]
+
+
+def row_sequential(page, ctx):
     name = "embed-overlap"
     expectation = ("two loadGraph calls, the second made before the first settled: the first rejects with "
                    "CancelledError, the second resolves with 20 nodes, and `document` hears one graph-load, of 20")
     # The negative control awaits the first load before it makes the second: no overlap, two loads.
-    raced = page.evaluate(f"(async () => {{ const el = {embedpage.ELEMENT}; "
-                          f"{OVERLAP % ('await first;' if ctx['overlap_awaits'] else '')} }})()")
-    first, second = raced["results"]
-    loads = [each["detail"] for each in raced["heard"] if each["type"] == "graph-load"]
-    errors = [each["detail"] for each in raced["heard"] if each["type"] == "graph-error"]
+    body = SEQUENTIAL % ("await first;" if ctx["overlap_awaits"] else "")
+    raced_rows = raced(page, body)
+    first, second = raced_rows["results"]
+    loads, errors = counts(raced_rows["heard"])
     passed = (first == {"ok": False, "name": "CancelledError"} and second == {"ok": True, "nodes": 20, "edges": 19}
-              and [(load["nodes"], load["edges"]) for load in loads] == [(20, 19)] and not errors)
-    measured = (f"first {json.dumps(first)}, second {json.dumps(second)}; graph-load "
-                f"{json.dumps([(load['nodes'], load['edges']) for load in loads])}, graph-error {json.dumps(errors)}")
-    return [verdict.row(name, expectation, measured, passed)]
+              and loads == [[20, 19]] and not errors)
+    measured = (f"first {json.dumps(first)}, second {json.dumps(second)}; graph-load {json.dumps(loads)}, "
+                f"graph-error {json.dumps(errors)}")
+    return verdict.row(name, expectation, measured, passed)
+
+
+def row_reentered(page):
+    name = "embed-overlap-reentrant"
+    expectation = ("a loadGraph made from inside the graph-load handler of the one in flight: the re-entered "
+                   "call rejects with CancelledError, the handler's own resolves with 20 nodes, and the last "
+                   "graph-load `document` hears is that one, exactly once")
+    heard = raced(page, REENTERED)
+    first, second = heard["results"]
+    loads, errors = counts(heard["heard"])
+    passed = (first == {"ok": False, "name": "CancelledError"} and second == {"ok": True, "nodes": 20, "edges": 19}
+              and loads and loads[-1] == [20, 19] and loads.count([20, 19]) == 1 and not errors)
+    measured = (f"re-entered {json.dumps(first)}, handler's own {json.dumps(second)}; graph-load "
+                f"{json.dumps(loads)}, graph-error {json.dumps(errors)}")
+    return verdict.row(name, expectation, measured, passed)
 
 
 REFUSED = """

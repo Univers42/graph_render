@@ -12,7 +12,7 @@ import type { ShownError } from "../state/errors.ts";
 import type { Studio } from "../studio/studio.ts";
 
 /** Bumped on a breaking change only; an addition is detected with `"name" in el`. */
-export const HOST_API = 1;
+export const HOST_API = 2;
 
 /** How the user asked to open a node. The element opens nothing itself. */
 export const OPEN_VIAS = ["dblclick", "enter", "inspector"] as const;
@@ -52,9 +52,9 @@ export interface GraphStudioHost {
   /** Replaces the whole graph; resolves once its frame is set, rejects when overtaken. */
   loadGraph(doc: object): Promise<LoadResult>;
   /** Centres and selects the node with exactly this id; false, and nothing moves, when none has it. */
-  focusNode(id: string): boolean;
+  focusNode(id: string): Promise<boolean>;
   /** Selects exactly these ids, the last one primary; `[]` clears. False, and nothing changes, when one is unknown. */
-  selectNodes(ids: readonly string[]): boolean;
+  selectNodes(ids: readonly string[]): Promise<boolean>;
   readonly selectedIds: readonly string[];
   /** Set by the host; `null` shows the node's own label, kind and path. */
   resolve: Resolve | null;

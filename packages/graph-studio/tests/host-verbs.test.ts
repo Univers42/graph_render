@@ -39,13 +39,13 @@ function bench(client: MotorClient = scriptedClient(), drawn = true): Bench {
   }
   const view = { on: () => () => undefined };
   watchHost({ host, store: made.studio.store, view, previews: createPreviews({ resolver: () => null }) });
-  return { studio: made.studio, verbs: hostVerbs(made.studio, Promise.resolve()), calls: made.seen.calls, heard };
+  return { studio: made.studio, verbs: hostVerbs(host, made.studio, Promise.resolve()), calls: made.seen.calls, heard };
 }
 
 /** What `move` made the view do, after every command it dispatched has run. */
 async function viewCalls(move: (subject: Bench) => unknown): Promise<string[]> {
   const subject = bench();
-  move(subject);
+  await move(subject);
   await drained();
   return subject.calls.filter((call) => call.startsWith("focus") || call.startsWith("select"));
 }
@@ -53,7 +53,7 @@ async function viewCalls(move: (subject: Bench) => unknown): Promise<string[]> {
 test("focusNode takes an exact id, and a label, an unknown id or a non-string moves nothing", async () => {
   assert.deepEqual(await viewCalls(({ verbs }) => verbs.focusNode("b")), ["focus 1"]);
   for (const id of ["Alpha", "zz", "", 1, null]) {
-    assert.deepEqual(await viewCalls(({ verbs }) => assert.equal(verbs.focusNode(id), false)), [], String(id));
+    assert.deepEqual(await viewCalls(({ verbs }) => verbs.focusNode(id).then((ok) => assert.equal(ok, false))), [], String(id));
   }
 });
 
@@ -63,7 +63,7 @@ test("negative control: the console's `focus`, which matches labels, moves on th
 
 test("focusNode with nothing drawn answers false", async () => {
   const subject = bench(scriptedClient(), false);
-  assert.equal(subject.verbs.focusNode("a"), false);
+  assert.equal(await subject.verbs.focusNode("a"), false);
   await drained();
   assert.deepEqual(subject.calls, []);
 });
@@ -71,16 +71,16 @@ test("focusNode with nothing drawn answers false", async () => {
 test("selectNodes takes exact ids, the last one primary, and refuses the whole call on one unknown", async () => {
   assert.deepEqual(await viewCalls(({ verbs }) => verbs.selectNodes(["c", "a", "c"])), ["selectMany 2,0"]);
   for (const ids of [["a", "Beta"], ["a", "zz"], "a", [1], null]) {
-    assert.deepEqual(await viewCalls(({ verbs }) => assert.equal(verbs.selectNodes(ids), false)), [], JSON.stringify(ids));
+    assert.deepEqual(await viewCalls(({ verbs }) => verbs.selectNodes(ids).then((ok) => assert.equal(ok, false))), [], JSON.stringify(ids));
   }
 });
 
 /** The `node-select` events heard while `second` ran after a first selection of a and c. */
 async function selectsAfter(second: readonly string[]): Promise<string[]> {
   const subject = bench();
-  assert.equal(subject.verbs.selectNodes(["a", "c"]), true);
+  assert.equal(await subject.verbs.selectNodes(["a", "c"]), true);
   await drained();
-  assert.equal(subject.verbs.selectNodes(second), true);
+  assert.equal(await subject.verbs.selectNodes(second), true);
   await drained();
   return subject.heard.filter((line) => line.startsWith("node-select"));
 }
@@ -95,20 +95,36 @@ test("negative control: a different set is announced, so the count above can mov
 
 test("selectedIds is a frozen list of the host's ids, in selection order", async () => {
   const subject = bench();
-  subject.verbs.selectNodes(["c", "a"]);
+  await subject.verbs.selectNodes(["c", "a"]);
   await drained();
   const ids = subject.verbs.selectedIds();
   assert.deepEqual(ids, ["c", "a"]);
   assert.equal(Object.isFrozen(ids), true);
-  assert.equal(subject.verbs.selectNodes([]), true);
+  assert.equal(await subject.verbs.selectNodes([]), true);
   await drained();
   assert.deepEqual(subject.verbs.selectedIds(), []);
 });
 
 test("loadGraph refuses what is not an object, or what serialises to nothing, before the studio sees it", async () => {
+  for (const doc of [42, "{}", null, { toJSON: () => undefined }]) {
+    await assert.rejects(bench().verbs.loadGraph(doc), TypeError);
+  }
+});
+
+test("a document JSON.stringify throws on is refused as an ingest refusal, and announced as one", async () => {
   const cyclic: { self?: unknown } = {};
   cyclic.self = cyclic;
-  for (const doc of [42, "{}", null, cyclic, { toJSON: () => undefined }]) {
-    await assert.rejects(bench().verbs.loadGraph(doc), TypeError);
+  const overlong = { nodes: [], edges: [], toJSON: () => { throw new RangeError("Invalid string length"); } };
+  for (const doc of [cyclic, overlong]) {
+    const subject = bench();
+    const error: unknown = await subject.verbs.loadGraph(doc).then(() => null, (refused: unknown) => refused);
+    assert.ok(error instanceof Error);
+    assert.equal(error.name, "IngestRefusal");
+    // Verdict 7: the rejection's `name` is the `graph-error`'s `error`, and here it is one string,
+    // because the studio never saw the document and would have announced nothing at all.
+    const said = subject.heard.filter((line) => line.startsWith("graph-error"));
+    assert.equal(said.length, 1, JSON.stringify(subject.heard));
+    assert.match(said[0] ?? "", /graph-error \{"error":"IngestRefusal","message":"loadGraph could not write the document: /);
+    assert.deepEqual(subject.calls, [], "the studio was never asked to draw it");
   }
 });

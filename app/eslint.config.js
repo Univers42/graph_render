@@ -84,9 +84,13 @@ export default tseslint.config(
   // The parity page is the studio's own second page: it mounts the parity module directly,
   // with no motor behind it (packages/graph-studio/src/parity/page.ts).
   { files: ["app/src/parity.ts"], rules: banned(ORACLE, SDK) },
-  // Config files: no tsconfig holds them, and a bundler's config is its default export.
+  // The two bundler configs, by exact path: no tsconfig holds them, and a bundler's config is its
+  // default export, which `HOUSE` bans. Their exemption is exactly these two files — the markup-sink
+  // ban included, so `packages/` has no JavaScript blind spot. `tests/ui/raw-html.tsx` is
+  // deliberately NOT here: it is the negative control that has to draw all five bans
+  // (scripts/studio.sh lint asserts exactly five errors on it, all `no-restricted-syntax`).
   {
-    files: ["**/*.{js,mjs}", "app/vite.config.ts"],
+    files: ["app/vite.config.ts", "packages/graph-studio/ui-tests.config.mjs"],
     ...tseslint.configs.disableTypeChecked,
     rules: { ...tseslint.configs.disableTypeChecked.rules, "no-restricted-syntax": "off" },
   },

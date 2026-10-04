@@ -12,8 +12,16 @@ import time
 
 ELEMENT = "document.querySelector('#frame').shadowRoot.querySelector('graph-studio')"
 
+# The document the page asks for, by the name it asks it under. `embed.py` serves the same path
+# from disk, so a fault that serves another document speaks about the file the rows measured.
+FIXTURE_NAME = "clustered.json"
+
 # How long the page has to define the element, fetch the fixture and draw it. It builds the
 # fixture, opens a motor session and lays it out, all on load: the load smoke gate's cap.
+# Caveat: a page that has not answered by then is read as it stands, not as a timeout, so a slow
+# host (a cold wasm, a loaded machine) reads as a half-drawn studio and every row fails on what it
+# saw. The way out is a warm `app/public/` from `scripts/studio.sh build`, or a larger cap here —
+# no row may wait longer than this on its own.
 LOAD_CAP_S = 90.0
 
 # The page's state and the studio's, read once. `studio` is null while there is no studio; its
@@ -65,10 +73,40 @@ FIRST_POSITION = f"(() => {{ const p = {ELEMENT}.view.position(0); return [p.x, 
 
 HEARD_COUNT = "window.__embed.heard.length"
 
+# The harness's own record of the host events, installed over CDP before the page's scripts. It is
+# not the page's: `app/src/embed.ts` also keeps what it heard, and a page that recorded
+# `composed: true` for an event it never composed would pass a row that read its own notes.
+# `bubbles`, `composed` and `frozen` are read here, off the browser's own `Event` and off the
+# detail the browser handed us (`embedrows.step_composed`).
+HARNESS = """
+(() => {
+  if (window.__harness !== undefined) return;
+  const frozen = (value) => {
+    if (typeof value !== 'object' || value === null) return true;
+    if (!Object.isFrozen(value)) return false;
+    return Object.values(value).every(frozen);
+  };
+  const harness = { heard: [] };
+  for (const type of ['graph-load', 'node-select', 'node-open', 'node-hover', 'graph-error']) {
+    document.addEventListener(type, (event) => {
+      if (!(event instanceof CustomEvent)) return;
+      harness.heard.push({ type, detail: event.detail, bubbles: event.bubbles, composed: event.composed,
+        frozen: frozen(event.detail) });
+    });
+  }
+  window.__harness = harness;
+})();
+"""
+
 
 def heard_since(page, start):
     """Every event the page's `document` listener heard from index `start` on."""
     return page.evaluate(f"window.__embed.heard.slice({int(start)})")
+
+
+def install_harness(page):
+    """Put the harness's own `document` listener in place, before the page's first navigation."""
+    page.call("Page.addScriptToEvaluateOnNewDocument", {"source": HARNESS})
 
 
 def on_element(page, body):
@@ -112,6 +150,27 @@ def settle_drawing(page, cap=12.0, quiet=0.4):
 
 HOST_EVENTS = "['graph-load', 'node-select', 'node-open', 'node-hover', 'graph-error']"
 
+# What a fault that acts on the studio waits for. Every fault runs before the page's own scripts,
+# so the element is defined a long time after the fault starts, and a fault that acted before the
+# page's own load would simply be overwritten by it. `after(read, act)` polls `read` until it
+# answers, then acts once.
+WAITED = """
+const after = (read, act) => {
+  const tick = () => {
+    const at = read();
+    if (at === null) { setTimeout(tick, 50); return; }
+    act(at);
+  };
+  tick();
+};
+const studioElement = () => {
+  const frame = document.getElementById('frame');
+  const host = frame === null || frame.shadowRoot === null ? null : frame.shadowRoot.querySelector('graph-studio');
+  return host === null || !host.studio ? null : host;
+};
+const loaded = () => ((window.__embed || {}).state === 'pending' || studioElement() === null ? null : studioElement());
+"""
+
 # The faults, one per row they break, each named by its `--break` run.
 FAULTS = {
     # Verdict 3's break: the element gets `remember`, so it uses the page's storage and reopens
@@ -138,6 +197,19 @@ FAULTS = {
   }};
 }})();
 """,
+    # `embed-load-refused`'s own break (verdict 7): the `graph-error` says a different name from
+    # the rejection, which is the one claim that row makes and the only way to break it. Kept out
+    # of `composed`, where the events never arrive at all and every other assertion is untested.
+    "name": """
+(() => {
+  const send = EventTarget.prototype.dispatchEvent;
+  EventTarget.prototype.dispatchEvent = function (event) {
+    if (!(event instanceof CustomEvent) || event.type !== 'graph-error') return send.call(this, event);
+    const detail = { error: 'RenamedError', message: event.detail.message };
+    return send.call(this, new CustomEvent(event.type, { detail, bubbles: event.bubbles, composed: event.composed }));
+  };
+})();
+""",
     # Verdict 11's three breaks, one per trigger: the browser stops the gesture before the studio.
     "dblclick": "window.addEventListener('dblclick', (event) => event.stopImmediatePropagation(), true);",
     "enter": "window.addEventListener('keydown', (event) => { if (event.key === 'Enter') event.stopImmediatePropagation(); }, true);",
@@ -149,5 +221,62 @@ FAULTS = {
   const own = Object.hasOwn;
   Object.hasOwn = (target, key) => (key === 'resolve' && target instanceof HTMLElement ? false : own(target, key));
 })();
+""",
+    # The task-2 regression, injected (verdict 7): a `loadGraph` made while another call is still
+    # in flight waits for that one to settle instead of overtaking it, so nothing is ever
+    # superseded. `embed-overlap-reentrant` then reads a first call that resolved with its own
+    # counts, which is exactly what the token in `studio/pipeline.ts` is there to prevent.
+    "supersede": """
+(() => {
+  const define = customElements.define.bind(customElements);
+  let inFlight = 0;
+  customElements.define = (name, ctor, options) => {
+    if (name === 'graph-studio') {
+      const inner = ctor.prototype.loadGraph;
+      ctor.prototype.loadGraph = function (doc) {
+        if (inFlight === 0) {
+          inFlight += 1;
+          return inner.call(this, doc).finally(() => { inFlight -= 1; });
+        }
+        return new Promise((done, fail) => {
+          const later = () => {
+            if (inFlight > 0) { setTimeout(later, 20); return; }
+            inner.call(this, doc).then(done, fail);
+          };
+          later();
+        });
+      };
+    }
+    return define(name, ctor, options);
+  };
+})();
+""",
+    # `embed-no-store-error`'s own break: a store error with nothing behind it. `note` is the
+    # studio's own way of being told something went wrong, so the banner row reads one too.
+    "store-error": WAITED + """
+after(loaded, (el) => el.studio.note('embed gate break: a failure the studio did not have'));
+""",
+    # `embed-no-overlay`'s own break: the banner a user would read, with no error behind it.
+    "overlay": WAITED + """
+after(loaded, (el) => {
+  const banner = document.createElement('div');
+  banner.className = 'gs-alert';
+  banner.textContent = 'embed gate break: a banner the store never asked for';
+  el.shadowRoot.prepend(banner);
+});
+""",
+    # `embed-drew-nodes`' own break, and `embed-host-load`'s with it: the page is handed a document
+    # with nothing in it, so the view draws no node and the call does not answer with the counts of
+    # the fixture the gate served. One fault, two rows, each red on its own claim.
+    "empty-document": f"""
+(() => {{
+  const fetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {{
+    const url = typeof input === 'string' ? input : ((input && input.url) || '');
+    if (!url.includes('{FIXTURE_NAME}')) return fetch(input, init);
+    return Promise.resolve(new Response('{{"nodes":[],"edges":[]}}',
+      {{ status: 200, headers: {{ 'content-type': 'application/json' }} }}));
+  }};
+}})();
 """,
 }

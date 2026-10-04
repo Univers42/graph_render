@@ -204,7 +204,7 @@ export function mount(host: HTMLElement, options: StudioElementOptions, resolver
     unwatchGestures();
     previews.clear();
   };
-  return { studio, view, client, root, bridge, unwatch, unwatchArea, verbs: hostVerbs(studio, started), previews, unhost };
+  return { studio, view, client, root, bridge, unwatch, unwatchArea, verbs: hostVerbs(host, studio, started), previews, unhost };
 }
 
 export function unmount(mounted: Mounted | null): void {
