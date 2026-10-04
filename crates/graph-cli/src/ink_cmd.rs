@@ -70,7 +70,11 @@ fn measure(request: &Request) -> Result<bool, String> {
             bundled.pairs,
             bundled.unbundled
         );
-        all_reduced &= after.cells < before.cells;
+        // `POSTS` holds `post.separate.grid` since 2026-10-03; it moves nodes and bundles
+        // nothing, so it is printed beside the bundlers and judged by none of their rule.
+        if capability.id.starts_with("post.bundle.") {
+            all_reduced &= after.cells < before.cells;
+        }
     }
     Ok(all_reduced)
 }
