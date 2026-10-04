@@ -7,13 +7,13 @@
  */
 import type { Built } from "./built.ts";
 import { type Assembler, type Document, documentFor } from "./documents.ts";
-import type { Source } from "../state/settings.ts";
+import type { ParamValues, Source } from "../state/settings.ts";
 import {
   DEFAULT_KNOBS, type ForceEngine, type ForceParams, type ForcePort, type ForceSeed, type Growable, type LiveForce,
 } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
-import type { AnalysisReport, Catalog, GraphBatch, GraphSummary, RunReport } from "./protocol.ts";
-import { type Live, runAnalysis, snapshot } from "./run.ts";
+import type { AnalysisReport, Catalog, GraphBatch, GraphSummary, LayoutParamSpec, RunReport } from "./protocol.ts";
+import { type Live, type Shot, runAnalysis, snapshot } from "./run.ts";
 import { type RunPlan, SCATTER, planRun } from "./settle.ts";
 
 export interface AnalysisFace {
@@ -23,6 +23,11 @@ export interface AnalysisFace {
   readonly converged?: boolean | undefined;
   readonly modularity?: number | undefined;
   readonly max?: number | undefined;
+}
+
+/** What one run is asked for. `params` absent or empty means the layout's own defaults. */
+export interface RunOptions {
+  readonly params?: ParamValues;
 }
 
 export interface MotorLike<Handle> {
@@ -37,7 +42,13 @@ export interface MotorLike<Handle> {
    * first, and a caller holding text must not be routed through an encoder it does not need.
    */
   buildColumns(bytes: Uint8Array): Handle;
-  layout(handle: Handle, layoutId: string): unknown;
+  /** One run at `options.params`, or at the layout's own defaults where that is left out. */
+  run(handle: Handle, layoutId: string, options?: RunOptions): unknown;
+  /**
+   * Every parameter `layoutId` publishes, in the order a run's buffer carries them
+   * (`docs/decisions/layout-params.md`). An empty list is an answer: this layout takes none.
+   */
+  layoutParams(layoutId: string): readonly LayoutParamSpec[];
   post(handle: Handle, postId: string): unknown;
   analysis(handle: Handle, analysisId: string): AnalysisFace;
   toBytes(handle: Handle): Uint8Array;
@@ -80,7 +91,10 @@ export interface SessionDeps<Handle> {
 export interface Session {
   open(wasmUrl: string, threads?: number): Promise<Catalog>;
   load(source: Source, fixturesUrl: string): Promise<GraphSummary>;
-  layout(layoutId: string, postId: string | null): Promise<RunReport>;
+  /** What the current layout is run at, keyed by the motor's own parameter names. */
+  layout(layoutId: string, postId: string | null, params?: ParamValues): Promise<RunReport>;
+  /** The schema a caller resolves a name against, read from the motor and nowhere else. */
+  params(layoutId: string): readonly LayoutParamSpec[];
   analysis(analysisId: string): AnalysisReport;
   /** The scatter a delta batch needs drawn, over the graph as it now is; the force session stays. */
   structure(): Promise<RunReport>;
@@ -181,14 +195,30 @@ function renew<Handle>(built: Built<Handle>, plan: RunPlan, deps: SessionDeps<Ha
   built.warm = plan.run === plan.report;
 }
 
+/** What one run was asked for: the layout, the edge pass, and the values to run it at. */
+interface RunAsk extends Shot {
+  readonly layoutId: string;
+}
+
 /**
  * One layout over the graph, with the edge pass and the digest the studio reports. A force
  * layout on a large graph runs as a scatter and reports the layout that settles it (`settle.ts`).
+ *
+ * WHY the values are dropped when the plan runs another layout: that layout publishes its own
+ * schema, and this one's names mean nothing to it. The report says so with an empty `params`,
+ * which is what the studio compares the next plan against, so the substitution costs no second
+ * run.
  */
-async function runLayout<Handle>(live: Live<Handle>, deps: SessionDeps<Handle>, layoutId: string, postId: string | null): Promise<RunReport> {
-  const plan = planRun(layoutId, live.built.nodes.length, live.motor.forceSession !== undefined);
+async function runLayout<Handle>(live: Live<Handle>, deps: SessionDeps<Handle>, ask: RunAsk): Promise<RunReport> {
+  const plan = planRun(ask.layoutId, live.built.nodes.length, live.motor.forceSession !== undefined);
   renew(live.built, plan, deps);
-  return snapshot(live, deps, plan, postId);
+  return snapshot(live, deps, plan, { postId: ask.postId, params: plan.run === ask.layoutId ? ask.params : {} });
+}
+
+/** The schema of one layout, from the motor; an empty list is a layout that publishes none. */
+function layoutParams<Handle>(motor: MotorLike<Handle> | null, layoutId: string): readonly LayoutParamSpec[] {
+  if (motor === null) throw new SessionRefusal("the motor is not open");
+  return motor.layoutParams(layoutId);
 }
 
 /**
@@ -240,10 +270,11 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
       const document = await documentFor(source, fixturesUrl, deps.fetchText, deps.assemble);
       return replace(document, deps.now());
     },
-    layout: async (layoutId, postId) => runLayout(ready(), deps, layoutId, postId),
+    layout: async (layoutId, postId, params = {}) => runLayout(ready(), deps, { layoutId, postId, params }),
+    params: (layoutId) => layoutParams(motor, layoutId),
     analysis: (analysisId) => runAnalysis(ready(), deps, analysisId),
     // Not `layout`: a run renews the force session, and a delta batch's snapshot must not.
-    structure: async () => snapshot(ready(), deps, { run: SCATTER, report: SCATTER }, null),
+    structure: async () => snapshot(ready(), deps, { run: SCATTER, report: SCATTER }, { postId: null, params: {} }),
     forces: () => forcesOf(motor, built, deps),
   };
 }

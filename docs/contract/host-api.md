@@ -128,9 +128,11 @@ disagree, the condition wins.
    - The rejection's `name` equals `graph-error.detail.error`, which equals `ShownError.code`.
    - The byte cap is the motor's `IngestTooLarge` at 1 GiB (`crates/graph-wasm/src/ingest.rs:76`).
    - Row `studio-embed`: two overlapping loads give one `graph-load` and one `CancelledError`.
-8. **`applyDeltas` is out of v1.** Hosts feature-test with `"applyDeltas" in el`, and a declared method
-   that always rejects defeats that test. When it lands, it is atomic per call, with no coalescing across
-   calls, and `DeltaResult` drops the per-id `refused[]`. `delta.md` is cited only once it is on develop.
+8. **`applyDeltas` is outside the v1 promise.** It landed with P4c (`packages/graph-studio/src/element.ts:104`,
+   `host/contract.ts:88`); the batch, its refusals and the ABI under it are `docs/contract/delta.md`, and
+   the measurement is `docs/measurements/perf-p4c-studio.md`. Hosts feature-test with `"applyDeltas" in el`.
+   It is atomic per call, with no coalescing across calls, and resolves with `{ applied }` only: no per-id
+   `refused[]`.
 9. **The interface is complete.** `invalidate(id)` is declared in it. `studio`, `view` and `stopMotor` are
    `@internal` and outside the v1 promise, because they expose dense indices. Row `host-api-types`.
 10. **Events.**
