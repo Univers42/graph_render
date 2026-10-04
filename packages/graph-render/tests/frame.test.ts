@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { fitCamera, worldToScreen } from "../src/camera.ts";
-import { type Frame, TARGET_SPACING, frameFrom, worldFactor } from "../src/frame.ts";
+import { type Frame, TARGET_SPACING, frameFrom, readableFactor, worldFactor } from "../src/frame.ts";
 import { decodeSnapshot } from "../src/snapshot/decode.ts";
 import { column, stringTable } from "./support.ts";
 
@@ -83,6 +83,12 @@ function boxBytes(spec: BoxSpec): Uint8Array {
   return Uint8Array.from(parts.flat());
 }
 
+/** The factor of the two-node drawing at x = y = 100..400: from its node hull alone. */
+function nodeHullFactor(): number {
+  const x = Float32Array.of(100, 400);
+  return readableFactor(x, x, { minX: 100, minY: 100, maxX: 400, maxY: 400 });
+}
+
 /** A two-node Box frame at x = 100..400 whose one polyline swings out to +-5000 and 9000. */
 function routedFrame(): Frame {
   return frameFrom(decodeSnapshot(boxBytes({ x: [100, 400], y: [100, 400], pts: [[-5000, 9000], [9000, -5000]] })));
@@ -96,7 +102,7 @@ test("a frame with no interior edge points is bounded by its nodes, exactly as b
     minX: frame.x[0], minY: frame.y[0], maxX: frame.x[1], maxY: frame.y[1],
   });
   // The world factor is the node hull's spacing, and the edge columns never entered it.
-  assert.equal(frame.factor, worldFactor({ minX: 100, minY: 100, maxX: 400, maxY: 400 }, 2));
+  assert.equal(frame.factor, nodeHullFactor());
 });
 
 test("a routed vertex outside the node hull is in the bounds a fit uses", () => {
@@ -106,7 +112,7 @@ test("a routed vertex outside the node hull is in the bounds a fit uses", () => 
   assert.notEqual(bounds, null);
   // The scale of the drawing is still the node hull's: widening the bounds does not rescale
   // the layout, so the far vertex sits at 9000 * this factor and no nearer.
-  assert.equal(frame.factor, worldFactor({ minX: 100, minY: 100, maxX: 400, maxY: 400 }, 2));
+  assert.equal(frame.factor, nodeHullFactor());
   assert.ok((pts[2] ?? 0) > (frame.x[0] ?? 0), "the vertex is outside the node hull");
   assert.ok((bounds?.maxX ?? 0) >= (pts[2] ?? 0), `maxX ${bounds?.maxX} is short of the vertex at ${pts[2]}`);
   assert.ok((bounds?.maxY ?? 0) >= (pts[1] ?? 0), `maxY ${bounds?.maxY} is short of the vertex at ${pts[1]}`);
