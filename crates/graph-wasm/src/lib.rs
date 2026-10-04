@@ -181,6 +181,7 @@ pub use ingest::read_records as ingest_records;
 /// Native callers: `graph-cli`'s `forcecheck` columns arm (`forcecheck/stream.rs`) and
 /// `bench tick --path columns` (`bench/tick/stream/arm.rs`), the two routes that re-encode a
 /// stream line into the batch the export is handed.
+///
 /// An edge endpoint names a node id, so a batch may point at a node the graph already holds;
 /// this writer interns such a name on demand, which is the one thing a whole document's
 /// writer cannot do.
