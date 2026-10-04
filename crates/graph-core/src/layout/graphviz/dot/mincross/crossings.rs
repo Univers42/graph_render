@@ -23,7 +23,7 @@
 //! Determinism: the sweep is over dense node order and the accumulation is in that order, so
 //! the count is a sum in a fixed order (`prompt.md` §6 D3, D10).
 
-use super::fast::Fast;
+use super::super::fast::{Fast, Kind};
 use super::ranks::{Ranks, max_rank, row_of};
 
 /// The crossings between one rank and the rank below it.
@@ -85,7 +85,7 @@ pub fn ncross(g: &Fast, ranks: &mut Ranks) -> i64 {
 /// order off the nodes themselves rather than off a cache: the answer is a property of the
 /// order, not of this function's bookkeeping.
 pub fn crossings(g: &Fast) -> i64 {
-    let rows = rows_by_rank(g);
+    let rows = rank_rows(g);
     (0..rows.len().saturating_sub(1))
         .map(|r| rcross(g, &rows[r], &rows[r + 1]))
         .sum()
@@ -93,10 +93,11 @@ pub fn crossings(g: &Fast) -> i64 {
 
 /// Every rank's nodes in their current order, gathered once.
 ///
-/// The sort key is the node's own number within its rank, which the pass leaves distinct, so
-/// the key is a total order and the sort's tie-break never has to be specified (`prompt.md`
-/// §6 D5).
-fn rows_by_rank(g: &Fast) -> Vec<Vec<u32>> {
+/// This is the whole of the pass's output read back: one row per rank, each in the order its
+/// nodes are numbered in. The sort key is the node's own number within its rank, which the
+/// pass leaves distinct, so the key is a total order and the sort's tie-break never has to be
+/// specified (`prompt.md` §6 D5).
+pub fn rank_rows(g: &Fast) -> Vec<Vec<u32>> {
     let mut rows: Vec<Vec<u32>> = vec![Vec::new(); max_rank(g) + 1];
     for node in 0..u32::try_from(g.nodes.len()).expect("a node count fits u32") {
         rows[row_of(g, node)].push(node);
@@ -105,4 +106,21 @@ fn rows_by_rank(g: &Fast) -> Vec<Vec<u32>> {
         row.sort_by_key(|&node| g.nodes[node as usize].order);
     }
     rows
+}
+/// Every rank's **real** nodes in their current order, the chain dummies dropped.
+///
+/// This is the same thing the oracle's own order column holds — the plain format prints no
+/// dummy — so a row read through here and a row the probe wrote are directly comparable, and
+/// a crossing count computed from either is the same count.
+pub fn real_rows(g: &Fast) -> Vec<Vec<u32>> {
+    let rows = rank_rows(g);
+    let mut real: Vec<Vec<u32>> = vec![Vec::new(); rows.len()];
+    for (r, row) in rows.iter().enumerate() {
+        real[r] = row
+            .iter()
+            .copied()
+            .filter(|&node| g.nodes[node as usize].kind == Kind::Normal)
+            .collect();
+    }
+    real
 }

@@ -29,7 +29,7 @@
 
 use std::collections::VecDeque;
 
-use super::fast::Fast;
+use super::super::fast::Fast;
 use super::ranks::Ranks;
 
 /// Give every node of the component its position, by walking the component from every

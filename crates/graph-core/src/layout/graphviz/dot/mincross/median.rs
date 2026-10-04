@@ -37,7 +37,7 @@
 //! value, the walk is over the rank's own window, and nothing here reads a clock, a hash
 //! order or a random number (`prompt.md` §6 D1-D10).
 
-use super::fast::Fast;
+use super::super::fast::Fast;
 use super::ranks::Ranks;
 
 /// The scale a neighbour's position is multiplied by before it is used as a value.

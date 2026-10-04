@@ -24,7 +24,7 @@
 //! the passes install into them, and nothing here reads a clock, a hash order or a random
 //! number (`prompt.md` §6 D1-D10).
 
-use super::fast::Fast;
+use super::super::fast::Fast;
 
 /// The slot a row never fills: the reference's NULL, and the end-of-row marker.
 pub const NONE: u32 = u32::MAX;
@@ -90,7 +90,7 @@ impl Ranks {
     pub fn allocate(g: &Fast) -> Self {
         let max = max_rank(g);
         let mut counts = vec![0u32; max + 2];
-        for (node, record) in g.nodes.iter().enumerate() {
+        for (node, _record) in g.nodes.iter().enumerate() {
             counts[row_of(g, node as u32)] += 1;
             for &edge in &g.orig_out[node] {
                 span_counts(g, &g.edges[edge as usize], &mut counts);
@@ -245,7 +245,7 @@ impl Ranks {
 
 /// The one slot per intervening rank an input edge claims: a chain's dummy has to land
 /// somewhere, and the rank it lands on is the one the edge jumps over.
-fn span_counts(g: &Fast, edge: &super::fast::Edge, counts: &mut [u32]) {
+fn span_counts(g: &Fast, edge: &super::super::fast::Edge, counts: &mut [u32]) {
     let (mut low, mut high) = (row_of(g, edge.tail), row_of(g, edge.head));
     if low > high {
         std::mem::swap(&mut low, &mut high);
