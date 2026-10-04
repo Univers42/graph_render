@@ -44,7 +44,7 @@ use spectral::{PIVOT_MDS, SPECTRAL};
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 47] = [
+pub static LAYOUTS: [Capability; 48] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -289,4 +289,7 @@ pub static LAYOUTS: [Capability; 47] = [
     arms_3d::KAMADA_KAWAI_3D_LAYOUT,
     arms_3d::DRL_3D_LAYOUT,
     arms_3d::FA2_3D_LAYOUT,
+    // merge-yifan-hu-octree: the 3D arm of yifan_hu, appended at the END so every existing
+    // index — and every 2D byte and force-session digest behind it — keeps its position.
+    arms_3d::YIFAN_HU_3D_LAYOUT,
 ];

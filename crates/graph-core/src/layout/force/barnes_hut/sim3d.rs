@@ -26,7 +26,7 @@
 //!   `layout.force.fruchterman_reingold.3d` and the other dense 3D arms are in.
 
 use crate::index::Topology;
-use crate::layout::force::octree::charge::Body;
+use crate::layout::force::octree::charge::{self as octree_charge, Terms, Walk};
 use crate::layout::force::octree::{Octree, Points3};
 use crate::layout::force::{LiveParams, SimpleGraph};
 
@@ -52,7 +52,7 @@ pub(in crate::layout::force) struct Sim3 {
     pub(in crate::layout::force) pz: Vec<f64>,
     pub(in crate::layout::force) charge_tree: Octree,
     pub(in crate::layout::force) collide_tree: Octree,
-    pub(in crate::layout::force) bodies: Vec<Body>,
+    pub(in crate::layout::force) bodies: Vec<octree_charge::Body>,
     pub(in crate::layout::force) link_distance: Vec<f64>,
     pub(in crate::layout::force) link_strength: Vec<f64>,
     pub(in crate::layout::force) link_bias: Vec<f64>,
@@ -77,23 +77,39 @@ impl Sim3 {
         graph: SimpleGraph,
         params: LiveParams,
         seed: u32,
-        start: (Vec<f64>, Vec<f64>, Vec<f64>),
+        (x, y, z): (Vec<f64>, Vec<f64>, Vec<f64>),
     ) -> Self {
-        unimplemented!("RED: Sim3::from_parts")
+        let n = x.len();
+        let (link_distance, link_strength, link_bias) = super::link::geometry(&graph, &params);
+        Sim3 {
+            alpha: params.initial_alpha,
+            alpha_target: 0.0,
+            graph,
+            params,
+            seed,
+            tick_no: 0,
+            vx: vec![0.0; n],
+            vy: vec![0.0; n],
+            vz: vec![0.0; n],
+            px: vec![0.0; n],
+            py: vec![0.0; n],
+            pz: vec![0.0; n],
+            charge_tree: Octree::default(),
+            collide_tree: Octree::default(),
+            bodies: Vec::new(),
+            x,
+            y,
+            z,
+            link_distance,
+            link_strength,
+            link_bias,
+            link_forces: Vec::new(),
+        }
     }
 
     /// How many node columns a row may name.
     pub(in crate::layout::force) fn rows(&self) -> u32 {
         self.x.len() as u32
-    }
-
-    /// The three position columns as the octree takes them.
-    pub(in crate::layout::force) fn points(&self) -> Points3<'_> {
-        Points3 {
-            xs: &self.x,
-            ys: &self.y,
-            zs: &self.z,
-        }
     }
 
     /// The three projected columns as the octree takes them.
@@ -108,7 +124,49 @@ impl Sim3 {
     /// One tick: `alpha` decays first, then link, many-body, center and collide run in the
     /// engine's registration order, then the velocities integrate into position.
     pub(in crate::layout::force) fn tick(&mut self) {
-        unimplemented!("RED: Sim3::tick")
+        self.alpha += (self.alpha_target - self.alpha) * self.params.alpha_decay;
+        super::link3d::apply(self);
+        self.charge();
+        self.center();
+        super::collide3d::apply(self);
+        self.integrate();
+        self.tick_no += 1;
+    }
+
+    /// The many-body pass over the **octree**: build, aggregate bottom-up in reverse
+    /// preorder, then one gather per node in the tree's own point order, each node
+    /// receiving exactly one addition onto its own velocity.
+    ///
+    /// Destructured so the tree and body borrows are disjoint from the three velocity
+    /// columns the gathers write.
+    fn charge(&mut self) {
+        let Sim3 {
+            x,
+            y,
+            z,
+            vx,
+            vy,
+            vz,
+            params,
+            alpha,
+            seed,
+            tick_no,
+            charge_tree,
+            bodies,
+            ..
+        } = self;
+        let pts = Points3 { xs: x, ys: y, zs: z };
+        charge_tree.build(pts);
+        octree_charge::aggregate(charge_tree, pts, params.theta, bodies);
+        let terms = Terms::of(params, (*alpha, *seed, *tick_no));
+        let walk = Walk::new(bodies, charge_tree, pts, terms);
+        for &i in charge_tree.order() {
+            let d = walk.node(i);
+            let i = i as usize;
+            vx[i] += d.0;
+            vy[i] += d.1;
+            vz[i] += d.2;
+        }
     }
 
     /// `center.js` over three axes: shifts every position by its own mean, toward the

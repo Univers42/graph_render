@@ -51,9 +51,9 @@ enum Shape {
 /// besides the receiver (`prompt.md` §0's cap) — the quadtree's `Points` at one more axis.
 #[derive(Clone, Copy)]
 pub(in crate::layout::force) struct Points3<'a> {
-    xs: &'a [f64],
-    ys: &'a [f64],
-    zs: &'a [f64],
+    pub(in crate::layout::force) xs: &'a [f64],
+    pub(in crate::layout::force) ys: &'a [f64],
+    pub(in crate::layout::force) zs: &'a [f64],
 }
 
 impl Points3<'_> {

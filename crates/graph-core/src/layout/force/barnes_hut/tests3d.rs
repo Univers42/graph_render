@@ -105,9 +105,8 @@ fn the_center_pass_shifts_each_axis_by_its_own_mean() {
 
 #[test]
 fn a_link_between_two_coincident_nodes_has_a_finite_three_axis_force() {
-    let g = graph(2);
     let mut sim = Sim3::from_parts(
-        g,
+        graph(2),
         LiveParams::from(ForceParams::default()),
         0,
         (vec![7.0, 7.0], vec![7.0, 7.0], vec![7.0, 7.0]),
@@ -117,8 +116,15 @@ fn a_link_between_two_coincident_nodes_has_a_finite_three_axis_force() {
         f.0.is_finite() && f.1.is_finite() && f.2.is_finite(),
         "no infinite axis for a coincident pair: {f:?}"
     );
-    let (lo, hi) = (link3d::node_share(&sim, 0), link3d::node_share(&sim, 1));
-    assert_ne!(lo, hi, "the bias splits the edge between its endpoints");
+    link3d::apply(&mut sim);
+    let v = [sim.vx[0], sim.vy[0], sim.vz[0]];
+    assert!(v.iter().all(|x| x.is_finite()), "the gather stays finite: {v:?}");
+    for axis in 0..3 {
+        assert!(
+            v[axis] * [sim.vx[1], sim.vy[1], sim.vz[1]][axis] <= 0.0,
+            "axis {axis}: the bias splits the edge, so the endpoints move opposite ways"
+        );
+    }
 }
 
 /// Two nodes inside one collide radius push apart on **every** axis, and the push is exactly
@@ -132,10 +138,14 @@ fn two_overlapping_nodes_separate_on_every_axis_and_by_negation() {
         0,
         (vec![0.0, 0.5], vec![0.5, 0.0], vec![0.5, 0.0]),
     );
+    collide3d::prepare(&mut sim);
     let reach = collide3d::reach_squared(&sim);
     let a = collide3d::node_delta(&sim, 0, reach);
     let b = collide3d::node_delta(&sim, 1, reach);
-    assert!(a.0 != 0.0 && a.1 != 0.0 && a.2 != 0.0, "pushed on all three: {a:?}");
+    assert!(
+        a.0 != 0.0 && a.1 != 0.0 && a.2 != 0.0,
+        "pushed on all three: {a:?}"
+    );
     assert_eq!(a, (-b.0, -b.1, -b.2), "one shared subtraction, negated");
 }
 
@@ -147,6 +157,7 @@ fn a_pair_further_apart_than_the_reach_gets_no_collide_push() {
         0,
         (vec![0.0, 1e6], vec![0.0, 0.0], vec![0.0, 0.0]),
     );
+    collide3d::prepare(&mut sim);
     let reach = collide3d::reach_squared(&sim);
     assert_eq!(collide3d::node_delta(&sim, 0, reach), (0.0, 0.0, 0.0));
 }

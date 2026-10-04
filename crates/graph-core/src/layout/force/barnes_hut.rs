@@ -20,9 +20,9 @@ mod collide;
 mod collide3d;
 mod link3d;
 pub(in crate::layout::force) mod link;
-mod seed;
+pub(in crate::layout::force) mod seed;
 mod settle;
-mod settle3d;
+pub(in crate::layout::force) mod settle3d;
 mod sim3d;
 pub(in crate::layout::force) mod sim;
 pub(in crate::layout::force) mod step;
@@ -115,6 +115,8 @@ pub(in crate::layout::force) fn charge_pass(
 }
 
 pub(crate) use settle::{Tier, golden_seed, settle};
+pub(in crate::layout::force) use seed::golden_sphere;
+pub(in crate::layout::force) use settle3d::settle3d;
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
 ///

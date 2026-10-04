@@ -152,6 +152,49 @@ pub(super) const YIFAN_HU_2Z: Metadata = Metadata {
     ours",
 };
 
+/// `layout.force.yifan_hu.3d`: the 3D yifan_hu, as SciGraphs' `'3'` mode asks for
+/// (`yifan_hu.py:344`).
+///
+/// The one row here whose force run **is** three-dimensional: `z` is a coordinate in the
+/// same difference vectors as `x` and `y`, pushed by many-body, link and collide and pushing
+/// back. That is what separates it from [`YIFAN_HU_2Z`] above, whose `z` is derived from the
+/// graph after the run and never steers it. The per-level solver is a sibling 3D tick over
+/// an octree, not the 2D one — see `layout/force/yifan_hu/arm3d.rs`.
+pub(super) const YIFAN_HU_3D: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Point,
+    edges: EdgeGeometryKind::Line,
+    oracle: "no coordinate oracle exists and none is claimed, for the same reason as the 2D \
+    arm: this is not sfdp and no sfdp output was compared, in any dimension; the stress \
+    metric (harness/stress-d3.mjs, record `stress`) is the closest thing and it is a 2-axis \
+    metric, so this row's own evidence is graph-core's tests — three finite equal-length \
+    columns, a z that spreads, a z that is not the 2D arm's x, and byte-identical output on \
+    a repeat run — rather than a differential",
+    complexity: "O(n log n) x (112 + 48 x levels) for the multilevel solve, the 2D arm's \
+    own cost over three axes: the many-body walk is Barnes-Hut over an octree and collide is \
+    O(n log n) over a second octree, both stackless preorder walks; O(n + m) memory plus the \
+    two octree arenas",
+    scale_ceiling: FORCE_CEILING,
+    degradation: "past the ceiling there is no refusal: the levels stay finite, only \
+    slower, so the caller applies its own timeout; a non-finite position refuses with \
+    StageError::NonFinite and the refusal covers z as well as x and y, because a 3D arm that \
+    validated only its in-plane columns would ship a NaN z as a finite-looking picture; two \
+    nodes closer together than one f64 step of the cube holding them are chained onto one \
+    leaf and charged at the chain head's jiggled separation rather than at their own; a \
+    single node settles to one point per axis rather than dividing by zero",
+    ponytail: "Ponytail: chaotic like every force layout - one added node is a different \
+    picture, not a perturbed one; the direction is cosmetic, never silently wrong. Ponytail \
+    (start): the 3D start is this port's own Fibonacci sphere at the 2D spiral's radius, \
+    which no reference uses, so the pictures differ from the first iteration - cosmetic, and \
+    the escape hatch is barnes_hut::seed::sphere_point. Ponytail (tier): the 3D tick has no \
+    threaded tier, so unlike the 2D arm this row has no worker-count dimension to \
+    hash-equal across - one schedule, one set of bytes. Ponytail (scale_ceiling): inherited \
+    from the 2D arm and NOT re-measured in 3D; the octree makes many-body O(n log n) in \
+    three dimensions exactly as in two, and the constant grows by a factor near 1 that a \
+    measurement would not resolve",
+};
+
 /// `layout.forceatlas2.3d`: [`super::force::FA2`] at `dim = 3`, which is what SciGraphs'
 /// `FORCEATLAS2` asks for by default (`forceatlas.py:153`).
 ///
@@ -213,8 +256,21 @@ pub(super) fn run_yifan_2z(topology: &Topology) -> Result<Geometry, StageError> 
     crate::layout::force::yifan_hu::run_2z(topology, &crate::layout::force::ForceParams::default())
 }
 
-// The five entries `LAYOUTS` appends after `layout.mds.pivot3d`, in this order (append only:
+/// The 3D yifan_hu: [`crate::layout::force::yifan_hu::run_3d`] over the 3D multilevel
+/// settle, at the frozen parameters — the same shim shape as `run_yifan_2z` above, so the
+/// registry's function-pointer slot carries no dimension of its own.
+pub(super) fn run_yifan_3d(topology: &Topology) -> Result<Geometry, StageError> {
+    crate::layout::force::yifan_hu::run_3d(topology, &crate::layout::force::ForceParams::default())
+}
+
+// The six entries `LAYOUTS` appends after `layout.mds.pivot3d`, in this order (append only:
 // the wasm module maps a layout by index).
+pub(super) const YIFAN_HU_3D_LAYOUT: Capability = Capability {
+    id: crate::layout::force::yifan_hu::ID_3D,
+    run: run_yifan_3d,
+    params: &LayoutParams::NONE,
+    meta: YIFAN_HU_3D,
+};
 pub(super) const YIFAN_HU_2Z_LAYOUT: Capability = Capability {
     id: crate::layout::force::yifan_hu::ID_2Z,
     run: run_yifan_2z,

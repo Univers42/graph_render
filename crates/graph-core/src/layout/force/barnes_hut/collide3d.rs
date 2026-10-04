@@ -12,7 +12,7 @@
 //! projected columns costs one more build and nothing else.
 
 use super::sim3d::Sim3;
-use crate::layout::force::octree::Bounds3;
+use crate::layout::force::octree::{Bounds3, Points3};
 use crate::rng::jiggle;
 
 const PASS_X: u32 = 12;
@@ -36,17 +36,33 @@ pub(in crate::layout::force) fn apply(sim: &mut Sim3) {
 }
 
 /// The single-threaded prologue: this tick's projected positions, and the octree over them.
-fn prepare(sim: &mut Sim3) {
-    for i in 0..sim.x.len() {
-        sim.px[i] = sim.x[i] + sim.vx[i];
-        sim.py[i] = sim.y[i] + sim.vy[i];
-        sim.pz[i] = sim.z[i] + sim.vz[i];
+///
+/// Destructured rather than indexed so the three column borrows and the tree's mutable
+/// borrow are disjoint — a borrow of `sim` as a whole would overlap either way.
+pub(in crate::layout::force) fn prepare(sim: &mut Sim3) {
+    let Sim3 {
+        x,
+        y,
+        z,
+        vx,
+        vy,
+        vz,
+        px,
+        py,
+        pz,
+        collide_tree,
+        ..
+    } = sim;
+    for i in 0..x.len() {
+        px[i] = x[i] + vx[i];
+        py[i] = y[i] + vy[i];
+        pz[i] = z[i] + vz[i];
     }
-    sim.collide_tree.build(sim.projected());
+    collide_tree.build(Points3 { xs: px, ys: py, zs: pz });
 }
 
 /// `(2 * collideRadius)²`: the squared diameter two nodes must be closer than to overlap.
-fn reach_squared(sim: &Sim3) -> f64 {
+pub(in crate::layout::force) fn reach_squared(sim: &Sim3) -> f64 {
     let diameter = 2.0 * sim.params.collide_radius;
     diameter * diameter
 }
@@ -91,7 +107,7 @@ pub(in crate::layout::force) struct Query<'a> {
     reach: f64,
     seed: u32,
     tick: u32,
-    pts: crate::layout::force::octree::Points3<'a>,
+    pts: Points3<'a>,
 }
 
 /// An internal cell lies wholly outside the reach of `q`'s position, on any of the three
