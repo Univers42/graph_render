@@ -86,7 +86,7 @@ Three things this table settles that P4c could not:
    the index half was never the problem.
 2. **`from_utf8` is not a cost** — under 0.4 % of the timer. Worth knowing, because it is
    the one step that looks expensive and is not.
-3. **The index half was already cheap.** At 6.6 % of the timer before these changes, no
+3. **The index half was already cheap.** At 9.1 % of the timer before these changes, no
    amount of work on `Topology::extend` could have reached a 30 ms budget on its own. The
    brief's fourth hypothesis — both endpoints hashed twice — is real and is fixed below, but
    it was worth 1 % of the timer, not 30 %.
@@ -175,7 +175,7 @@ Each is a separate commit-range change, each re-timed natively. One round is eno
 iterating, as the brief says; the numbers below are **one round each at 100k**, and the
 instruction counts are exact.
 
-### 1. The root's members come out of the validating walk (`scan.rs`, `scan/walk.rs`)
+### 1. The root's members come out of the validating walk (`scan.rs`, `scan/walk/pass.rs`)
 
 `Document::new` walked the whole text twice: once to refuse (`scan.value(0)`) and once to
 locate the root's members (`root_members`, which re-walked *both arrays in full* to count
@@ -183,12 +183,13 @@ them). The second walk could not find anything the first had not already validat
 `Scan::root` now does both in one pass, with the same refusals at the same offsets and the
 same trailing-bytes check at the same point.
 
-- Instructions: the second walk was 620,158,021 Ir, **17.0 % of the whole timer**, gone.
+- Instructions: the second walk was about 620 M Ir — `Document::new`'s inclusive cost
+  less its first walk — **17.0 % of the whole timer**, gone.
 - Native extend median at 100k: **42.04 → 36.03 ms** (one round, load 9.88 against the
   10.67 of the step-1 median — the closest match available, and the only two 100k
   wall-clock readings taken at a comparable load).
 
-### 2. One walk per record, and no second lexical pass (`scan/walk.rs`, `element.rs`, `element/table.rs`, `ingest.rs`)
+### 2. One walk per record, and no second lexical pass (`scan/walk.rs`, `scan/walk/pass.rs`, `element.rs`, `element/table.rs`, `ingest.rs`)
 
 Each element used to be walked three times: once as a value inside `Scan::elements`' array
 walk, once by `Scan::members` to find its fields' spans, and once more per string field by
