@@ -5,14 +5,14 @@
 //! reference and reimplemented. Never translated line by line, never linked
 //! (`docs/decisions/graphviz-oracle.md`). The five phases are the reference's, in its order:
 //!
-//! 1. **The derived graph** ([`graph`]): strict and undirected, so self-loops are not edges
+//! 1. **The derived graph** (`graph`): strict and undirected, so self-loops are not edges
 //!    and both directions of a pair are one edge.
-//! 2. **Blocks** ([`blocks`]): one lowlink walk from each component's first node finds the
+//! 2. **Blocks** (`blocks`): one lowlink walk from each component's first node finds the
 //!    biconnected components and hangs them on a block-cutpoint tree.
-//! 3. **The skeleton and the circle order** ([`skeleton`], [`circle`]): per block, thin the
+//! 3. **The skeleton and the circle order** (`skeleton`, `circle`): per block, thin the
 //!    block to a skeleton, read its long path, fill in the rest, reduce crossings, and place
 //!    node `k` of `n` at angle `2*PI*k/n`.
-//! 4. **The placement** ([`position`]): hang each block's child circles around it, bottom-up.
+//! 4. **The placement** (`position`): hang each block's child circles around it, bottom-up.
 //!
 //! **Units are inches here and points in the snapshot.** The reference computes in inches
 //! (`ND_width` is 0.75, `mindist` is 1.0 — `circular.c:18`, `utils.c:431`) and its
@@ -22,7 +22,7 @@
 //! Determinism: every traversal is a loop over a node's own `agfstedge`-ordered row or an
 //! ascending index range, the two lowlink frames and the spanning-tree frames are explicit
 //! stacks, and the trigonometry is `libm`'s (`prompt.md` §6 D1-D10). Nothing here iterates a
-//! hash map: [`graph::BlockGraph`] keeps one for edge lookup only. The placement is
+//! hash map: `graph::BlockGraph` keeps one for edge lookup only. The placement is
 //! sequential by nature — a child circle's position depends on its parent's — so it is not
 //! handed to a runner, and that is stated rather than implied (D10's condition is not met, so
 //! the kernel is not written in gather form).
@@ -78,9 +78,9 @@ pub(super) struct Block {
     pub(super) children: Vec<usize>,
     /// The parent block, or `None` for a component's root block.
     pub(super) parent: Option<usize>,
-    /// `CHILD(b)` [`block.h:50`]: the node **in this block** that names its parent.
+    /// `CHILD(b)` (`block.h:50`): the node **in this block** that names its parent.
     pub(super) child_node: u32,
-    /// `BLK_PARENT(b)` [`block.h:51`]: the node **in the parent block** this one hangs off.
+    /// `BLK_PARENT(b)` (`block.h:51`): the node **in the parent block** this one hangs off.
     pub(super) hangs_at: u32,
     /// The block's radius, grown as children are attached.
     pub(super) radius: f64,

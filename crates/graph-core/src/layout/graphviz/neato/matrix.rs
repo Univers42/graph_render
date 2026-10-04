@@ -11,7 +11,7 @@
 //! computes the same sums in `f64` is a different algorithm whose answers drift by more than
 //! the oracle's printed resolution within a few iterations. The precision is therefore part
 //! of the signature — `f32` in, `f32` out — and the one place the reference widens
-//! ([`degrees`]) says why widening is sound there.
+//! ([`row_sums`]) says why widening is sound there.
 //!
 //! **Reductions run in the reference's order, which is not the same order every time.** The
 //! row sum in the product is ascending in `j` while the column contributions are ascending in

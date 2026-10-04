@@ -95,8 +95,8 @@ impl Adjacency {
     ///
     /// **The caller guarantees it, and the guarantee is named here so a new caller cannot
     /// add to it by accident:** every call site asks about an edge it is already holding a
-    /// slot for — [`super::embed::Builder`] splices a half-edge into the row of the node at
-    /// that half-edge's far end, and [`super::lr::orient`] orients an edge it has just
+    /// slot for — `embed::Builder` splices a half-edge into the row of the node at
+    /// that half-edge's far end, and `lr::orient_all` orients an edge it has just
     /// taken out of a row. Both take the slot from this same table, so the edge is in it by
     /// construction; a caller that asked about a non-edge would have invented one.
     ///

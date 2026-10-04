@@ -36,7 +36,7 @@ impl Stage for Spring3D {
     type Params = SpringParams;
     const ID: &'static str = ID_3D;
 
-    /// [`solve`] at `D = 3`, then a geometry with the z column attached.
+    /// `solve` at `D = 3`, then a geometry with the z column attached.
     ///
     /// The narrowing is `f64 -> f32` per column, the same cast
     /// `crate::layout::coords::point_geometry` makes for the 2D stage, so the x and y of a

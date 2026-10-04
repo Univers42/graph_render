@@ -1,7 +1,7 @@
 //! Tidy tree (Reingold–Tilford), `layout.tree.tidy`. An exact port of
 //! `d3-hierarchy@3.1.2`'s `tree()` — the Buchheim/Jünger/Leipert/Walker linear-time
 //! algorithm, `src/tree.js` at `/home/user/refs/npm/d3-hierarchy-3.1.2/src/tree.js`,
-//! carried out in [`walk`] — over the forest [`super::hierarchy::Hierarchy`] repairs (D-H) and
+//! carried out in `walk` — over the forest [`super::hierarchy::Hierarchy`] repairs (D-H) and
 //! hands every layout. No Ponytail: nothing here is a heuristic, an estimate or a
 //! fallback, so none is owed.
 //!
@@ -27,7 +27,7 @@
 //!    `.separation` call).
 //! 4. Read `node.x`, `node.y` off every real node, in dense-index order, and compare
 //!    against this module's `f32` output. The virtual root's own `(x, y)` is real (step
-//!    3 folds it into the left/right/bottom normalisation exactly as [`walk`] does) — it
+//!    3 folds it into the left/right/bottom normalisation exactly as `walk` does) — it
 //!    is simply never emitted, on either side.
 //!
 //! **Edges** are this crate's own convention, not d3's (`tree()` lays out nodes, not

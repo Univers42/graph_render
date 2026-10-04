@@ -58,7 +58,7 @@ impl Throttle {
 pub(crate) struct Ordering {
     /// `layers[l]`: layer `l`'s vertices, left to right.
     pub(crate) layers: Vec<Vec<u32>>,
-    /// Best crossing count the sweep saw: [`super::crossings_for`]'s measurement hook, unused by production code (`coords`/`routing` only need `layers`).
+    /// Best crossing count the sweep saw: `super::crossings_for`'s measurement hook, unused by production code (`coords`/`routing` only need `layers`).
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) crossings: u64,
 }

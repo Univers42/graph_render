@@ -23,7 +23,7 @@ use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
 
 /// The four numbers every coordinate of one drawing needs, bundled so a helper takes one
 /// parameter instead of four (house style, and the same reason
-/// [`Routing`](super::routing::routing::Routing) bundles its three).
+/// [`Routing`](super::routing::Routing) bundles its three).
 struct Frame {
     lo: f64,
     width: f64,

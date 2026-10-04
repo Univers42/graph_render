@@ -165,13 +165,13 @@ pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
     setting_named(read, Vec::new)
 }
 
-/// [`setting`], with the variable **names** this run was handed alongside its values.
+/// `setting`, with the variable **names** this run was handed alongside its values.
 ///
 /// The names are what the `GM_MUTATE_*` sweep reads (RG-26), and they are a second argument
 /// rather than part of the reader because the reader is a `Fn(&str)` every existing test
 /// seam already builds — `forcecheck`'s own included — and widening that is a rewrite of
 /// files this repair does not own. A caller that passes no name list runs **unswept**:
-/// [`setting`] is that caller, and it exists for the unit tests. The one production reader is
+/// `setting` is that caller, and it exists for the unit tests. The one production reader is
 /// [`env_setting`], which passes the process environment.
 pub(crate) fn setting_named(
     read: impl Fn(&str) -> Result<String, VarError>,
@@ -196,7 +196,7 @@ pub(crate) fn setting_named(
     Ok(setting)
 }
 
-/// The one knob's perturbation, written into `setting`. Split out of [`setting`] by the
+/// The one knob's perturbation, written into `setting`. Split out of `setting` by the
 /// house's 40-line-per-function cap, and the place a new knob adds its single line: every
 /// arm parses the *same* way, so a typo is refused whatever the knob perturbs.
 fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {

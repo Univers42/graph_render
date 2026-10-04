@@ -32,11 +32,11 @@
 //! `agfstedge`/`agnxtedge`, which visits a node's out-edges in creation order and *then*
 //! its in-edges, skipping a self-loop on the way in; the sibling sweep that hands out
 //! angles is sequential, so a different order is a different drawing.
-//! [`adjacency::for_each`] is that order, and it is the only place it exists.
+//! `adjacency::for_each` is that order, and it is the only place it exists.
 //!
-//! **Every per-node column is allocated once, not once per component.** [`Scratch`] holds
+//! **Every per-node column is allocated once, not once per component.** `Scratch` holds
 //! the seven the per-component passes write and resets only the component's own entries
-//! between components; [`adjacency::Neighbours`] and [`adjacency::Components`] are flat for
+//! between components; `adjacency::Neighbours` and `adjacency::Components` are flat for
 //! the same reason. Before that, an edgeless graph — one component per node — cost
 //! `O(components x n)` where `registry/radial.rs` declares `O(n + m)`, and the two
 //! measurements are in `docs/measurements/fix-tree-twopi.md`.

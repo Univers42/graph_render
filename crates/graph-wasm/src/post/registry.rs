@@ -12,7 +12,7 @@ use graph_core::post::routed;
 use graph_core::post::{Bundled, PostRun};
 
 /// The routing capability's id, the one this crate names — graph-core's own
-/// [`routed::ID`](graph_core::post::routed::ID), not a spelling here. graph-core's
+/// [`routed::ID`], not a spelling here. graph-core's
 /// `routed` module does not register itself (it has no `PostRun`-shaped entry point of its
 /// own), but it still owns the id, so the hash gate's stage list and this table name the
 /// same string from the same place.

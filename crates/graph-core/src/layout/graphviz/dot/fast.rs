@@ -90,7 +90,7 @@ impl Fast {
     /// `orig_out`, and stops there: an input edge is not in the fast graph. `class1` is what
     /// puts edges into `out` and `inn`, and it makes a *copy* of each one, so the reference's
     /// "is this edge already in the fast graph" test in `find_fast_edge` has an answer other
-    /// than "yes, this one" — which is why this is not a shortcut through [`Fast::link`].
+    /// than "yes, this one" — which is why this is not a shortcut through `Fast::link`.
     pub fn add_edge(&mut self, edge: Edge) -> u32 {
         let mut edge = edge;
         edge.live = false;

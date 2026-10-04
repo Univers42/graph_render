@@ -75,7 +75,7 @@ impl<'a> Pass<'a> {
     /// The children's mass-weighted centre, slot order, over a span rebased at `base`.
     ///
     /// The same three accumulations, in the same order, over the same values as
-    /// [`centre`](super::threshold::centre) — which indexes the column by arena position and
+    /// [`centre`] — which indexes the column by arena position and
     /// so cannot walk a range's span, whose index `i` is arena cell `base + i`. Where the
     /// span *is* the column (`base == 0`: `finish`'s repair and the one-worker run) the
     /// reference walks it, so the two spellings are held equal by the tests rather than by

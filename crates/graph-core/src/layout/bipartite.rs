@@ -4,7 +4,7 @@
 //! `scale = 1`: the first set on `x = 0`, the second on `x = 4/3`, each spread over
 //! `y in [0, 1]` by `linspace` in set order, the whole cloud centred and rescaled.
 //!
-//! The two sets come from [`partition`], SciGraphs' rule (`_bipartite_parts`, with its
+//! The two sets come from `partition`, SciGraphs' rule (`_bipartite_parts`, with its
 //! greedy maximum cut for a graph that does not two-colour). networkx would raise on a
 //! disconnected graph, so it is given SciGraphs' sets through its `nodes=` argument.
 //!
@@ -26,7 +26,8 @@ pub const ID: &str = "layout.bipartite";
 /// networkx's default `aspect_ratio` over a unit height.
 const WIDTH: f64 = 4.0 / 3.0;
 
-/// The two node sets, in SciGraphs' order, shared with [`basic_3d::bipartite_3d`].
+/// The two node sets, in SciGraphs' order, shared with
+/// [`crate::layout::basic_3d::bipartite_3d()`].
 ///
 /// **Published rather than re-ported, because the two layouts need the same answer.** They
 /// differ in placement and in nothing else — two columns against two rings — so a second
