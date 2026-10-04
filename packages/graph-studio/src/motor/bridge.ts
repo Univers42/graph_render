@@ -154,9 +154,9 @@ function linkOf(desk: Desk, deps: LiveDeps, publish: () => void): ForceLink {
   return {
     disabled: () => reasonFor(desk, deps),
     knobs: () => desk.knobs,
-    set: (next) => {
+    set: (next, heat) => {
       desk.knobs = next;
-      deps.send({ type: "force.params", knobs: next });
+      deps.send(heat === undefined ? { type: "force.params", knobs: next } : { type: "force.params", knobs: next, heat });
     },
     animate: (on) => {
       desk.running = on;

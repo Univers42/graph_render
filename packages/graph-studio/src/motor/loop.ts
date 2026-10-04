@@ -103,11 +103,11 @@ export class ForceLoop {
     if (running) this.cancel = this.deps.schedule(() => this.frame(), left);
   }
 
-  private wake(): void {
+  private wake(floor = REHEAT_ALPHA): void {
     // The reheated alpha is the larger of the two: a port that just restarted from random
     // positions is at the top, and reheating it back down to REHEAT_ALPHA would restart the
     // settle from a quarter-settled drawing.
-    const heated = Math.max(REHEAT_ALPHA, this.alpha);
+    const heated = Math.max(floor, this.alpha);
     this.live.reheat(heated);
     this.alpha = heated;
     this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
@@ -247,6 +247,6 @@ export class ForceLoop {
       // the loop awake — so a drop lets the settle finish.
       this.held.delete(request.id);
     } else this.live.setParams(request.knobs);
-    this.wake();
+    this.wake(request.type === "force.params" ? request.heat : undefined);
   }
 }
