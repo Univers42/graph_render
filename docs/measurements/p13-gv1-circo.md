@@ -609,13 +609,47 @@ branch node and their whole second branch, which a tie in the degree list would 
 41 rounds of a 74-node block, which is the next job's work, not this one's. What is settled and
 measured is §8.3: the crossing count, which is what moved the seeds that moved.
 
-### 8.7 The full sweep
+### 8.7 The full sweep, and one row that is red for a correct reason
 
-The four rows of `scripts/orch/rows/p13-gv1-circo.rows`, on the tree this section describes. See
-§8.8 for the output.
+The four rows of `scripts/orch/rows/p13-gv1-circo.rows` were launched on the tree this section
+describes. The first row finished:
 
+```
+scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine circo --seeds 1000
+EMIT=0
+```
 
+The oracle row did **not run**. It is prefixed with `scripts/orch/timed` — the host-wide
+`flock` on `$GM_SCRATCH/orch/timed.lock` — and the lock was held by other work for the whole
+window: three gates were queued on it (`target/gate-svc-caps`, `target/gate-hg1000-release`,
+`target/gate-p9-campaign`) and this job's sweep sat behind them for 40 minutes with no shard
+written. It was stopped rather than left as a stray process, so **`circo-oracle-1000`,
+`circo-merge-1000` and `circo-check-1000` have no measured output here**, and the 1000-seed
+before/after figure is still §3's 6.460e+04. The orchestrator's own gate run produces the new one.
+No claim is made here about the sweep at 1000 seeds on the fixed tree.
 
-### 8.6 The full sweep
+**One row of `scripts/orch/rows/quick.rows` is red, and it is red correctly.**
+`scripts/orch/gate.sh target/gate-circo-tie scripts/orch/rows/quick.rows`:
 
-§8.7 carries the four rows' output.
+```
+PASS fmt / clippy / test (884 s) / wasm32-core / hashgate-8 / negctl-degree
+     / negctl-dim-z-mismatch / force-gate-4 / negctl-force-gravity / negctl-drop-delta
+FAIL scigraphs-conformance  exit=1  expect=0  161s
+PASS negctl-scigraphs-conformance  exit=0  148s
+```
+
+and the log names one row of it:
+
+```
+GRAPHVIZ_CIRCO: FAIL — motor bytes are not the pinned ones (sha 253896a89f0801055141e8eaaa7aad86fbbaab0171aeeb14a9f86a79c136c726)
+```
+
+That is the fix working. The SciGraphs conformance matrix pins a sha256 over each motor's
+coordinates, the pin for `GRAPHVIZ_CIRCO` is `1ca5ecf45c65d248…` in
+`crates/graph-cli/src/oracle_python/conformance/baseline/table/graphviz.rs:84`, and §8.3 changes
+what circo emits, so the pin no longer matches. The harness's own proposal agrees — it wrote
+`row("GRAPHVIZ_CIRCO", "253896a89f0801055141e8eaaa7aad86fbbaab0171aeeb14a9f86a79c136c726", …)` into
+`target/scigraphs-conformance/conformance-baseline-proposed.rs:30`, changing **only** the motor sha
+and leaving the reference sha, the ceiling, the tier and the cause as they were. **Adopting it is
+outside this job's paths**, and it is left undone rather than worked around; the row is reported
+red, not silenced.
