@@ -112,11 +112,13 @@ pub struct Plan {
     /// Stream mode: the reader each replayed batch is appended through. `json` — the default,
     /// so every existing command means what it did — reads the line and appends it as the
     /// provisional ingest JSON; `columns` reads the same line, re-encodes the records as a
-    /// `GMX1` batch and appends that, so the timed half is the append alone on both paths.
-    /// An unknown value is refused by the parse, with a non-zero exit.
+    /// `GMX1` batch and appends that. An unknown value is refused by the parse, with a
+    /// non-zero exit.
     ///
-    /// Caveat: the read and the encode are outside both timers, so `--path columns` measures
-    /// what a host that already holds a columnar batch pays — not what encoding one costs.
+    /// Caveat: the read and the encode are outside the append's timer on both routes, so the
+    /// two `extend` columns measure different spans — the JSON one reads *and* appends, the
+    /// columns one decodes and appends. `--path columns` is what a host already holding a
+    /// columnar batch pays, not what producing one costs.
     #[arg(long, value_enum, default_value_t = BatchPath::Json)]
     pub path: BatchPath,
 }

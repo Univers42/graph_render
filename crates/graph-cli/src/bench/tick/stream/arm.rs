@@ -1,18 +1,20 @@
 //! The native arm of the stream measurement: replay `--from <path.jsonl>` through the export's
 //! own body, [`graph_wasm::service`], so this and `harness/wasm-stream-bench.mjs` time the same
-//! work — parse the line, append it — rather than two different ones.
+//! work — append the batch — rather than two different ones.
 //!
-//! Inside each batch, two timers run back to back and neither contains the other:
-//! `service::extend` (`ingest::read_records` then `Topology::extend`) and `ForceSession::grow`
-//! onto the topology that extend just appended to. Outside both: reading the line off disk, the
-//! `step(10)` after line 0, and the `step(1)` after each batch. The `step(1)` is untimed on
-//! purpose — the contract is `extend` plus `grow`, and a tick inside the timer would fold a
-//! whole tick into a batch number.
+//! Inside each batch, two timers run back to back and neither contains the other: the append —
+//! `service::extend` (`ingest::read_records` then `Topology::extend`), or on `--path columns`
+//! `service::extend_columns` (decode, then append) over a `GMX1` batch — and
+//! `ForceSession::grow` onto the topology the append just wrote. Outside both: reading the line
+//! off disk, re-encoding it as a `GMX1` batch, the `step(10)` after line 0, and the `step(1)`
+//! after each batch. The `step(1)` is untimed on purpose — the contract is the append plus
+//! `grow`, and a tick inside the timer would fold a whole tick into a batch number.
 //!
 //! Caveat: a p95 over ten batches is one interpolated value, not a tail (see
-//! [`super::stats`]). The `extend` column carries both halves of an append and this file does
-//! not separate them: naming parse against index needs graph-core's own timers, which are not
-//! on this path. Wall clock on a shared host is inflated, so `/proc/loadavg` is printed at both
+//! [`super::stats`]). The two routes' `extend` columns measure different spans — the JSON one
+//! reads and appends, the columns one decodes and appends, with the read and the encode outside
+//! it — so `P4d`'s split is what the columns number is to be read against, not this table's
+//! other column. Wall clock on a shared host is inflated, so `/proc/loadavg` is printed at both
 //! ends rather than assumed idle.
 
 use super::stats::{max, p95};
