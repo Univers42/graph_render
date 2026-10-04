@@ -137,17 +137,27 @@ pub fn ladder(plan: &super::Plan) -> Vec<(u32, f64)> {
     };
     plan.sizes
         .iter()
+        .filter(|&&n| !refused(plan, arm, n))
         .filter_map(|&n| measure(plan, arm, n).ok().map(|s| (n, s.tick_ms())))
         .collect()
 }
 
-/// The campaign: one [`Sample`] per (layout, n), in the order the plan lists them.
+/// A size past `entry`'s registered `scale_ceiling` without `--past-ceiling`: the refusal
+/// every `bench` row makes (the `bench` module doc), applied to the campaign too. Without
+/// it the campaign ran spectral (ceiling 700) and ForceAtlas2 (O(n²), ceiling 14 000) at
+/// 10⁶, and the gate row was killed after 6 854 s with no report written (2026-10-04).
+pub fn refused(plan: &super::Plan, entry: &Capability, n: u32) -> bool {
+    u64::from(n) > entry.meta.scale_ceiling && !plan.past_ceiling
+}
+
+/// The campaign: one [`Sample`] per (layout, n) not [`refused`], in the order the plan lists
+/// them.
 pub fn run(plan: &super::Plan) -> Result<Vec<(&'static str, Vec<Sample>)>, String> {
     let entries = super::resolve(&plan.layouts)?;
     let mut out = Vec::with_capacity(entries.len());
     for entry in entries {
         let mut samples = Vec::with_capacity(plan.sizes.len());
-        for &n in &plan.sizes {
+        for &n in plan.sizes.iter().filter(|&&n| !refused(plan, entry, n)) {
             samples.push(measure(plan, entry, n)?);
         }
         out.push((entry.id, samples));
