@@ -206,7 +206,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and on the two planar fixtures. `lesmis` — the non-planar one, so the only fixture whose seed moved — goes **0.517 -> 0.0895**; `bipartite` is non-planar too and still differs (0.863); `tree-balanced` (0.418) is a **tree**, so it takes the exact path and did not move |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2.forcesim` | `apply_graph_layout` | `bitwise` | 23/1020 | 72/1020 | 1.55e+17 | 6.23e-4 | 1.40e-13 | 1.31e-9 | `convention` | **same shape** — the motor id changed to SciGraphs' own `ForceSim` in `sg-fa2-forcesim`, because `forceatlas.py:167` reaches that tier first and the networkx port cannot answer this row; the residual is three BLAS kernels this port replaces with fixed orders |
 | 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold.3d` | `apply_graph_layout` | `bitwise` | 2/1020 | 4/1020 | 9.23e+18 | 10 | 0.166 | 0.921 | `rng` | different shape, and closer: **the motor id is the `.3d` layout, because SciGraphs calls FR at `dim=3`** (`igraph_layouts.py:74`) — median 0.267 → 0.166, and that arm's own stress differential measures 1.19 (`docs/measurements/p12-t4b.md`) |
-| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai.3d` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 10 | 0.784 | 0.925 | `algorithm` | different shape, closer: **`dim=3`** (`igraph_layouts.py:99`), from this tree's Fibonacci-sphere start — median 0.812 → 0.784; the 957 are a **reference defect** on `gate-01`, below |
+| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai.3d` | `apply_graph_layout` | `shape` | 0/1011 | 0/1011 | 9.23e+18 | 10 | 0.333 | 0.822 | `algorithm` | different shape, closer: **`dim=3`** (`igraph_layouts.py:99`), from this tree's Fibonacci-sphere start — median 0.812 → 0.784 → **0.333**, and max 0.925 → 0.822, both re-measured on 2026-10-04 when the row's fixture slicing was repaired below; the 9 missing coordinates are a **reference defect** on `gate-01`, below |
 | 9 | `IGRAPH_DRL` | `layout.force.drl.3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 3/1020 | 9.25e+18 | 10 | 0.395 | 0.798 | `rng` | different shape, and closer: SciGraphs calls DrL at `dim=3` (`igraph_layouts.py:342`) and this tree registers that arm (`crates/graph-core/src/registry/arms_3d.rs:236`), so the row names it — median 0.536 → 0.395. That arm's own stress differential measures 1.26 (`p12-t4b.md`) |
 | 10 | `IGRAPH_DRL_2D` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.25e+18 | 10 | 0.514 | 0.971 | `rng` | different shape (the planar motor layout, against the reference's `dim=2` call at `igraph_layouts.py:406`) |
 | 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 344/1020 | 345/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape; LGL is 2-D in igraph too (`igraph_layouts.py:453`), so the third column is the whole of the difference |
@@ -731,9 +731,11 @@ No cell in the matrix is blank. Three kinds say `not run` and each carries its r
   contact sheet says so in a card rather than showing a broken image.
 - **`IGRAPH_KK` on `gate-01`** — `apply_graph_layout` returned `False`, having raised
   `IGRAPH_KK produced 9 non-finite coordinate(s)` (`common.py:183`, caught and reported `False` by
-  `dispatcher.py:169-174`), so the row compares 957 coordinates rather than 1020 and names the
-  fixture it is missing. **An earlier version of this cell said `gate-19`; the fixture is
-  `gate-01`**, read out of `ref/IGRAPH_KK.json` rather than inferred from the coordinate count:
+  `dispatcher.py:169-174`), so the row compares 1011 coordinates rather than the motor's 1020 —
+  the 9 of `gate-01` being the whole difference, which is also the size of `ref/IGRAPH_KK.f64` —
+  and names `gate-01` as the fixture it is missing. **An earlier version of this cell said
+  `gate-19`; the fixture is `gate-01`**, read out of `ref/IGRAPH_KK.json` rather than inferred
+  from the coordinate count:
 
   ```
   $ python3 -c "…json.load(open('target/scigraphs-conformance/ref/IGRAPH_KK.json'))['fixtures']…"
@@ -750,20 +752,56 @@ No cell in the matrix is blank. Three kinds say `not run` and each carries its r
   reference defect**: `layout.force.kamada_kawai.3d` guards the block
   (`kamada_kawai/solve.rs:30`) and is finite on that exact fixture.
 
-  **One thing this cell does not claim, stated so it is not read into it:** `metrics.json`
-  attributes the missing coordinates to the *last* fixture of the row —
+  **The fixture alignment under this cell was itself broken; repaired 2026-10-04
+  (`fix-sc-misalign`).** The discrepancy this paragraph used to defer — `metrics.json` blaming the
+  row's *last* fixture while `ref/IGRAPH_KK.json` puts the gap on `gate-01` — was not a reporting
+  slip but the visible end of a slicing bug, and it was **pre-existing**: the count and the
+  `gate-19` text were already in the pre-repair row 8 and pre-repair cell above.
+
+  `_row_metrics` in `harness/scigraphs-conformance.py` cut both `.f64` files with **two running
+  offsets advanced for every fixture in the set**, and read neither `ref/<NAME>.json`'s per-fixture
+  `status` nor `motor.jsonl`'s `skipped`. The files are concatenations of what each arm produced,
+  with nothing written for a fixture it skipped, so on this row — the one row whose reference
+  reached fewer fixtures than the motor — every fixture from `gate-01` on was compared against its
+  **successor's** reference coordinates. Of the 957 coordinates it did compare, 336 (`lesmis`
+  through `gate-00`) were right and the remaining 621 were each paired with the wrong fixture, while
+  `gate-19`'s own 63 were never compared at all. No cell said so: every one of them was a real
+  coordinate against a real coordinate, and the only symptom was the shortfall surfacing at the far
+  end of the row as `not run: IGRAPH_KK holds 1011 coordinates, gate-19 needs 1020`. The function's
+  own docstring claimed such a fixture was dropped; the code did not drop it.
+
+  An arm's offset now advances **only for a fixture that arm wrote**
+  (`harness/scigraphs-conformance/sc_arms.py`), and a fixture either arm refused is reported in that
+  arm's own words — `ref/<NAME>.json`'s `status` and `detail` for the reference, `motor.jsonl`'s
+  `skipped` for the motor — so the rule holds for either arm and for both reference images. The arm
+  that *did* write a refused fixture still advances; skipping its coordinates too would slide the
+  rest of the row the other way, which is the same defect with the sign flipped.
+
+  | | `per_fixture` | `coordinates` | `procrustes_median` | `procrustes_max` |
+  |---|---|---|---|---|
+  | before | 24 | 957 | 0.7844481760390447 | 0.9249386583625965 |
+  | after | 24 | 1011 | 0.3331932994083938 | 0.8220272380991537 |
+
+  `coordinates` is the number that settles it: 1011 is the size of `ref/IGRAPH_KK.f64`, so every
+  reference coordinate is now compared exactly once. `gate-01` is the cell that says `not run`,
+  carrying the reference's own `apply_graph_layout returned False`, and `gate-19` is measured.
+  **`IGRAPH_KK` is the only row whose numbers moved**, and its proposed baseline row is
+  byte-identical before and after — same two shas, same `1e0` ceiling, same `("shape",
+  "algorithm")` — so nothing in
+  `crates/graph-cli/src/oracle_python/conformance/baseline/table/networkx.rs` was re-pinned. The
+  defect was in `_row_metrics`, not in the `sc_metrics.py` this paragraph used to defer it to.
 
   ```
-  {"fixture": "gate-19", "metrics": "not run: IGRAPH_KK holds 1011 coordinates, gate-19 needs 1020"}
+  $ scripts/orch/drun --rm --user 0:0 --pull never -v "$PWD:/w" -w /w ge-python-oracle \
+      python3 harness/scigraphs-conformance/test_sc_metrics_slice.py -v
+  $ scripts/scigraphs-conformance.sh            # exit 0
+  $ scripts/scigraphs-conformance.sh --break    # exit 1
   ```
 
-  — while `ref/IGRAPH_KK.json` puts them on `gate-01`, and the two do not agree (1011 is 1020 less
-  the 9 coordinates of the *three-node* fixture, yet `gate-19`'s own 63 are what the row is short).
-  The 957 total is right either way and is unchanged by this repair, so the matrix above is not
-  affected; but which fixture the metrics step names is a discrepancy in that step's fixture
-  alignment, it is **pre-existing** (the count and the `gate-19` text are already in the pre-repair
-  row 8 and pre-repair cell above), and it is left for the job that owns `harness/scigraphs-
-  conformance/sc_metrics.py` rather than papered over here.
+  `test_sc_metrics_slice.py` is nine cases on synthetic arrays — three fixtures with the middle one
+  refused, once per arm and once with both — and it was shown red against the old slicing: the row
+  dropped `['gate-c']` where it should have dropped `['gate-b']`, which is the misalignment stated
+  as a list difference.
 - **`GRAPHVIZ_FDP`'s reference sha** — not reproducible run to run, above.
 
 ## What this does not measure
