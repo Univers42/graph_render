@@ -266,3 +266,14 @@ scigraphs-conformance|0|scripts/scigraphs-conformance.sh
 # that moved nothing, or moved more than one row, would exit 0 here and the gate would be
 # measuring nothing.
 negctl-scigraphs-conformance|nonzero|scripts/scigraphs-conformance.sh --break
+
+# The supply-chain gate (scripts/orch/rows/audit.rows): RustSec advisories, the SPDX allow list,
+# duplicate versions and crate provenance over both lockfiles, plus the shipped bundle's runtime
+# deps. Each row needs the network (the advisory-db clone, the registry advisory endpoint), so it
+# can turn red with no change in the tree the day an advisory is published; an offline host is a
+# fetch failure in the log, not a finding. The controls break the policy itself.
+cargo-deny-motor|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml check advisories bans licenses sources
+cargo-deny-server|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path server/Cargo.toml --config deny.toml check advisories bans licenses sources
+npm-audit-app|0|scripts/orch/node-slim.sh bash -c 'cd app && npm audit --omit=dev --audit-level=high'
+negctl-cargo-deny-advisory|0|d=target/audit-negctl; mkdir -p $d/src; : >$d/src/lib.rs; printf '%s\n' '[package]' 'name = "audit-negctl"' 'version = "0.0.0"' 'edition = "2021"' '' '[workspace]' '' '[dependencies]' 'time = "=0.1.44"' >$d/Cargo.toml; GR_IMAGE=ge-audit scripts/orch/gr bash -c "cd $d && cargo generate-lockfile -q" || exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path $d/Cargo.toml check advisories >target/audit-negctl-advisories.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q RUSTSEC-2020-0071 target/audit-negctl-advisories.log && cat target/audit-negctl-advisories.log
+negctl-cargo-deny-license|0|sed '/^    "MIT",$/d' deny.toml >target/deny-negctl.toml; grep -q '"MIT"' target/deny-negctl.toml && exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml --config target/deny-negctl.toml check licenses >target/audit-negctl-licenses.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q 'MIT - MIT License:' target/audit-negctl-licenses.log && head -n 20 target/audit-negctl-licenses.log

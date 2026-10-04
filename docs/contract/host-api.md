@@ -148,6 +148,9 @@ disagree, the condition wins.
    `refused[]`.
 9. **The interface is complete.** `invalidate(id)` is declared in it. `studio`, `view` and `stopMotor` are
    `@internal` and outside the v1 promise, because they expose dense indices. Row `host-api-types`.
+   The four `@internal` members (`studio`, `view`, `stopMotor`, `watchdogBoundMs`) are present on the
+   element at run time, are not part of the promised contract, and a call made after `stopMotor()`
+   rejects with `CancelledError`.
 10. **Events.**
     - Every event has `bubbles:true` and `composed:true`.
     - `detail` is a fresh, frozen object of string ids, never a dense index.

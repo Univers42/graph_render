@@ -6,7 +6,6 @@
  */
 import { frameFrom } from "../../../graph-render/src/frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy } from "../../../graph-render/src/labels.ts";
-import { EMPTY_FRAME } from "../../../graph-render/src/scene.ts";
 import { decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
 import { styleFrom } from "../../../graph-render/src/style.ts";
 import { backdropTheme } from "../../../graph-render/src/look/backdrop.ts";
@@ -16,12 +15,13 @@ import type { Outcome } from "../actions/registry.ts";
 import { styleInputOf } from "../look/styleOf.ts";
 import { CancelledError, type MotorClient } from "../motor/client.ts";
 import type { AnalysisReport, GraphSummary, RunReport } from "../motor/protocol.ts";
-import { type Ends, MetaMismatch } from "../source/meta.ts";
+import { MetaMismatch } from "../source/meta.ts";
 import type { StudioState } from "../state/model.ts";
 import { type Appearance, type ParamValues, type Settings, type Source, withSettings } from "../state/settings.ts";
 import type { Store } from "../state/store.ts";
 import { neighboursOf } from "./adjacency.ts";
 import { fitResults } from "./fitResults.ts";
+import { type Before, type Held, beforeOf, clear } from "./pipeline/clear.ts";
 import { planOf } from "./plan.ts";
 import { summaryOf } from "./runSummary.ts";
 import { schemaOf } from "./schema.ts";
@@ -56,7 +56,7 @@ export interface PipelineDeps {
 }
 
 interface Rig extends PipelineDeps {
-  held: { readonly bytes: Uint8Array; readonly ends: Ends } | null;
+  held: Held | null;
   /** The look the view was last given; `null` before the first. */
   shown: Appearance | null;
   /**
@@ -121,12 +121,6 @@ function showLook(rig: Rig, look: Settings): void {
   patch(rig, (state) => ({ settings: withSettings(state.settings, { appearance, filter, groups }) }));
 }
 
-function clear(rig: Rig): void {
-  rig.held = null;
-  rig.view.setFrame(EMPTY_FRAME);
-  patch(rig, () => ({ meta: null, run: null, selected: -1, selection: [], reveal: null }));
-}
-
 /**
  * WHY a token and not the motor's own `busy()`: `busy()` is false between a request going out
  * and the reply coming back — while the worker starts, and while this module patches and draws —
@@ -173,7 +167,8 @@ function draw(rig: Rig, token: number, run: RunReport, shown: { readonly look: S
   return { message: `${run.layoutId} ${ms(run.layoutMs)}${pass}`, notes: summary.notes };
 }
 
-async function arrange(rig: Rig, token: number, next: Settings, fresh: boolean): Promise<Part> {
+async function arrange(rig: Rig, token: number, next: Settings, shown: { readonly fresh: boolean; readonly before: Before }): Promise<Part> {
+  const { fresh } = shown;
   // Counted before the await: a run that is cancelled while it waits was still asked for,
   // and a count that only moved on success would hide that from the studio's own tests.
   patch(rig, (state) => ({ layoutCalls: state.layoutCalls + 1 }));
@@ -189,7 +184,7 @@ async function arrange(rig: Rig, token: number, next: Settings, fresh: boolean):
   } catch (error) {
     // After a load the old drawing is of another graph; after a refused layout it still holds.
     // A superseded call clears nothing: the drawing on screen is the newer call's.
-    if (fresh && rig.generation === token) clear(rig);
+    if (fresh && rig.generation === token) clear(rig, shown.before);
     throw error;
   }
 }
@@ -244,13 +239,16 @@ async function apply(rig: Rig, next: Settings): Promise<Outcome> {
 
 async function drawOut(rig: Rig, token: number, next: Settings): Promise<Outcome> {
   const plan = planOf(rig.store.get(), next);
+  // Taken before the load is asked for, and used only if it fails: what the store carried then is
+  // what a failed fresh load is rolled back to (`pipeline/clear.ts`).
+  const before = beforeOf(rig.store.get());
   const parts: Part[] = [];
   // The latest request wins: what the motor is doing is for a drawing nobody waits for now.
   // Cancelled only when this studio's own older call is still in flight, so a newer call is
   // never rejected by an older one's cancel.
   if ((plan.load || plan.layout || plan.analysis) && rig.running > 0) rig.client.cancel();
   if (plan.load) parts.push(await load(rig, token, next.source));
-  if (plan.layout) parts.push(await arrange(rig, token, next, plan.load));
+  if (plan.layout) parts.push(await arrange(rig, token, next, { fresh: plan.load, before }));
   if (plan.analysis) parts.push(await measure(rig, token, next));
   // One turn of the queue before the answer. A host that calls `loadGraph` from inside the
   // `graph-load` handler it was just given re-enters on the next turn, not inside this frame, and
