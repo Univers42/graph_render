@@ -38,9 +38,13 @@ export class ColumnsEncoderError extends GraphMotorError {
 
 /** `u32::MAX` in an optional column: "this field is absent". */
 export const ABSENT = 0xffff_ffff;
-/** `0x31434D47`: `"GMC1"` as a little-endian `u32`.
+/** `0x31434D47`: `"GMC1"` as a little-endian `u32` — a whole document.
  *  **Caveat:** a copy of the Rust `MAGIC`; the two are pinned by the decoder's tests. */
-const MAGIC = 0x3143_4d47;
+export const DOCUMENT_MAGIC = 0x3143_4d47;
+/** `0x31584D47`: `"GMX1"` as a little-endian `u32` — a batch, which `gm_graph_extend_columns`
+ *  reads. A distinct magic and not a version or a flag, so each reader refuses the other's bytes
+ *  by name (`docs/decisions/extend-columns.md`, "The magic"). */
+export const BATCH_MAGIC = 0x3158_4d47;
 /** The version this encoder writes, and the only one the decoder speaks. */
 const VERSION = 1;
 /** The header is eight `u32` words. */
