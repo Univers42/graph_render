@@ -108,6 +108,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "forceatlas2.3d",
             "layout.random.3d",
             "random.3d",
+            "layout.force.yifan_hu.3d",
+            "force.yifan_hu.3d",
         ]
     );
     let mut once = names.clone();

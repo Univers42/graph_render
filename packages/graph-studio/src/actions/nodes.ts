@@ -9,6 +9,7 @@
 import { OPEN_VIAS, type OpenVia } from "../host/contract.ts";
 import { MAX_DOCUMENT_CHARS } from "../source/limits.ts";
 import type { GraphMeta } from "../source/meta.ts";
+import type { ColumnRowsLike } from "../source/synthetic-columns.ts";
 import type { StudioState } from "../state/model.ts";
 import { withSettings } from "../state/settings.ts";
 import { type StudioAction, chosen, textArg } from "./context.ts";
@@ -118,4 +119,42 @@ const host: StudioAction = {
   },
 };
 
-export const NODE_ACTIONS: readonly StudioAction[] = [goTo, pick, open, host];
+/**
+ * The columns a host handed over, waiting for the dispatch that applies them.
+ *
+ * WHY a slot and not a parameter: the registry's `ArgValue` is a string, a number or a boolean,
+ * so a `Uint32Array` would be refused as "must be text" — and `formatCommand` writes every
+ * argument into the log, which would put a 238 MB document in front of the reader. So
+ * `host/api.ts` offers the rows and dispatches this action on the next statement, and the action
+ * takes them here. That is safe because `dispatch` runs `run` before its first `await`: nothing
+ * else can run between the offer and the read, and `run` reads before it yields.
+ */
+let offered: ColumnRowsLike | null = null;
+
+/** Called by the host verb on the statement before it dispatches `source.columns`. */
+export function offerColumns(rows: ColumnRowsLike): void {
+  offered = rows;
+}
+
+/** The offered rows, and the slot emptied: nothing else may read them. */
+function takeColumns(): ColumnRowsLike {
+  const rows = offered;
+  if (rows === null) throw new ActionRefusal("unknown-param", "`columns` needs the columns the host offered; nothing was offered");
+  offered = null;
+  return rows;
+}
+
+/**
+ * The same road as `source.host`, for the columnar document (`docs/contract/ingest-columns.md`).
+ * `host: true` is what keeps the rows out of the page's storage, exactly as it keeps the text out.
+ */
+const hostColumns: StudioAction = {
+  id: "source.columns", alias: "columns", title: "Draw columns the host handed over", section: null,
+  params: [{ name: "name", kind: "text", title: "Name", value: () => "host columns" }],
+  run: (context, args) => {
+    const source = { kind: "columns", name: textArg(args, "name"), rows: takeColumns(), host: true } as const;
+    return context.apply(withSettings(context.state().settings, { source }));
+  },
+};
+
+export const NODE_ACTIONS: readonly StudioAction[] = [goTo, pick, open, host, hostColumns];

@@ -8,6 +8,7 @@
  */
 import { THEME_NAMES } from "../../../graph-render/src/look/themes.ts";
 import type { SyntheticShape } from "../source/synthetic.ts";
+import type { ColumnRowsLike } from "../source/synthetic-columns.ts";
 import { DEFAULT_KNOBS, type ForceKnobs } from "../motor/live.ts";
 import { forcesOf } from "./forces.ts";
 import { type ParamValue, type ParamsByLayout, type ParamValues, paramsOf, valuesOf } from "./paramValues.ts";
@@ -15,13 +16,25 @@ import { SettingsRefusal } from "./read.ts";
 
 export { SettingsRefusal };
 export { readGroups, readSettings } from "./settingsRead.ts";
+export { type ColumnRowsLike } from "../source/synthetic-columns.ts";
 export { type ParamValue, type ParamsByLayout, type ParamValues };
 
 export type Source =
   | { readonly kind: "synthetic"; readonly seed: number; readonly nodes: number; readonly degree: number; readonly shape: SyntheticShape }
   | { readonly kind: "fixture"; readonly path: string }
   /** `host`: handed over by the page that embeds the studio, and never kept in its storage. */
-  | { readonly kind: "document"; readonly name: string; readonly text: string; readonly host?: true };
+  | { readonly kind: "document"; readonly name: string; readonly text: string; readonly host?: true }
+  /**
+   * `host`: the host's own columnar document (`docs/contract/ingest-columns.md`), assembled in the
+   * worker and never kept in the page's storage either.
+   *
+   * Caveat: the typed arrays reach the worker by structured clone — `Port.send` carries no
+   * transfer list — so while the load is in flight the page holds the columns *and* the worker's
+   * copy of them. At the 1M-node document of `docs/measurements/perf-open-columns.md` that is
+   * about 238 MB twice; transfer would detach the host's own arrays, which `Document.nodes` is
+   * then built from.
+   */
+  | { readonly kind: "columns"; readonly name: string; readonly rows: ColumnRowsLike; readonly host: true };
 
 export const THEMES: readonly string[] = THEME_NAMES;
 /**
@@ -112,6 +125,7 @@ export interface Settings {
 
 function sourceOf(source: Source): Source {
   if (source.kind === "fixture") return Object.freeze({ kind: source.kind, path: source.path });
+  if (source.kind === "columns") return Object.freeze({ kind: source.kind, name: source.name, rows: source.rows, host: true });
   if (source.kind === "document") {
     const document = { kind: source.kind, name: source.name, text: source.text };
     return Object.freeze(source.host === true ? { ...document, host: true } : document);

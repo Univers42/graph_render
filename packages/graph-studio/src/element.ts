@@ -16,6 +16,7 @@ import { emit } from "./host/events.ts";
 import { HOST_API, type GraphStudioElement, type LoadResult, type Resolve } from "./host/contract.ts";
 import { SILENCE_MS } from "./motor/watchdog.ts";
 import { type Mounted, type StudioElementOptions, mount, unmount } from "./mount.ts";
+import type { ColumnRowsLike } from "./source/synthetic-columns.ts";
 import type { Studio } from "./studio/studio.ts";
 
 /** The host reads `?backend=` with this, so it never imports the renderer itself. */
@@ -26,6 +27,11 @@ export { HOST_API, OPEN_VIAS } from "./host/contract.ts";
 export type {
   GraphStudioElement, GraphStudioHost, HostEvents, LoadResult, NodePreview, OpenVia, Resolve,
 } from "./host/contract.ts";
+/** What `loadColumns` takes and the two strides a host fills it at, from the one file a host may
+ *  import (`app/eslint.config.js`). The strides are the contract's
+ *  (`docs/contract/ingest-columns.md:22-37`): eight `u32` columns per node and per edge. */
+export { EDGE_COLUMNS, NODE_COLUMNS } from "./source/synthetic-columns.ts";
+export type { ColumnRowsLike } from "./source/synthetic-columns.ts";
 
 const NONE: readonly string[] = Object.freeze([]);
 
@@ -85,6 +91,12 @@ class GraphStudio extends HTMLElement implements GraphStudioElement {
 
   loadGraph(doc: object): Promise<LoadResult> {
     return this.#mounted === null ? notConnected() : this.#mounted.verbs.loadGraph(doc);
+  }
+
+  /** The `notConnected()` branch and not an optional chain, as `loadGraph` has it: a host calling
+   *  a verb on an element that is in no document is refused at once (verdict 7). */
+  loadColumns(rows: ColumnRowsLike): Promise<LoadResult> {
+    return this.#mounted === null ? notConnected() : this.#mounted.verbs.loadColumns(rows);
   }
 
   focusNode(id: string): Promise<boolean> {

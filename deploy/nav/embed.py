@@ -41,8 +41,8 @@ import embedreplay
 from drive import Studio
 from embedgestures import step_dblclick, step_enter, step_open, step_overlap, step_refused
 from embedreplay import step_replay
-from embedrows import (step_channels, step_composed, step_load, step_pick, step_resolve, step_select,
-                       step_storage)
+from embedrows import (step_channels, step_columns_refused, step_composed, step_load, step_pick,
+                       step_resolve, step_select, step_storage)
 
 # Verdict 13: what a host serving the studio must allow, and nothing more.
 HOST_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; img-src 'self' data:"
@@ -52,14 +52,16 @@ WASM = "graph_wasm.wasm"
 
 STEPS = {"load": step_load, "pick": step_pick, "select": step_select, "resolve": step_resolve,
          "dblclick": step_dblclick, "enter": step_enter, "open": step_open, "overlap": step_overlap,
-         "refused": step_refused, "channels": step_channels, "composed": step_composed,
+         "refused": step_refused, "columns-refused": step_columns_refused,
+         "channels": step_channels, "composed": step_composed,
          "storage": step_storage, "replay": step_replay}
-# The order matters: `pick` again once the inspector is open, the error channels after the refused
-# load, and `composed` (which reads the whole page's history) before `storage` reloads the page.
-# `replay` is last of all: it counts nodes and reads a `graph-error` of its own, so every row
-# before it must have read the 60-node fixture, and `storage` leaves the page freshly loaded.
+# The order matters: `pick` again once the inspector is open, the error channels after both refused
+# loads (each raises one `graph-error` of its own), and `composed` (which reads the whole page's
+# history) before `storage` reloads the page. `replay` is last of all: it counts nodes and reads a
+# `graph-error` of its own, so every row before it must have read the 60-node fixture, and `storage`
+# leaves the page freshly loaded.
 FULL = ("load", "pick", "select", "resolve", "pick", "dblclick", "enter", "open", "overlap", "refused",
-        "channels", "composed", "storage", "replay")
+        "columns-refused", "channels", "composed", "storage", "replay")
 
 
 @dataclass(frozen=True)
@@ -110,6 +112,10 @@ BREAKS = (
     RunSpec("break-supersede", ("load", "overlap"), faults=("supersede",),
             keep=("embed-overlap-reentrant",)),
     RunSpec("break-name", ("load", "refused"), faults=("name",), keep=("embed-load-refused",)),
+    # The same `name` fault over the columnar load: it renames the graph-error detail's `error`, so
+    # this is the control that turns the ABI code the row asserts into a FAIL.
+    RunSpec("break-columns", ("load", "columns-refused"), faults=("name",),
+            keep=("embed-columns-refused",)),
     RunSpec("break-composed", ("load", "pick", "select", "pick", "dblclick", "refused", "composed"),
             faults=("composed",), keep=("embed-composed",)),
     RunSpec("break-dblclick", ("load", "pick", "dblclick"), faults=("dblclick",), keep=("embed-dblclick",)),

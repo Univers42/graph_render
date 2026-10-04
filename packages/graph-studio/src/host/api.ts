@@ -3,15 +3,19 @@
  * checks what the host passed, then goes through the registry like a click or a typed command,
  * so arguments are refused in one place and every call is in the log.
  */
-import { distinctIds, nodesWithIds } from "../actions/nodes.ts";
+import { distinctIds, nodesWithIds, offerColumns } from "../actions/nodes.ts";
 import type { LogEntry } from "../state/model.ts";
 import { firstOf } from "../studio/pipeline.ts";
 import type { Studio } from "../studio/studio.ts";
 import { type LoadResult, wireError } from "./contract.ts";
+import { columnRows } from "./columns.ts";
 import { emit } from "./events.ts";
 
 export interface HostVerbs {
   loadGraph(doc: unknown): Promise<LoadResult>;
+  /** `unknown`, as `loadGraph` is: the verb checks it and the contract narrows what a host may
+   *  pass (`host/contract.ts`, `loadColumns(rows: ColumnRowsLike)`). */
+  loadColumns(rows: unknown): Promise<LoadResult>;
   focusNode(id: unknown): Promise<boolean>;
   selectNodes(ids: unknown): Promise<boolean>;
   selectedIds(): readonly string[];
@@ -26,6 +30,23 @@ function refusal(entry: LogEntry): Error {
 
 /** The name the ingest refusals carry, and the one a host reads on a document it cannot write. */
 const INGEST_REFUSAL = "IngestRefusal";
+
+/**
+ * The name a host reads on a refused *columnar* document: the refusal class, `ColumnsRefusedError`.
+ *
+ * WHY not `refusal`'s `wireError`: `loadGraph` names the failure by its wire code
+ * (`code 15 (IngestTooLarge)`), because the code is what names it across the ABI. A columns
+ * refusal is a *sibling* of `BuildRefusedError` and not a new code — all fifteen of its rules are
+ * `Code::ColumnsInvalid` (`docs/contract/ingest-columns.md:79-98`) — so the code would read as one
+ * number for fifteen different documents and the class is what tells them apart. It goes through
+ * the same `refusal(entry)` and differs only in the name it is given, and the `graph-error` still
+ * carries the code: `host-api.md` condition 7 says so in as many words for this verb.
+ */
+function columnsRefusal(entry: LogEntry): Error {
+  const error = refusal(entry);
+  if (entry.error !== null) error.name = entry.error.title;
+  return error;
+}
 
 /**
  * A document the studio cannot write is refused as one it cannot read: the same name the ingest
@@ -77,6 +98,30 @@ async function loadGraph(host: EventTarget, studio: Studio, started: Promise<unk
 }
 
 /**
+ * The host's own columnar document (`docs/contract/ingest-columns.md`), down the same road as
+ * `loadGraph`: the rows become a `Source` of the `columns` kind, the `load` request carries it,
+ * and the worker assembles the bytes with its own `Assembler` — so this file never imports the
+ * motor's SDK. There is no JSON string and no normaliser on this path at all.
+ *
+ * Caveat: the cap here is the motor's `MAX_INGEST_BYTES` = 1,073,741,824, refused as
+ * `IngestTooLarge` before the document is decoded (`crates/graph-core/src/ingest.rs:77`). It is
+ * **not** `loadGraph`'s `MAX_DOCUMENT_CHARS` of 2^28 UTF-16 units (`source/limits.ts:16`), which
+ * bounds a serialised string this path never writes. The arrays are also cloned rather than
+ * transferred, so the page holds the columns twice while the load is in flight.
+ */
+async function loadColumns(studio: Studio, started: Promise<unknown>, given: unknown): Promise<LoadResult> {
+  // Before anything is dispatched: the studio never saw the rows, so a refusal here is the host's
+  // own mistake at the call boundary and has never emitted a `graph-error` (the rule above).
+  const rows = columnRows(given);
+  await started;
+  offerColumns(rows);
+  const entry = await studio.dispatch("source.columns", { name: "host columns" });
+  const { graph } = studio.store.get();
+  if (!entry.ok || graph === null) throw columnsRefusal(entry);
+  return Object.freeze({ nodes: graph.nodeCount, edges: graph.edgeCount, notes: Object.freeze([...firstOf(graph.notes)]) });
+}
+
+/**
  * Exact ids in the frame on screen, checked before anything moves (verdict 2): an id that is in
  * no node answers false and leaves the camera and the selection as they were.
  *
@@ -124,6 +169,7 @@ function selectedIds(studio: Studio): readonly string[] {
 export function hostVerbs(host: EventTarget, studio: Studio, started: Promise<unknown>): HostVerbs {
   return {
     loadGraph: (doc) => loadGraph(host, studio, started, doc),
+    loadColumns: (rows) => loadColumns(studio, started, rows),
     focusNode: (id) => focusNode(studio, id),
     selectNodes: (ids) => selectNodes(studio, ids),
     selectedIds: () => selectedIds(studio),
