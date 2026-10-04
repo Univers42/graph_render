@@ -23,7 +23,7 @@
 # to start, docs/measurements/service-caps.md "Memory per slot"). The root filesystem is read-only, every capability is dropped, and the
 # port is published on the loopback only. KEYFILE holds
 # `<name> <sha256-hex>` lines, never a key; the process runs as uid 10001 and reads it through
-# the file's group, so the file needs g+r (0640); group- or world-writable is refused (C9).
+# the file's group, so the file needs g+r and must be 0640 or stricter (C9).
 #
 # Exit: 0 done · 1 a step failed · 2 misuse, or the image is missing.
 set -euo pipefail

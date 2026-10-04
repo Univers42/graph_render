@@ -1,7 +1,8 @@
 # Service API v1: graph-motor as an HTTP microservice
 
-Status: **blocked, 2026-10-03** (round 1). The 13 conditions under "Verdict" bind the code and override the
-draft text above them. Conditions 1–3 must hold before the re-submission.
+Status: **blocked, 2026-10-04 (round 2, docs/reviews/review-svc-r2.md); round 3 pending**. The 13
+conditions under "Verdict" bind the code and override the draft text above them. Conditions 1–3 must
+hold before the re-submission.
 It implements `docs/decisions/server-and-write-path.md` with that ADR's first version narrowed. There is
 no PostgreSQL, no Redis and no write path yet: each waits for a caller.
 
@@ -25,8 +26,8 @@ backend-to-backend.
 | Method, path | Auth | Request | Response |
 |---|---|---|---|
 | `GET /healthz` | none | — | `200 ok`, text. Liveness only |
-| `GET /v1/meta` | key | — | `200` JSON `{api:1, abi, version, layouts:[id], posts:[id], analyses:[id]}`, ids in registry order |
-| `POST /v1/layout` | key | body = ingest document; query `layout=<id>` (required), `post=<id>[,<id>]` (optional, applied in order), `source=studio\|contract` (default `studio`) | `200` snapshot, binary face (`application/vnd.graph-motor.snapshot`) or canonical JSON (`application/json`) chosen by `Accept` |
+| `GET /v1/meta` | key | — | `200` JSON `{api:1, abi, version, layouts:[id], posts:[id]}`, ids in registry order. No `analyses`: no route serves one |
+| `POST /v1/layout` | key | body = ingest document; query `layout=<id>` (required), `post=<id>` (optional, at most one id), `source=studio\|contract` (default `studio`) | `200` snapshot, binary face (`application/vnd.graph-motor.snapshot`) or canonical JSON (`application/json`) chosen by `Accept` |
 | `GET /embed/*` | none | — | static files, see "Headers" |
 
 - `source=studio` reads the provisional ingest (`crates/graph-wasm/src/ingest.rs:164` `read_records`,
@@ -100,10 +101,26 @@ the server had to name them; a malformed request line or a header block past
 
 ## Configuration (environment only)
 
-`GRAPH_PORT` (8080), `GRAPH_BIND` (0.0.0.0 in the image, 127.0.0.1 otherwise), `GRAPH_API_KEYS_FILE`,
-`GRAPH_AUTH`, `GRAPH_MAX_BODY`, `GRAPH_WORKERS`, `GRAPH_QUEUE`, `GRAPH_TIMEOUT_MS`, `GRAPH_CORS_ORIGINS`,
-`GRAPH_EMBED_DIR` (`/srv/embed` in the image). The process prints the variable names and set/unset at
-start, never a value of the key file.
+Environment only, and every variable the server reads is listed here (`server/graph-server/src/config.rs`
+`NAMES`). An empty value counts as unset, a malformed or out-of-range one refuses the start (exit 2)
+naming the variable and never its value, and the start line prints each name with `set` or `unset`.
+
+| Variable | Default | Range | What it does |
+|---|---|---|---|
+| `GRAPH_PORT` | `8080` | 0–65535 | the listen port; `0` asks the kernel for a free one, which `healthcheck` reads |
+| `GRAPH_BIND` | `127.0.0.1` (`0.0.0.0` in the image) | a parsed `IpAddr` | the listen address; anything but loopback refuses `GRAPH_AUTH=off` |
+| `GRAPH_API_KEYS_FILE` | unset | a path | the `<name> <sha256-hex>` file; required while `GRAPH_AUTH` is on |
+| `GRAPH_AUTH` | `on` | `on` or `off` | `off` serves every request without a key, on a loopback bind only |
+| `GRAPH_MAX_BODY` | `67108864` (64 MiB) | 1–`1073741824` (1 GiB) | the largest body, chunked included; the ceiling is the motor's own ingest limit |
+| `GRAPH_WORKERS` | `min(cores, memory.max / PER_SLOT_BYTES)` | 1–1024 | the compute slots. `0` slots derived from `memory.max` refuses the start |
+| `GRAPH_QUEUE` | `2 × GRAPH_WORKERS` | 0–65536 | requests allowed to wait for a slot; past that, 429 |
+| `GRAPH_TIMEOUT_MS` | `30000` | 1–600000 | the wait plus the run, and the shutdown drain |
+| `GRAPH_BODY_TIMEOUT_MS` | `10000` | 1–600000 | reading the whole body; past it, 408 |
+| `GRAPH_HEADER_TIMEOUT_MS` | `5000` | 1–600000 | receiving the request head, per read |
+| `GRAPH_MAX_HEADER_BYTES` | `16384` | `8192`–`1048576` | hyper's read buffer, so the largest head; below 8192 hyper refuses it. Past it, hyper answers 431 with no JSON body |
+| `GRAPH_MAX_CONNECTIONS` | `256` | 1–65536 | open connections; the next waits in the kernel backlog. No refusal response |
+| `GRAPH_CORS_ORIGINS` | unset | a comma list of `http(s)` origins, no path, no wildcard | the origins allowed on `/v1/`, compared byte for byte |
+| `GRAPH_EMBED_DIR` | unset (`/srv/embed` in the image) | a directory holding `VERSION` and `<h>/` | the embed tree, read once at start; unset means every `/embed/` path is 404 |
 
 ## The image
 
@@ -123,17 +140,35 @@ path gives, decoded from the binary face by the SDK's existing reader, and it th
 errors, keyed by `error`. It is for Node and server-side callers. In a browser it refuses to run with
 an `apiKey` unless `dangerouslyAllowBrowser: true` is passed.
 
-## Gates (each with its negative control)
+## Gates (each with its negative control where one exists)
 
-| Row | Passes when | Negative control |
+Every row below exists in `scripts/orch/rows/`. A row with no negative control says so; where one
+exists it names the break (`GM_SVC_BREAK`, under the `negctl` feature) or the `SERVICE_IMAGE_BREAK`
+it sets, and the test function it has to turn red.
+
+| Row (rows file) | Passes when | Negative control |
 |---|---|---|
-| `svc-floor` | `server/`: fmt, clippy `-D warnings`, test | — |
-| `svc-digest` | `/v1/layout` binary bytes equal the wasm build's `gm_snapshot_bytes` for the same fixture and layout, on every fixture in `fixtures/` | flip one byte of the response: red |
-| `svc-auth` | no key, a wrong key and a truncated key are all 401; a good key is 200 | `GRAPH_AUTH=off` with the row expecting 401: red |
-| `svc-limits` | a body over `GRAPH_MAX_BODY` is 413; a flood past the queue gets 429 | raise the limit: red |
-| `svc-image` | the image builds, runs as non-root, `/healthz` 200, `/embed/<v>/graph_wasm.wasm` carries COEP/CORP and `application/wasm` | serve without the headers: red |
-| `svc-sdk` | `remote.layout` decodes to the same columns as the wasm `Motor` for 3 fixtures | wrong key: the typed 401 error, not a decode |
-| `lock-parity` | every crate `graph-core` links resolves to one version in both lockfiles | edit one version in a scratch copy: red |
+| `svc-fmt`, `svc-clippy`, `root-fmt` (`svc-floor.rows`) | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` and the root fmt are clean | — |
+| `svc-test` (`svc-floor.rows`) | `cargo test --workspace --no-fail-fast` in `server/` | — (the `svc-auth`, `svc-log`, `svc-embed` and `svc-slots` rows below are its armed controls) |
+| `svc-digest` (`service-supply.rows`) | `/v1/layout` binary bytes equal the wasm build's `gm_snapshot_bytes` for every row of the committed manifest | `negctl-svc-digest` (`--break`), one response byte flipped |
+| `svc-digest-wasm` (`service-supply.rows`) | the same bytes out of the wasm build of the same tree, and the JSON face round-trips | `negctl-svc-digest-wasm` |
+| `svc-features` (`service-supply.rows`) | `cargo tree -e features` in `server/` shows neither `probe` nor `threads` | `negctl-svc-features` |
+| `lock-parity` (`service-supply.rows`) | `graph-wasm`'s whole normal closure is one version with the same features in both lockfiles | `negctl-lock-parity-version`, `negctl-lock-parity-feature`, in a scratch copy |
+| `svc-preauth` (`service.rows`) | a keyless body is refused before a byte of it is buffered; a head sent at 1 byte/s is cut at `GRAPH_HEADER_TIMEOUT_MS` | `negctl-preauth` (`body-before-auth`), `negctl-slow-headers` (`no-header-timeout`) |
+| `svc-auth` (`service.rows`) | no key, a wrong key and a truncated key are all 401 with `WWW-Authenticate: Bearer`; a good key is 200; a second `Authorization` header and a key in the query are 400 | `negctl-svc-auth` (`any-key`), red on `a_missing_wrong_or_truncated_key_is_401_with_a_challenge` |
+| `svc-log` (`service.rows`) | one JSON line per request carrying id, key name, route, status, ms, layout, post, n and m; no line holds the key, its hash, or the `Authorization` | `negctl-svc-log` (`log-header`), red on `no_line_holds_the_key_or_its_hash` |
+| `svc-slots` (`service.rows`) | a run answered 503 at its deadline keeps its slot until it ends (workers + queue are 429 until then); a panic is a 500 and the next run a 200 | `negctl-svc-slots` (`drop-permit`), red on `a_timed_out_run_keeps_its_slot_until_it_ends` |
+| `svc-exit2` (`service.rows`) | every refused key file and every refused setting is exit 2, naming the line number or the variable and never the line, the path or the value | `negctl-exit2` (`accept-group-writable`) |
+| `svc-sighup` (`service.rows`) | `SIGHUP` parses the whole file, then swaps the key set in one step; a bad or empty file keeps the old set | `negctl-sighup` (`ignore-sighup`) |
+| `svc-embed` (`service.rows`) | a file is served public and immutable under its content version, with `nosniff` and the JS MIME; every path outside the table is 404, a symlink escape included | `negctl-svc-embed` (`follow-symlinks`), red on `every_path_outside_the_files_is_404` |
+| `svc-caps` (`service.rows`) | cap + 1 for every registry id is a 413 `IngestTooLarge` in under a second | `negctl-caps` (`lift-caps`) |
+| `svc-shutdown` (`service.rows`) | SIGTERM stops new connections at once, the request in flight finishes with its normal status, exit 0 within `GRAPH_TIMEOUT_MS` | `negctl-shutdown` (`no-drain`) |
+| `svc-healthcheck` (`service.rows`) | `graph-server healthcheck` exits 0 only on a 200 from `/healthz` inside its 2 s budget | `negctl-healthcheck` (`always-healthy`) |
+| `svc-memory` (`service.rows`) | 8 GiB holds one slot: the container starts and logs `listening` | `negctl-memory` (1 GiB: exit 2, `GRAPH_WORKERS: unset, and memory.max holds no slot`) |
+| `svc-caps-time` (`service-limits.rows`) | every time-bound id at its cap answers 200 within `GRAPH_TIMEOUT_MS` on the image's reference CPU | `negctl-svc-caps-time` (one cap's rung halved) |
+| `svc-limits` (`service-limits.rows`) | a body over `GRAPH_MAX_BODY` is 413 and a flood past the queue is 429, and one slot at the largest cap fits `PER_SLOT_BYTES` under `docker --memory` at that limit, with no exit 137 | `negctl-svc-limits` (one cap doubled in a scratch copy of the tsv) |
+| `svc-image` (`service-image.rows`) | the image builds, runs as a numeric non-root user, `/healthz` is 200, the wasm carries COEP/CORP and `application/wasm`, and the image report row `svc-no-leak` (in `scripts/service-image.sh`) finds no key file, `.env`, `.git` or scratch path | `negctl-svc-image` (`headers`, stripped), `negctl-svc-image-leak` (`leak`, a planted `.env` and `.git`) |
+| `svc-sdk-live` (`service-image.rows`) | `./remote`'s `meta()` and `layout()` against the image, the typed 401 and 400, and parity with the local wasm build | `negctl-svc-sdk-live` (`SERVICE_IMAGE_BREAK=key`, a well-formed key the file does not hold) |
 
 ## Verdict
 
@@ -187,18 +222,20 @@ the condition wins.
    - The permit moves into the blocking closure, so a run that answered 503 keeps its slot until it ends.
    - A panic or a `JoinError` is 500 `Internal`, and the process lives (`panic = "unwind"`). 500 joins
      the table.
-   - Row `svc-limits`:
+   - Row `svc-slots` (named `svc-limits` in round 1; `svc-limits` is now the memory-budget row of
+     condition 3):
      - After a timed-out run, workers + queue more requests get 429 until that run ends.
      - A test-only fault hook gives 500, then 200.
-     - Negctl: drop the permit at the timeout.
+     - Negctl: `negctl-svc-slots`, the `drop-permit` break at the timeout.
 6. **One post, named errors, Accept.**
    - `post=` takes at most one id. A wasm post reads the layout's geometry, never the previous pass's, so
      a chain has no oracle.
    - The contract names every `error` the server emits, server-only ones too. `Code` and the SDK's
      `CODE_NAMES` grow additively.
    - No `Accept`, or `*/*`, means binary. `q=0` excludes a face. Anything else is 406.
-   - Row `svc-sdk`: one case per status checks the typed name, and `post=a,b` is 400. Negctl: rename one
-     name.
+   - Row `svc-sdk-live` (`scripts/orch/rows/service-image.rows`): one case per status checks the typed
+     name, and `post=a,b` is 400. Negctl: `negctl-svc-sdk-live`, a well-formed key the key file does not
+     hold.
 7. **Digest manifest.**
    - `svc-digest` reads a committed `(fixture, source, layout, post)` manifest. It covers both sources,
      every registry id whose cap admits the fixture, and a component of 257–700 nodes for spectral's
@@ -249,45 +286,82 @@ the condition wins.
     - "Not fingerprinted" holds for `server/` and `deploy/` only. Condition 1 and `./remote` live under
       the fingerprinted `crates/`, so they owe the full gate on develop.
     - `fetch` stays inside `./remote`, and the caller can inject it.
-    - Rows: the develop full gate and `svc-sdk`.
+    - Rows: the develop full gate and `svc-sdk-live`.
 
-Round 2 (re-submission once 1–3 hold): pending.
+Round 2 (re-submission once 1–3 hold): see "Round 2: BLOCK" below.
+
+### Round 2: **BLOCK, 9 conditions** (independent review, 2026-10-04, `docs/reviews/review-svc-r2.md`)
+
+The verdict is still BLOCK: the memory budget is replaced, not closed, and the published 4 GiB run shape
+could not start the service at all. Nine new conditions, each checkable by a row with a negative control.
+This job answers six of them; three belong to `scripts/orch/rows/service-limits.rows` and to the develop
+gate, and they are listed here so nothing is left unclaimed.
+
+| n | Condition | Answered by |
+|---|---|---|
+| 1 | `svc-limits` exists and proves the budget fits the container, with no exit 137 | `svc-limits` + `negctl-svc-limits`, `scripts/orch/rows/service-limits.rows` (named here; that row belongs to the sibling job and was not run for this one) |
+| 2 | the 4 GiB run shape is resolved in code or in docs, not both ways | `scripts/service.sh run` passes `DRUN_MEM=8g`, and `docs/deploy/service.md` "Run" publishes `--memory 8g` with 8 GiB named the minimum; `docs/decisions/memory-guard.md` decision 1 names the service as the exception to the 4 GiB default |
+| 3 | the caps are re-measured on the image's reference CPU, or the time-bound caps are lowered by the one-rung margin the measurement declares | `svc-caps-time` + `negctl-svc-caps-time`, `scripts/orch/rows/service-limits.rows` (the sibling job) |
+| 4 | one `negctl-` row per unrowed break | `negctl-svc-auth` (`any-key`, `src/auth.rs` `check`), `negctl-svc-log` (`log-header`, `src/observe.rs` `observe`), `negctl-svc-embed` (`follow-symlinks`, `src/embed.rs` `Tree::visit`), `negctl-svc-slots` (`drop-permit`, `src/layout.rs` `compute`); each names the test function it turns red |
+| 5 | condition 1's process clause is run: the develop full gate and `hashgate --seeds 1000` on the commit carrying the `graph-wasm` seam | not run here, and owed on develop: `server/` and `deploy/` are unfingerprinted, so this branch proves nothing about the seam |
+| 6 | `service-image.rows` runs, and the build context's exclusion control is named | `service-image.rows` passed 5/5 on image `graph-motor:5f01f980602fc2dd` (2026-10-04); `deploy/service.Dockerfile.dockerignore` deleted, and `docs/deploy/service.md` "Build" names the staged context as the control that `svc-no-leak` checks |
+| 7 | the contract's stale rows, routes and variables are reconciled | this document: "Routes" drops `analyses` and says one `post` id, "Configuration" lists all 14 `GRAPH_*` variables with default and range, "Gates" names only rows that exist, and "As built" cites every source reference by symbol |
+| 8 | `Caveat:` on the nine constants and the two `config.rs` default blocks | `src/serve.rs` `RUNTIME_GRACE`, `src/health.rs` `BUDGET` and `MAX_STATUS_LINE`, `src/observe.rs` `MAX_REQUEST_ID`, `src/error.rs` `MAX_MESSAGE`, `src/keys.rs` `KEY_BYTES`, `MAX_FILE_BYTES`, `MAX_KEYS`, `MAX_NAME` and the mode mask, and one block above each of `src/config.rs` `read_limits` and `read_connections` naming every default literal in them |
+| 9 | `config/tests.rs` asserts the real 4 GiB row directly | with option (b), `default_workers(4 << 30)` is asserted beside `PER_SLOT_BYTES - 1`; `src/config/tests.rs` belongs to the sibling job. The derivation is pinned either way by `default_workers_is_the_smaller_of_cores_and_memory_slots` |
 
 ### As built (2026-10-04, conditions 3, 4, 9, 11, 12)
 
-Where each condition now holds in `server/`, and the row in `scripts/orch/rows/service.rows` that
-proves it. Not-run rows are named as such.
+Where each condition now holds in `server/`, and the row in `scripts/orch/rows/service.rows` that proves
+it. Every source reference is by **symbol**, not by line: the line numbers drifted twice, and a reference
+that can drift is not evidence. Rows that were not run here are named as such.
 
 **3. Memory budget.** The worker count is `min(cores, floor(memory.max / PER_SLOT_BYTES))` at
-`server/graph-server/src/config/slots.rs:24`, with `PER_SLOT_BYTES` = 4_635_677_069: the
-`source=contract` ingest term binds (`docs/measurements/service-caps.md` "Memory per slot"), so a
-4 GiB container holds no slot and 8 GiB holds one; an unset `GRAPH_WORKERS` with a `memory.max` holding
-no slot is a refusal at `src/config.rs:166-174`, exit 2 via `src/main.rs:69`. The slots are the
-gate's semaphore (`src/gate.rs:24`). Rows `svc-memory` / `negctl-memory` cover the container, and
-the derivation itself is proved by `src/config/tests.rs:73`.
-No log line carries the worker count: `config::start_line` logs `set`/`unset` per variable and no
-value, by the rule in condition 9. `svc-memory` and `negctl-memory` are NOT RUN: no `graph-server` image
-exists yet (`scripts/orch/drun` has only `ge-rust` and the oracle images), so the rows assert the
-start and the refusal rather than a logged figure.
+`server/graph-server/src/config/slots.rs` `default_workers`, with `PER_SLOT_BYTES` = 4_635_677_069: the
+`source=contract` ingest term binds (`docs/measurements/service-caps.md` "Memory per slot"), so a 4 GiB
+container holds no slot and 8 GiB holds one; an unset `GRAPH_WORKERS` with a `memory.max` holding no slot
+is refused by `src/config.rs` `read_workers`, exit 2 through `src/main.rs` `refuse`. The slots are the
+gate's semaphore (`src/gate.rs` `Gate::new`). Rows `svc-memory` and `negctl-memory` both PASS: 8 GiB starts
+and logs `listening`, 1 GiB exits 2 with `GRAPH_WORKERS: unset, and memory.max holds no slot`. The
+derivation itself is proved by `src/config/tests.rs`
+`default_workers_is_the_smaller_of_cores_and_memory_slots`. No log line carries the worker count:
+`src/config.rs` `start_line` logs `set`/`unset` per variable and no value, by the rule in condition 9.
+What these two rows do **not** prove is the fit — that a slot at the largest cap stays inside
+`PER_SLOT_BYTES`. That is `svc-limits`, in `scripts/orch/rows/service-limits.rows`.
 
-**4. Request order and connection limits.** The order is auth, query, admission, then the streamed
-body read: `src/layout.rs:59`, `:60-63`, `:64`, `:65`. The body read is `src/body.rs:12`, bounded by
-`GRAPH_MAX_BODY` and `GRAPH_BODY_TIMEOUT_MS` for chunked bodies too. The header timeout and the
-header-size cap are per connection at `src/serve.rs:112-113`, and the connection cap is a
-pre-accept permit at `src/serve.rs:94`. Rows `svc-preauth`, `negctl-preauth` (break
-`body-before-auth`) and `negctl-slow-headers` (break `no-header-timeout`).
+**4. Request order and connection limits.** In `src/layout.rs` `serve` the order is the pre-auth query-pair
+scan, then `auth::check`, then `query::layout` and `query::face`, then `gate::admit`, and only then
+`body::read`. The scan (`query::pairs`) is deliberately before auth: it is the only pre-auth work, it is a
+`String` bounded by `GRAPH_MAX_HEADER_BYTES`, and it is where a key in the query is refused. The body read
+is `src/body.rs` `read`, bounded by `GRAPH_MAX_BODY` and `GRAPH_BODY_TIMEOUT_MS` for chunked bodies too.
+The header timeout and the header-size cap are set per connection in `src/serve.rs` `Acceptor::spawn`, and
+the connection cap is a pre-accept permit in `src/serve.rs` `Acceptor::next`. Rows `svc-preauth`,
+`negctl-preauth` (break `body-before-auth`) and `negctl-slow-headers` (break `no-header-timeout`).
 
-**9. Auth.** `src/auth.rs:11` is the only key check; a group- or world-writable key file is refused
-at `src/keys.rs:60` and every refusal at start is exit 2 (`src/main.rs:69`). `SIGHUP` re-reads and
-swaps the whole set at `src/serve.rs:126-135`. Rows `svc-exit2`, `negctl-exit2` (break
-`accept-group-writable`), `svc-sighup`, `negctl-sighup` (break `ignore-sighup`).
+**9. Auth.** `src/auth.rs` `check` is the only key check, and `src/observe.rs` `mark_sensitive` flags every
+`Authorization` value in the middleware before any route, handler or log line can read it — asserted by
+the unit test `the_authorization_reaching_the_handler_is_marked_sensitive` in `src/observe.rs` `tests`,
+which runs a probe layer inside `observe` and reads the flag exactly as a handler would. A key file that is
+not 0640 or stricter is refused by `src/keys.rs` `KeySet::load` (no group write or exec, and nothing at all
+for others, read included, because the file holds hashes), and every refusal at start is exit 2 through
+`src/main.rs` `refuse`. `SIGHUP` re-reads and swaps the whole set: `src/serve.rs` `spawn_reload` installs the
+handler even with auth off, and `src/app.rs` `reload_keys` parses the whole file before the swap, so a bad
+file keeps the old set. Rows `svc-auth` + `negctl-svc-auth` (break `any-key`), `svc-log` + `negctl-svc-log`
+(break `log-header`), `svc-exit2` + `negctl-exit2` (break `accept-group-writable`), `svc-sighup` +
+`negctl-sighup` (break `ignore-sighup`).
 
-**11. Image.** The `HEALTHCHECK` command is `src/main.rs:61` over `src/health.rs:15`, which is true
-only on a 200 from `src/lib.rs:45`; the image itself is not built here. Rows `svc-healthcheck`,
-`negctl-healthcheck` (break `always-healthy`).
+**11. Image.** The `HEALTHCHECK` command is `src/main.rs` `healthcheck` over `src/health.rs` `healthcheck`,
+which is true only on a 200 from `src/lib.rs` `healthz` inside `BUDGET`. `scripts/service.sh` `build` stages
+`bin/graph-server`, `embed/<version>/` and `embed/VERSION` into `target/service/stage` and makes that
+directory the whole build context, so the staged path list is the exclusion control; row `svc-no-leak` in
+`scripts/service-image.sh` checks the image it produces. There is no `.dockerignore` to keep in step with
+it: `deploy/service.Dockerfile.dockerignore`, which docker never read, is deleted.
+`scripts/orch/rows/service-image.rows` passed 5/5 on image `graph-motor:5f01f980602fc2dd` (2026-10-04):
+`svc-image`, `negctl-svc-image`, `negctl-svc-image-leak`, `svc-sdk-live`, `negctl-svc-sdk-live`. Rows
+`svc-healthcheck` + `negctl-healthcheck` (break `always-healthy`) cover the command in-process.
 
-**12. Operability.** `SIGTERM` and `SIGINT` break the accept loop (`src/serve.rs:50-51`), the
-listener is dropped at `src/serve.rs:68` so a new connection is refused at once, and
-`src/serve.rs:144` drains for up to `GRAPH_TIMEOUT_MS` before the process exits 0. Rows
-`svc-shutdown`, `negctl-shutdown` (break `no-drain`). The `X-Request-Id` and JSON-log halves of this
-condition are not covered by this job.
+**12. Operability.** `SIGTERM` and `SIGINT` break the accept loop in `src/serve.rs` `serve`, the listener is
+dropped there so a new connection is refused at once, and `src/serve.rs` `drain` waits up to
+`GRAPH_TIMEOUT_MS` before the process exits 0. Rows `svc-shutdown`, `negctl-shutdown` (break `no-drain`). The
+`X-Request-Id` and JSON-log halves of this condition have rows of their own: `svc-log` + `negctl-svc-log`
+(break `log-header`), with the id validation and the sensitive marking asserted in `src/observe.rs` `tests`
+and `src/observe.rs` `Line::render`.
