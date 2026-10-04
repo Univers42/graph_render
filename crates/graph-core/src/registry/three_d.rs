@@ -10,7 +10,7 @@
 //!
 //! **They are two kinds of thing, and the metadata says which per row.** [`SPHERE`],
 //! [`HELIX`], [`CUBE`] and [`SPIRAL_3D`] are closed forms over `(num_nodes, scale)` that
-//! read no graph at all; [`RANDOM_3D`] reads no graph either but *draws*, [`HIERARCHICAL_3D`]
+//! read no graph at all; [`RANDOM_3D`](random3d::RANDOM_3D) reads no graph either but *draws*, [`HIERARCHICAL_3D`]
 //! reads the graph and [`SPRING_3D`] iterates. The four `(num_nodes, scale)` forms owe no
 //! seed and say so; the four that draw or read structure say what they compare.
 //!

@@ -23,7 +23,7 @@
 //! here.
 //!
 //! C12's other half is unchanged: a run in which every attempted component failed is refused
-//! with [`NOTHING_SOLVED`], never turned into a random picture.
+//! with `NOTHING_SOLVED`, never turned into a random picture.
 
 use super::{Geometry, pivot_mds, spectral};
 use crate::index::Topology;
