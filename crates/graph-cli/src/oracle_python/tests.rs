@@ -95,11 +95,7 @@ fn one_3d_worst_over_its_ceiling_fails_only_that_arm() {
     let (pass, functions) = judge(SPECTRAL.ceilings, &result(&arms)).expect("judged");
     assert!(!pass);
     assert_eq!(functions["layout.spectral3d"]["unexplained"], 1);
-    for id in [
-        "layout.spectral",
-        "layout.mds.pivot",
-        "layout.mds.pivot3d",
-    ] {
+    for id in ["layout.spectral", "layout.mds.pivot", "layout.mds.pivot3d"] {
         assert_eq!(functions[id]["unexplained"], 0, "{id} is unaffected");
     }
 }

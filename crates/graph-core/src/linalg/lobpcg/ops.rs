@@ -22,7 +22,6 @@
 ///
 /// **`alpha_for` is generated rather than tabled, and the reason is [`alpha_for`]'s own
 /// doc: a three-element table left a whole start column zero at the 3-D arm's `block = 5`.**
-
 pub(super) fn start_block(n: usize, block: usize) -> Vec<f64> {
     let mut out = vec![0.0; n * block];
     for (i, slot) in out[..n].iter_mut().enumerate() {

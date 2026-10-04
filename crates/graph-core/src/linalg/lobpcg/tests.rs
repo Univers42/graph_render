@@ -82,9 +82,21 @@ fn every_start_column_is_filled_at_every_block_width() {
 /// 2-D snapshot in the hash gate stays where it was.
 #[test]
 fn the_start_block_of_every_2d_run_is_unchanged() {
-    assert_eq!(ops::alpha_for(1), 0.6180339887498949, "column 1's historical alpha");
-    assert_eq!(ops::alpha_for(2), 0.4142135623730951, "column 2's historical alpha");
-    assert_eq!(ops::alpha_for(3), 0.7320508075688772, "column 3's historical alpha");
+    assert_eq!(
+        ops::alpha_for(1),
+        0.6180339887498949,
+        "column 1's historical alpha"
+    );
+    assert_eq!(
+        ops::alpha_for(2),
+        0.4142135623730951,
+        "column 2's historical alpha"
+    );
+    assert_eq!(
+        ops::alpha_for(3),
+        0.7320508075688772,
+        "column 3's historical alpha"
+    );
 
     // Column 0 is the reference's own start vector, unchanged.
     let n = 32;
@@ -98,7 +110,11 @@ fn the_start_block_of_every_2d_run_is_unchanged() {
         let alpha = ops::alpha_for(col);
         for (i, &got) in start[col * n..(col + 1) * n].iter().enumerate() {
             let phase = (i as f64 + 1.0) * alpha;
-            assert_eq!(got, 2.0 * (phase - phase.floor()) - 1.0, "column {col}, row {i}");
+            assert_eq!(
+                got,
+                2.0 * (phase - phase.floor()) - 1.0,
+                "column {col}, row {i}"
+            );
         }
     }
 }

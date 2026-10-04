@@ -160,15 +160,28 @@ fn run_3d_is_a_three_column_draw() {
 fn run_3d_draws_three_per_node_off_the_same_stream() {
     let mut rng = Mulberry32::new(super::SEED);
     let want: Vec<(f32, f32, f32)> = (0..3)
-        .map(|_| (rng.next_f64() as f32, rng.next_f64() as f32, rng.next_f64() as f32))
+        .map(|_| {
+            (
+                rng.next_f64() as f32,
+                rng.next_f64() as f32,
+                rng.next_f64() as f32,
+            )
+        })
         .collect();
     let (x, y, z) = space(&run_3d(&graph(3, &[(0, 1)])).expect("runs"));
     let got: Vec<(f32, f32, f32)> = (0..3).map(|i| (x[i], y[i], z[i])).collect();
     assert_eq!(got, want);
 
     let planar = points(&run(&graph(3, &[(0, 1)])).expect("runs"));
-    assert_eq!((planar[0].0, planar[0].1), (x[0], y[0]), "node 0: draws 0 and 1");
-    assert_eq!(planar[1].0, z[0], "the 2D arm's node 1 x is this arm's node 0 z");
+    assert_eq!(
+        (planar[0].0, planar[0].1),
+        (x[0], y[0]),
+        "node 0: draws 0 and 1"
+    );
+    assert_eq!(
+        planar[1].0, z[0],
+        "the 2D arm's node 1 x is this arm's node 0 z"
+    );
     assert_ne!(
         (planar[1].0, planar[1].1),
         (x[1], y[1]),
@@ -184,11 +197,14 @@ fn run_3d_draws_three_per_node_off_the_same_stream() {
 fn run_3d_leaves_the_registered_2d_snapshot_exactly_where_it_was() {
     let planar = run(&graph(4, &[(0, 1), (2, 3)])).expect("runs");
     assert_eq!(planar.dim(), Dim::D2, "run stays planar");
-    assert_eq!(points(&planar)[0], (0.71003205, 0.28633666), "the seed is unmoved");
+    assert_eq!(
+        points(&planar)[0],
+        (0.71003205, 0.28633666),
+        "the seed is unmoved"
+    );
     let mut rng = Mulberry32::new(super::SEED);
     let want: Vec<(f32, f32)> = (0..4)
         .map(|_| (rng.next_f64() as f32, rng.next_f64() as f32))
         .collect();
     assert_eq!(points(&planar), want, "two draws per node, in node order");
 }
-
