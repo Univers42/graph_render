@@ -19,7 +19,7 @@
 //! (`spring_electrical.c:39-42`), with an adaptive step that cools when the force norm stops
 //! improving and warms when it does (`spring_electrical.c:171-185`).
 //!
-//! **Three reference behaviours are reproduced deliberately, and each is a place a
+//! **Five reference behaviours are reproduced deliberately, and each is a place a
 //! reimplementation silently diverges:**
 //!
 //! 1. **The random start is glibc's `rand()`.** `srand(seed)` then `drand()` per coordinate
@@ -27,46 +27,79 @@
 //!    (`lib/sparse/general.c:25-27`) — the divisor is `RAND_MAX` = 2^31-1, not 2^31. `start`
 //!    implements glibc's TYPE_3 additive-feedback generator and pins its first eight outputs
 //!    for seeds 1 and 2 against the system libc, because a recurrence that is merely *similar*
-//!    to TYPE_3 starts every layout somewhere else and still passes a determinism test.
-//! 2. **`K` is the mean edge length of the current positions**, recomputed at every level
+//!    to TYPE_3 starts every layout somewhere else and still passes a determinism test. It is
+//!    **one** generator for the whole layout: `prolongate`'s jitter draws from the same stream
+//!    (`:1155`) and nothing re-seeds in between.
+//! 2. **`K` is the mean edge length of the coarsest level's positions**
 //!    (`spring_electrical.c:153-169`), and shrunk by 0.75 on the way down
 //!    (`spring_electrical.c:1159`). A port that fixes `K` once lays out at the wrong scale.
 //! 3. **The step control holds still while the force norm is within 5% of the previous one**
-//!    (`spring_electrical.c:179`). Without that hold the step decays monotonically and the
-//!    layout stops short of its own convergence test.
+//!    (`spring_electrical.c:179`), and **only at the coarsest level**: the driver switches
+//!    `adaptive_cooling` off below it (`:1160`), so a fine level cools by `cool` and nothing
+//!    else. Without the hold the step decays monotonically; without the switch every level
+//!    runs an adaptive loop the reference never runs there.
+//! 4. **A node is moved by the step, not by `step / length`.** The reference normalises the
+//!    force to unit length and multiplies by the step as it stands at the start of the
+//!    iteration (`:634-638`). A port that divides by the force length against the *initial*
+//!    step never converges however long it runs.
+//! 5. **The stop test is `step > tol` absolute** (`tol = 0.001`, `:47`, `:650`) inside a
+//!    `do`-while, so a fine level runs `ceil(log(0.001/0.1)/log(0.9)) = 44` iterations whatever
+//!    `K` is. The reference's own comment above the constant says `tol / K`; its loop test is
+//!    what runs.
 //!
 //! **And one behaviour is deliberately *not* reproduced, because it cannot be**: the reference
 //! draws a random permutation to order its coarsening matchings and re-`srand`s between levels.
 //! `docs/measurements/p13-gv2-sfdp.md` records what that costs — the oracle compared *against
-//! itself* at `-Gstart` 7 rather than 1 differs from its `-Gstart` 1 output by up to 292 points
-//! on the metric the differential uses, so no port that does not draw glibc's exact permutation
-//! stream can land inside a tolerance far below that. The row is `Status::Implemented` and the
-//! measured gaps are recorded, rather than the ceiling being widened to make it pass.
+//! itself* at `-Gstart` 7 rather than 1 differs from its `-Gstart` 1 output by 481 points on
+//! the metric the differential uses, more than our own arm's worst gap, so no port that does
+//! not draw glibc's exact permutation stream can land inside a tolerance far below that. The row
+//! is `Status::Implemented` and the measured gaps are recorded, rather than the ceiling being
+//! widened to make it pass.
 //!
-//! Determinism (D1-D10): the only randomness is the seeded generator in `start`, every force is
-//! gathered (node `i` reads positions and writes only its own), every reduction runs in dense
-//! index order, and no hash map is ever iterated. Native and wasm32 outputs are bit-identical.
+//! **One thing this port does that the engine's defaults never do.** `sfdp`'s `levels` graph
+//! attribute defaults to `0` (`sfdpinit.c:213`), and `Multilevel_establish` stops when
+//! `grid->level >= ctrl.maxlevel - 1` (`Multilevel.c:163`), so at its defaults Graphviz runs
+//! **one** level: no coarsening, no `prolongate`, no `K` decay. This port always coarsens.
+//! Measured on `lesmis`, that is the largest single remaining disagreement with the oracle and
+//! it is named, not hidden — `docs/measurements/sg-sfdp-collapse.md` carries the number and
+//! `sg-sfdp-step` owns the coarsening.
+//!
+//! Determinism (D1-D10): the only randomness is the seeded generator in `start`; the spring
+//! iteration gathers every node's force before moving any of them (`solve.rs`); every reduction
+//! runs in dense index order; no hash map is ever iterated. Native and wasm32 outputs are
+//! bit-identical. The one place the code is **not** in gather form is `prolongation`'s
+//! `interpolate_coord`, which is Gauss-Seidel in the reference and here — see
+//! `docs/decisions/sfdp-gather-form.md`.
 //!
 //! Ponytail: **the coarsening matching is deterministic where the reference's is random**, and
-//! **the two-node case keeps a residual rotation**. The reference draws a random permutation to
-//! order its matchings (`Multilevel.c`, via `gv_permutation`) and re-`srand`s between levels;
-//! this port matches in dense index order, which yields one of the maximal matchings the
-//! reference could have drawn but not necessarily the one it did. Failing input: every graph,
-//! in the last digits — the hierarchy it builds can differ from the reference's. Direction: the
-//! drawing is a different but equally valid sfdp layout of the same graph, not a wrong one, and
-//! the residual rotation on a two-node graph (measured at 0.04 rad) is the same phenomenon seen
-//! in miniature: two nodes sit in Barnes-Hut cells with different centres of mass, so their two
-//! forces are only nearly antiparallel. Escape hatch: `run_seeded` is the seam — a port that
-//! drew glibc's permutation stream would only have to replace `multilevel::coarsen` and
-//! re-`srand` per level, and the differential would then be a check on one number rather than
-//! a measurement of an unmatchable one.
+//! **the level count is not the reference's**. Each pass groups nodes with identical neighbour
+//! sets first, four at a time, then matches every other node to an unmatched neighbour, as the
+//! reference's `maximal_independent_edge_set_heaviest_edge_pernode_supernodes_first` does; but
+//! it visits nodes in dense index order where the reference draws a random permutation
+//! (`gv_permutation`) and re-`srand`s between levels, and with unit weights "heaviest" is the
+//! first neighbour. Coarsening stops at `COARSEST_FLOOR` nodes, and `p` stays -1 where the
+//! reference switches to -1.8 on a power-law degree distribution. Failing input: every graph,
+//! in the last digits; a power-law graph by more, its hubs packed tighter than Graphviz packs
+//! them. Direction: a different but equally valid sfdp layout, never a collapsed one
+//! (`contract.rs` checks the gallery graph and a 10x10 lattice both spread, with no two points
+//! closer than `1e-6` of the drawing's extent). Escape hatch: `run_seeded` is the seam; a port
+//! that drew glibc's permutation stream would only have to replace `multilevel::coarsen` and
+//! re-`srand` per level, and a port that ran one level would have to make `layout`'s coarsening
+//! loop optional; either way the differential would then be a check on one number rather than a
+//! measurement of an unmatchable one.
 
 mod force;
+mod matching;
 mod multilevel;
+mod prolongation;
 mod quadtree;
 mod solve;
 mod start;
 
+#[cfg(test)]
+mod contract;
+#[cfg(test)]
+mod shape;
 #[cfg(test)]
 mod tests;
 
@@ -124,63 +157,53 @@ pub fn run_seeded(topology: &Topology, seed: u32) -> Result<Geometry, StageError
     Ok(point_geometry(&x, &y))
 }
 
-/// The undirected edge list, deduplicated and self-loop free, in dense index order.
+/// The undirected edge list, deduplicated and self-loop free, sorted by `(low, high)` endpoint.
 ///
 /// The reference symmetrises the adjacency matrix before laying it out
 /// (`spring_electrical.c:1075-1078`) and removes the diagonal, so a self loop contributes
 /// nothing and an edge is one spring however it was declared.
 fn symmetrised(topology: &Topology) -> Vec<(u32, u32)> {
     let columns = topology.edges();
-    let mut out: Vec<(u32, u32)> = Vec::with_capacity(topology.edge_count() as usize);
-    for i in 0..topology.edge_count() as usize {
-        let (a, b) = (columns.source[i], columns.target[i]);
-        if a == b {
-            continue;
-        }
-        let key = if a <= b { (a, b) } else { (b, a) };
-        if !out.contains(&key) {
-            out.push(key);
-        }
-    }
+    let mut out: Vec<(u32, u32)> = (0..topology.edge_count() as usize)
+        .map(|i| (columns.source[i], columns.target[i]))
+        .filter(|&(a, b)| a != b)
+        .map(|(a, b)| (a.min(b), a.max(b)))
+        .collect();
+    // Sorted rather than `contains`-checked: the scan was O(E^2) and is the order the
+    // per-level edge lists use anyway (`multilevel::coarse_edges`).
+    out.sort_unstable();
+    out.dedup();
     out
 }
 
 /// The whole multilevel solve: coarsen to the floor, lay out, then refine back down.
 ///
-/// Four levels rather than a fixed number, chosen so the coarsest level is small enough to lay
-/// out directly (`COARSEST_FLOOR`) and the loop terminates for any input, including the ones
-/// where matching makes no progress.
+/// Coarsening stops at `COARSEST_FLOOR` nodes or when a level makes no progress, so the loop
+/// terminates for any input.
 fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    let (x, y) = solve::random_start(count, seed);
-    let mut coarse = edges.to_vec();
-    let mut coarse_count = count;
-    // One entry per level above the finest, coarsest last, each carrying **its own** edge
-    // list. Carrying the edges matters: a level's node ids are its own dense ids, so relaxing
-    // a middle level against the finest level's edges would index past the end of its
-    // positions.
-    let mut levels: Vec<Step> = Vec::new();
-    while coarse_count > COARSEST_FLOOR {
-        let next = multilevel::coarsen(coarse_count, &coarse);
-        if next.coarse >= coarse_count {
-            break;
-        }
-        let above = multilevel::coarse_edges(&next, &coarse);
-        levels.push(Step {
-            level: next,
-            edges: above.clone(),
-        });
-        coarse = above;
-        coarse_count = levels[levels.len() - 1].level.coarse;
-    }
+    let (levels, coarse, coarse_count) = coarsen_levels(edges, count);
+    // The random start covers the coarsest level only (`xc` in `spring_electrical.c:1108`). On
+    // 2026-10-01 it covered every fine node, so the coarsest solve carried the surplus as
+    // phantom nodes with no edges.
+    let mut rng = start::Glibc::seeded(seed);
+    let (x, y) = coarsest(&mut rng, coarse_count);
     let mut solve = solve::Solve::new(x, y, &coarse);
     solve.relax(solve::FIRST_STEP, MAX_ITER);
     // Walk back down, relaxing each level against its own edges. `K` shrinks by 0.75 at each
     // step down (`spring_electrical.c:1159`), which is what keeps a fine level's attraction in
-    // scale with the coarse solution it was prolonged from.
+    // scale with the coarse solution it was prolonged from. The reference's driver reads the
+    // level up first and decays `K` after (`:1155`, `:1159`), so the prolongation's jitter
+    // scale is the `K` **before** the decay.
     let mut k = solve.k();
     for step in levels.iter().rev() {
         let count = step.level.pair.len() as u32;
-        let (nx, ny) = multilevel::prolongate(&solve.x, &solve.y, &step.level, count, seed);
+        let lay = prolongation::Lay {
+            level: &step.level,
+            edges: &step.edges,
+            count,
+            delta: prolongation::delta(k),
+        };
+        let (nx, ny) = prolongation::prolongate(&solve.x, &solve.y, &lay, &mut rng);
         k = multilevel::decay_k(k);
         let mut next = solve::Solve::with_k(nx, ny, &step.edges, k);
         next.relax(solve::FIRST_STEP, MAX_ITER);
@@ -189,7 +212,41 @@ fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
     (solve.x, solve.y)
 }
 
-/// One level of the hierarchy, with the edge list **of that level**.
+/// The levels above the finest, coarsest last, with the coarsest level's edges and node count.
+///
+/// A level's node ids are its own dense ids, so each level is relaxed against its own edge list.
+fn coarsen_levels(edges: &[(u32, u32)], count: u32) -> (Vec<Step>, Vec<(u32, u32)>, u32) {
+    let mut coarse = edges.to_vec();
+    let mut coarse_count = count;
+    let mut levels: Vec<Step> = Vec::new();
+    while coarse_count > COARSEST_FLOOR {
+        let next = multilevel::coarsen(coarse_count, &coarse);
+        if next.coarse >= coarse_count {
+            break;
+        }
+        let above = multilevel::coarse_edges(&next, &coarse);
+        coarse_count = next.coarse;
+        levels.push(Step {
+            level: next,
+            edges: std::mem::replace(&mut coarse, above),
+        });
+    }
+    (levels, coarse, coarse_count)
+}
+
+/// The coarsest level's random start: `dim·n` draws from the one `srand`-seeded stream, x and y
+/// interleaved per node (`spring_electrical.c:556-558`, `:282-284`).
+///
+/// The stream is returned to the caller rather than dropped, because the reference draws the
+/// prolongation jitter from **this** generator: `prolongate` at `:1155` calls `drand()` and
+/// nothing re-seeds in between.
+fn coarsest(rng: &mut start::Glibc, count: u32) -> (Vec<f64>, Vec<f64>) {
+    solve::random_start_from(rng, count)
+}
+
+/// One level of the hierarchy, with the edge list of its **finer** side: the graph its prolonged
+/// positions are relaxed against. On 2026-10-01 it carried the coarser side's edges, so every
+/// level, the finest included, was relaxed against the graph one level up.
 struct Step {
     level: Level,
     edges: Vec<(u32, u32)>,
