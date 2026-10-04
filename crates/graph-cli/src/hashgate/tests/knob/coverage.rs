@@ -81,6 +81,11 @@ const NO_PER_STAGE_CONTROL: [(&str, Gap); 34] = [
     ("layout.mds.pivot3d", Gap::NoControl),
     ("layout.packing.circle", Gap::NoControl),
     ("layout.random", Gap::NoControl),
+    // `layout.random.3d` is the same gap as the id above and for the same reason: no knob
+    // scopes `stage_nodes` to either, and the reference model moves both along with every
+    // other stage. It is a separate entry rather than a widened one because the list is
+    // keyed by id, and the gate is what says the hash is over the stage.
+    ("layout.random.3d", Gap::NoControl),
     ("layout.spectral", Gap::NoControl),
     ("layout.spectral3d", Gap::NoControl),
     ("layout.spiral", Gap::NoControl),

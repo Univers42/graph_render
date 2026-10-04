@@ -9,6 +9,7 @@
 //! own handling of them is pinned here instead.
 
 use super::*;
+use crate::ingest::element::Shape;
 use crate::ingest::scan::{Document, Scan};
 
 /// The document's `nodes` and `edges` element counts, as the first walk counted them.
@@ -129,32 +130,72 @@ fn a_root_that_is_not_an_object_is_refused_after_the_syntax_has_been_read() {
     assert!(matches!(read(b"[1,2,"), Err(IngestError::Json(_))));
 }
 
-/// `elements` hands over each element's own text and nothing else, so a record reader never
-/// sees its neighbours' bytes — which is what lets it hold spans into the document.
+/// The root's members are located by the walk that validates the text, so the shape pass
+/// reads them without a second pass over the document. What it must find is unchanged: the
+/// members in document order, each value span naming its own array, and an *empty* object
+/// root still a root object — the flag "expected an object" turns on.
 #[test]
-fn each_element_is_handed_over_as_exactly_its_own_text() {
+fn the_root_is_located_by_the_validating_walk_itself() {
+    let text = doc(
+        &[node_json("a"), node_json("b")],
+        &[edge_json("e", "a", "b")],
+    );
+    let document = Document::new(&text).expect("valid");
+    assert!(document.is_object());
+    let keys: Vec<&str> = document.members().iter().map(|m| m.key.as_str()).collect();
+    assert_eq!(keys, ["version", "nodes", "edges"]);
+    for (key, elements) in [("nodes", 2usize), ("edges", 1)] {
+        let member = document.member(key).expect("the member is there");
+        assert_eq!(
+            member.elements,
+            Some(elements),
+            "{key} is not counted as an array"
+        );
+        let span = member.value;
+        let value = &text[span.start as usize..span.end as usize];
+        assert!(
+            value.starts_with('[') && value.ends_with(']'),
+            "{key} is {value}"
+        );
+    }
+    // An empty object is an object, and only the first byte ever decided it.
+    assert!(Document::new("{}").expect("valid").is_object());
+    for not_object in ["[]", "1", r#""x""#, "null", "true"] {
+        assert!(
+            !Document::new(not_object).expect("valid").is_object(),
+            "{not_object} is not an object"
+        );
+    }
+}
+
+/// Each element is read on its own and into a table of its own, so a record reader never
+/// sees its neighbours' bytes — which is what lets the table hold spans into the document
+/// and strings borrowed from it. The records that come out are the document's, in order.
+#[test]
+fn each_element_is_read_into_a_table_of_its_own() {
     let text = doc(
         &[node_json("a"), node_json("b")],
         &[edge_json("e", "a", "b"), edge_json("f", "b", "a")],
     );
     let document = Document::new(&text).expect("valid");
-    let mut seen: Vec<String> = Vec::new();
-    for key in ["nodes", "edges"] {
-        let member = document.member(key).expect("the member is there");
-        let mut scan = Scan::new(&text);
-        scan.elements(member.value, &mut |item| {
-            seen.push(item.to_owned());
-            Ok(())
-        })
-        .expect("the array reads");
-    }
-    assert_eq!(
-        seen,
-        vec![
-            node_json("a"),
-            node_json("b"),
-            edge_json("e", "a", "b"),
-            edge_json("f", "b", "a")
-        ]
-    );
+    let mut ids: Vec<String> = Vec::new();
+    let mut scan = Scan::new(&text);
+    let mut table = element::Element::new(&text, <NodeRecord as Shape>::FIELDS, At::list("nodes"));
+    let nodes = document.member("nodes").expect("the member is there").value;
+    scan.records(nodes, &mut table, &mut |table| {
+        let at = table.at();
+        ids.push(<NodeRecord as Shape>::read(table, at)?.id);
+        Ok(())
+    })
+    .expect("the array reads");
+    let mut scan = Scan::new(&text);
+    let mut table = element::Element::new(&text, <EdgeRecord as Shape>::FIELDS, At::list("edges"));
+    let edges = document.member("edges").expect("the member is there").value;
+    scan.records(edges, &mut table, &mut |table| {
+        let at = table.at();
+        ids.push(<EdgeRecord as Shape>::read(table, at)?.id);
+        Ok(())
+    })
+    .expect("the array reads");
+    assert_eq!(ids, ["a", "b", "e", "f"]);
 }

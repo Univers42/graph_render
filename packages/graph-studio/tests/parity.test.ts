@@ -12,11 +12,19 @@ import { type RunSummary, type StudioState, initialState } from "../src/state/mo
 import { DEFAULT_SETTINGS } from "../src/state/settings.ts";
 import { controlOf } from "../src/ui/controlOf.ts";
 
+const LAYOUT = "layout.grid";
+
+/** What the motor publishes for {@link LAYOUT}, so a drawn state has a panel to draw. */
+const SPACING = {
+  name: "spacing", kind: "float" as const, min: 0.0625, max: 1024, default: 1, step: 0.125,
+  doc: "the distance between two neighbours",
+};
+
 const CATALOG = {
   // The studio asks for its own default, so the fixture catalog has to offer it: the row
   // below is that a parameter's default is a value the action accepts, not which layouts
   // the motor registers.
-  layouts: [DEFAULT_SETTINGS.layout, "layout.grid"],
+  layouts: [DEFAULT_SETTINGS.layout, LAYOUT],
   posts: ["post.style.bezier"],
   analyses: ["analysis.depth.bfs"],
 };
@@ -26,7 +34,7 @@ const NODES = ["a", "b"].map((id) => ({
   weight: 1, version: 1, has_note: true, icon: null,
 }));
 const RUN: RunSummary = {
-  layoutId: "layout.grid", postId: null, postError: null, digest: "00".repeat(32), byteLength: 1,
+  layoutId: LAYOUT, postId: null, postError: null, digest: "00".repeat(32), byteLength: 1,
   nodeKind: "Point", edgeKind: "Line", dim: 1, layoutMs: 1, postMs: 0, notes: [],
 };
 const DRAWN: StudioState = {
@@ -34,7 +42,15 @@ const DRAWN: StudioState = {
   graph: { name: "two", nodeCount: 2, edgeCount: 1, notes: [], buildMs: 1 },
   meta: metaOf(NODES, ["a", "b"], { source: Uint32Array.of(0), target: Uint32Array.of(1) }),
   run: RUN,
-  settings: { ...STATE.settings, groups: [{ name: "notes", query: "kind:note", colour: "#7c9cf5" }] },
+  // A value the user moved, and the same value the last run was made at: the reset action has
+  // to have something to put back, and no panel reset may plan a relayout this fixture has no
+  // motor to answer.
+  runParams: JSON.stringify(SPACING.default + 1),
+  schemas: { [LAYOUT]: [SPACING] },
+  settings: {
+    ...STATE.settings, layout: LAYOUT, groups: [{ name: "notes", query: "kind:note", colour: "#7c9cf5" }],
+    params: { [LAYOUT]: { spacing: SPACING.default + 1 } },
+  },
 };
 const registry = createRegistry<StudioState, StudioContext>(studioActions());
 
@@ -57,7 +73,10 @@ test("the line the log prints for an action parses back to the same action and v
 
 test("every section of the dock shows an action, and every shown action is in a section", () => {
   const shown = registry.actions.filter((action) => action.section !== null);
-  assert.deepEqual([...new Set(shown.map((action) => action.section))], [...DOCK_SECTIONS]);
+  // Which sections, not in which order: the dock's order is `DOCK_SECTIONS`, and the row that
+  // says the two agree as sequences is `dock.test.tsx`'s ("the section titles stand in the order
+  // the sections are declared"). This row is about a section nobody shows and an action in none.
+  assert.deepEqual([...new Set(shown.map((action) => action.section))].sort(), [...DOCK_SECTIONS].sort());
 });
 
 test("every parameter has a control, and a choice control has choices to show", () => {

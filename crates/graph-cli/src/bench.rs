@@ -21,6 +21,7 @@
 //! for wasm32 (Phase 9's campaign).
 
 pub mod campaign;
+pub mod cap_probe;
 pub mod scale;
 pub mod tick;
 pub mod tiers;

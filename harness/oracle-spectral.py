@@ -1,5 +1,7 @@
-"""Differential of layout.spectral and layout.mds.pivot against SciGraphs' own
-networkx/scipy implementations, run in the ge-python-oracle image (scipy 1.16.2):
+"""Differential of the two spectral layouts at both widths — layout.spectral and
+layout.mds.pivot in 2D, layout.spectral3d and layout.mds.pivot3d in 3D — against
+SciGraphs' own networkx/scipy implementations, run in the ge-python-oracle image
+(scipy 1.16.2):
 
   graph-cli emit-spectral-fixtures --seeds 1000
   docker run --rm -v $PWD:/w -v <SciGraphs>/core:/sg:ro -w /w ge-python-oracle \
@@ -7,24 +9,29 @@ networkx/scipy implementations, run in the ge-python-oracle image (scipy 1.16.2)
   graph-cli oracle-spectral
 
 Per connected component of at least 3 nodes, after centring away the packing offset, the
-largest principal angle between our two coordinate columns and the reference's (eigenvectors
-are unique only up to sign and, in a degenerate eigenspace, rotation, so the **spans** are
-compared). Alongside it every component's *oriented* gap is recorded — the same comparison
-once each column has had the reference's sign convention applied — because a sign flip, a
-column swap or an in-span rotation scores 0.0 on the span metric and would otherwise leave
-no trace at all. It is recorded, not gated: measured on this tree, our basis inside a
-non-degenerate two-column span differs from the reference's by a rotation on some
-components (see `docs/measurements/fix-harness-py.md`, M20), and gating it would turn a
-green row red over a port divergence rather than over a harness defect.
-A component whose eigenvalues leave the compared object undefined (a tie across the
-2-column boundary for either layout; a tie inside the two columns for pivot_mds) is counted
-under "degenerate", not compared. The result holds the worst value per layout; graph-cli
-holds the ceilings.
+largest principal angle between our `dims` coordinate columns and the reference's
+(eigenvectors are unique only up to sign and, in a degenerate eigenspace, rotation, so
+the **spans** are compared). Alongside it every component's *oriented* gap is recorded — the
+same comparison once each column has had the reference's sign convention applied — because a
+sign flip, a column swap or an in-span rotation scores 0.0 on the span metric and would
+otherwise leave no trace at all. It is recorded, not gated: measured on this tree, our basis
+inside a non-degenerate span differs from the reference's by a rotation on some components
+(see `docs/measurements/fix-harness-py.md`, M20), and gating it would turn a green row red
+over a port divergence rather than over a harness defect. A component whose eigenvalues leave
+the compared object undefined (a tie across the `dims`-column boundary for either layout; a tie
+inside the `dims` columns for pivot_mds) is counted under "degenerate", not compared. The
+result holds the worst value per layout, keyed by the fixture's own ids; graph-cli holds the
+ceilings.
 
 Ponytail: the reference seeds LOBPCG's extra start columns randomly, so the spectral worst
 carries some of the reference's own run-to-run noise, and no span metric can see a rotation
 *inside* a degenerate pair — that is what the "degenerate" bucket is for. The gate model is
 one connected graph per seed, so a fully degenerate eigenspace is not exercised.
+Ponytail (the 3-D arms): at `dims = 3` the span carries one more ill-conditioned direction to
+resolve on the same solver pair, so the 3-D worst sits slightly above the 2-D one at the same
+median (measured, 1.030e-5 against 7.178e-6), and the metric still cannot see a reflection or
+a rotation inside the span, where a 3-D basis leaves three columns of orthogonal freedom rather
+than one (`docs/measurements/p12-3d-oracles.md`).
 """
 import contextlib
 import json
@@ -98,7 +105,8 @@ def sign_pinned(block):
 
 
 def column_gap(ours, theirs):
-    """Largest column-wise coordinate difference, per column.
+    """Largest column-wise coordinate difference, over **every** column, so the 3-column
+    case is the same loop one step longer.
 
     A column whose two largest reference magnitudes tie within 1e-9 relative counts either
     sign as agreement. The review read that relaxation as unnecessary because the reference
@@ -143,12 +151,14 @@ def laplacian_spectrum(graph, idx):
     return np.linalg.eigvalsh(dense)
 
 
-def pivot_spectrum(graph, idx):
+def pivot_spectrum(graph, idx, dims):
     """CtC's eigenvalues, ascending, captured from the reference's own eigh call.
 
     One call, not two: the capture used to be `seen.append(eigh(a)[0]) or eigh(a)`, so the
     eigenvalues recorded were from a *different* decomposition than the vectors the
     reference returned — and with a stochastic start column those are not the same draw.
+    `dims` is the width the coordinates were asked for, so the Gram spectrum has `dims`
+    eigenvalues per component whatever that width is.
     """
     captured = []
     real = np.linalg.eigh
@@ -162,7 +172,7 @@ def pivot_spectrum(graph, idx):
     try:
         nodes = sorted(int(i) for i in idx)
         matrix = nx.adjacency_matrix(graph.subgraph(nodes), nodelist=nodes)
-        ref._pivot_mds_coordinates(matrix.astype(float).tocsr(), 2, ref._MDS_PIVOTS)
+        ref._pivot_mds_coordinates(matrix.astype(float).tocsr(), dims, ref._MDS_PIVOTS)
     finally:
         np.linalg.eigh = real
     if not captured:
@@ -170,33 +180,54 @@ def pivot_spectrum(graph, idx):
     return captured[0]
 
 
-def reference_of(graph, key):
-    """The reference's own coordinates per component for one layout."""
-    if key == "spectral":
-        return ref._spectral_component_coordinates(graph, 2)
-    return ref._pivot_mds_component_coordinates(graph, 2, ref._MDS_PIVOTS)
+def reference_of(graph, key, dims):
+    """The reference's own coordinates per component for one layout, at `dims` columns.
+
+    `key.startswith("spectral")` rather than `==`: the 2-D and 3-D spectral arms are the same
+    function called with a different width, so dispatching on the prefix keeps one branch.
+    """
+    if key.startswith("spectral"):
+        return ref._spectral_component_coordinates(graph, dims)
+    return ref._pivot_mds_component_coordinates(graph, dims, ref._MDS_PIVOTS)
 
 
-def metric_of(key, graph, idx, ours, theirs):
+def metric_of(key, dims, component, blocks):
     """One component's `(gated metric, recorded oriented gap)`, or None when its eigenspectrum
     leaves the comparison undefined.
 
+    `component` is `(graph, idx)` and `blocks` is `(ours, theirs)` -- the two pairs that always
+    travel together, bundled to stay inside the house limit of four parameters (this took five
+    before the 3-D arms and six after `dims` was threaded through).
+
     `spectral` stays on the span metric: measured on this tree our basis inside a
-    non-degenerate two-column span differs from the reference's by a **rotation** on some
+    non-degenerate `dims`-column span differs from the reference's by a **rotation** on some
     components (M20), not only by a sign, so a signed gate would report a port divergence as
     a harness failure. The oriented gap records it either way.
+
+    Every degeneracy threshold is indexed by `dims` because the compared object is a
+    `dims`-column span: "enough eigenvalues to define that span" and "a tie at the span's
+    boundary" are both functions of the width, and hard-coding the 2-D numbers would let a 3-D
+    arm compare a component whose span the reference itself leaves arbitrary. At `dims = 2`
+    each expression below is the literal it replaced.
     """
-    if key == "spectral":
+    graph, idx = component
+    ours, theirs = blocks
+    if key.startswith("spectral"):
         values = laplacian_spectrum(graph, idx)
-        if len(values) < 4 or tied(values, 2):
+        # The Laplacian spectrum carries the trivial zero at index 0, so `dims` kept
+        # eigenvectors need `dims + 1` of them plus that zero, and the boundary tie is the
+        # one just past the last kept pair.
+        if len(values) < dims + 2 or tied(values, dims):
             return None
         mine, other = peak_normalised(ours[idx]), peak_normalised(theirs[idx])
         return worst_sine(ours[idx], theirs[idx]), oriented_gap(sign_pinned(mine), other)
-    values = -pivot_spectrum(graph, idx)[::-1]  # ascending on the negated spectrum
-    if len(values) < 3 or tied(values, 1):
+    values = -pivot_spectrum(graph, idx, dims)[::-1]  # ascending on the negated spectrum
+    # This is the Gram spectrum with no trivial zero, so `dims` kept pairs need `dims + 1`
+    # entries and the boundary is one earlier.
+    if len(values) < dims + 1 or tied(values, dims - 1):
         return None
     mine, other = peak_normalised(ours[idx]), peak_normalised(theirs[idx])
-    if tied(values, 0):
+    if tied(values, dims - 2):
         return worst_sine(ours[idx], theirs[idx]), oriented_gap(sign_pinned(mine), other)
     return column_gap(mine, other), oriented_gap(sign_pinned(mine), other)
 
@@ -208,23 +239,41 @@ def graph_of(case):
     return graph
 
 
+def block(case, key):
+    """A case's columns as an (n, d) float array: xy, or xyz when the layout is 3D."""
+    ours = case[key]
+    columns = [ours["x"], ours["y"]]
+    if "z" in ours:
+        columns.append(ours["z"])
+    return np.column_stack(columns).astype(float)
+
+
+# Arm key -> the reference's `dims` for it. The key doubles as the JSON key the fixture
+# carries, which is why there is no pair here. The 3-D arms are the same two reference
+# functions asked for three columns, which is the only thing that makes them a third column.
+ARMS = {"spectral": 2, "pivot_mds": 2, "spectral_3d": 3, "pivot_mds_3d": 3}
+
 layouts = {
     key: {"cases": 0, "degenerate": 0, "worst": 0.0, "oriented_worst": 0.0}
-    for key in ("spectral", "pivot_mds")
+    for key in ARMS
 }
 for text in lines:
     case = json.loads(text)
     graph = graph_of(case)
-    for key in layouts:
-        ours = np.column_stack([case[key]["x"], case[key]["y"]]).astype(float)
+    for key, dims in ARMS.items():
+        ours = block(case, key)
+        assert ours.shape[1] == dims, f"{key}: {dims} columns expected, got {ours.shape[1]}"
         # The reference prints progress and fallback notices; stdout is this arm's own
         # JSON document, so its chatter goes to stderr where it cannot corrupt it.
         with contextlib.redirect_stdout(sys.stderr):
-            theirs, comps = reference_of(graph, key)
+            theirs, comps = reference_of(graph, key, dims)
         for idx in comps:
+            # A component floor, not a `dims` one: two nodes have no spectrum to compare at
+            # any width — there is no third direction to resolve and no tie to detect — so
+            # the 3-D arms inherit the 2-D floor unchanged.
             if len(idx) < 3:
                 continue
-            found = metric_of(key, graph, idx, ours, theirs)
+            found = metric_of(key, dims, (graph, idx), (ours, theirs))
             if found is None:
                 layouts[key]["degenerate"] += 1
                 continue
@@ -237,7 +286,7 @@ for text in lines:
                 layouts[key]["oriented_worst"], finite(oriented, f"{key} oriented gap")
             )
 
-require_cases(layouts, ("spectral", "pivot_mds"), "spectral")
+require_cases(layouts, tuple(ARMS), "spectral")
 
 result = {
     "fingerprint": manifest["fingerprint"],

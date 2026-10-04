@@ -33,7 +33,7 @@ function bytesClient(runs: readonly Uint8Array[]): MotorClient {
       const bytes = runs[Math.min(at, runs.length - 1)] ?? scriptBytes();
       at += 1;
       return Promise.resolve({
-        layoutId, postId, postError: null, bytes, digest: null,
+        layoutId, postId, postError: null, params: {}, bytes, digest: null,
         layoutMs: 1, postMs: 0, meta: SCRIPTED_META,
       });
     },
@@ -45,9 +45,10 @@ function scripted(): MotorClient {
     catalog: () => Promise.resolve({ layouts: ["layout.grid"], posts: [], analyses: [] }),
     load: () => Promise.resolve({ name: "vault seed 1", nodeCount: 3, edgeCount: 2, notes: [], buildMs: 1 }),
     layout: (layoutId, postId) => Promise.resolve({
-      layoutId, postId, postError: null, bytes: scriptBytes(), digest: null,
+      layoutId, postId, postError: null, params: {}, bytes: scriptBytes(), digest: null,
       layoutMs: 1, postMs: 0, meta: SCRIPTED_META,
     }),
+    params: () => Promise.resolve([]),
     analysis: () => Promise.reject(new Error("this test client measures nothing")),
     cancel: () => false,
     busy: () => false,
@@ -59,7 +60,7 @@ function scripted(): MotorClient {
 function dimMotor(dim: number): MotorLike<number> {
   return {
     layouts: () => ["layout.grid"], posts: () => [], analyses: () => [],
-    build: () => 1, layout: () => undefined, post: () => undefined,
+    build: () => 1, run: () => undefined, layoutParams: () => [], post: () => undefined,
     // The generated graph arrives as columns now, and this fake really is asked to build it,
     // so it answers the same as `build` does above: one handle, whatever the argument was.
     buildColumns: () => 1,
@@ -115,7 +116,9 @@ test("a reserved dim is refused over the wire too, before the drawing is decoded
   const { studio, seen } = desk(dimClient(3));
   const entry = await studio.start();
   assert.deepEqual([entry.ok, entry.error?.title, entry.error?.code], [false, "SnapshotRefusal", "reserved-dim"]);
-  assert.equal(studio.store.get().graph?.name, "vault seed 1", "the graph loaded; the layout did not");
+  // The graph was taken and the drawing was never made of it, so the store is rolled back with
+  // the frame: it claims no graph rather than one nothing on screen is of (`studio/pipeline/clear.ts`).
+  assert.equal(studio.store.get().graph, null, "nothing is drawn of the graph, so nothing claims it");
   assert.equal(studio.store.get().run, null);
   assert.equal(seen.frames.at(-1)?.frame.nodeCount, 0);
 });

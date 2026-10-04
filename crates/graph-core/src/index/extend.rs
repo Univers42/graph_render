@@ -149,9 +149,9 @@ impl Topology {
     ) -> Result<(), ExtendError> {
         Load::of(self).check(Load::of_batch(nodes, edges))?;
         let batch = self.check_nodes(nodes)?;
-        self.check_edges(edges, &batch)?;
+        let at = self.check_edges(edges, &batch)?;
         self.append_nodes(nodes)?;
-        self.append_edges(edges)
+        self.append_edges(edges, &at)
     }
 
     /// The batch's node ids, refused on the first one the graph or the batch already has.
@@ -168,23 +168,37 @@ impl Topology {
         Ok(batch)
     }
 
-    /// Refuses the first edge whose id is taken or whose endpoint names no node.
+    /// Refuses the first edge whose id is taken or whose endpoint names no node, and hands
+    /// back every edge's endpoints as the dense rows they will hold.
+    ///
+    /// The rows are resolved here because this pass has to look every endpoint up anyway
+    /// to decide whether it names a node at all, and the row a *batch* node will hold is
+    /// arithmetic rather than a probe: it is the node's own position in the batch, counted
+    /// on from the rows already kept. Resolving twice — once to check, once to file — hashed
+    /// both endpoints of every edge a second time (`docs/measurements/perf-p4d-extend.md`).
     fn check_edges(
         &self,
         edges: &[EdgeRecord],
         batch: &IndexSet<&str, FixedState>,
-    ) -> Result<(), ExtendError> {
+    ) -> Result<Vec<(u32, u32)>, ExtendError> {
         let mut ids = IndexSet::with_capacity_and_hasher(edges.len(), FixedState::default());
-        let known = |id: &str| self.node_index(id).is_some() || batch.contains(id);
+        let mut at = Vec::with_capacity(edges.len());
+        let base = self.node_count();
         for (index, edge) in (0..).zip(edges) {
             if self.edge_index(&edge.id).is_some() || !ids.insert(edge.id.as_str()) {
                 return Err(ExtendError::EdgeId { index });
             }
-            if !known(&edge.source) || !known(&edge.target) {
+            let ends = (
+                row_of(self, batch, base, &edge.source),
+                row_of(self, batch, base, &edge.target),
+            );
+            if ends.0.is_none() || ends.1.is_none() {
                 return Err(ExtendError::Endpoint { index });
             }
+            let (source, target) = (ends.0.unwrap_or(0), ends.1.unwrap_or(0));
+            at.push((source, target));
         }
-        Ok(())
+        Ok(at)
     }
 
     /// Admits each node through `index_model`'s own path, gives it an empty row in each
@@ -202,13 +216,13 @@ impl Topology {
         Ok(())
     }
 
-    /// Admits each edge through `index_model`'s own path and files it in the CSRs.
-    fn append_edges(&mut self, edges: &[EdgeRecord]) -> Result<(), ExtendError> {
-        for (index, edge) in (0..).zip(edges) {
-            let at = self.endpoints(&edge.source, &edge.target);
-            let at = at.ok_or(ExtendError::Endpoint { index })?;
+    /// Admits each edge through `index_model`'s own path, at the endpoints `check_edges`
+    /// resolved, and files it in the CSRs.
+    fn append_edges(&mut self, edges: &[EdgeRecord], at: &[(u32, u32)]) -> Result<(), ExtendError> {
+        debug_assert_eq!(edges.len(), at.len(), "one resolved pair per batch edge");
+        for (edge, &(source, target)) in edges.iter().zip(at) {
             let e = self.edge_count();
-            let kept = self.admit_edge(at, &edge.view().fields())?;
+            let kept = self.admit_edge((source, target), &edge.view().fields())?;
             debug_assert!(kept, "validated: a batch edge id is new");
             self.file_edge(e)?;
         }
@@ -229,6 +243,21 @@ impl Topology {
         self.nodes.degree[target as usize] += 1;
         Ok(())
     }
+}
+
+/// The dense row `id` names: a node the graph already holds, read from its id table, or a
+/// node of this batch, whose row is `base` plus its own position in the batch.
+///
+/// `None` when the id names no node at all, which is what `check_edges` refuses. The batch
+/// case cannot be probed for — `append_nodes` has not run, so the id is in no table yet —
+/// which is why it is arithmetic, and why the same rule `Load::check` applies to the count
+/// is applied to the sum.
+fn row_of(t: &Topology, batch: &IndexSet<&str, FixedState>, base: u32, id: &str) -> Option<u32> {
+    if let Some(row) = t.node_index(id) {
+        return Some(row);
+    }
+    let position = batch.get_index_of(id)?;
+    u32::try_from(u64::from(base) + position as u64).ok()
 }
 
 #[cfg(test)]

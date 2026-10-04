@@ -2,33 +2,7 @@
 
 use super::*;
 
-fn result(spectral: (u64, f64), pivot: (u64, f64)) -> Value {
-    json!({ "layouts": {
-        "spectral": { "cases": spectral.0, "worst": spectral.1 },
-        "pivot_mds": { "cases": pivot.0, "worst": pivot.1 },
-    }})
-}
-
-#[test]
-fn a_worst_at_or_under_its_ceiling_passes_and_records_it() {
-    let (pass, functions) = judge(SPECTRAL.ceilings, &result((9, 1e-5), (4, 0.0))).expect("judged");
-    assert!(pass);
-    assert_eq!(functions["layout.spectral"]["cases"], 9);
-    assert_eq!(functions["layout.spectral"]["unexplained"], 0);
-    assert_eq!(functions["layout.mds.pivot"]["ceiling"], 1e-7);
-}
-
-#[test]
-fn a_worst_over_its_ceiling_or_no_component_fails_that_layout_only() {
-    let (pass, functions) =
-        judge(SPECTRAL.ceilings, &result((9, 1.1e-5), (4, 0.0))).expect("judged");
-    assert!(!pass);
-    assert_eq!(functions["layout.spectral"]["unexplained"], 1);
-    assert_eq!(functions["layout.mds.pivot"]["unexplained"], 0);
-    let (pass, functions) = judge(SPECTRAL.ceilings, &result((9, 0.0), (0, 0.0))).expect("judged");
-    assert!(!pass);
-    assert_eq!(functions["layout.mds.pivot"]["unexplained"], 1);
-}
+mod measured;
 
 /// A result the harness wrote under `--break` carries the case it broke: its mismatches are
 /// the control's, not a defect, so nothing in it may be read as a pass. A result with no
@@ -78,16 +52,22 @@ fn a_case_the_harness_never_compared_fails_its_layout() {
 }
 
 #[test]
-fn closed_form_ceiling_covers_ring_spiral_and_bipartite() {
+fn closed_form_ceiling_covers_every_row_it_declares() {
     let result = json!({ "layouts": {
         "ring": { "cases": 5, "worst": 1e-6 },
         "spiral": { "cases": 5, "worst": 1e-7 },
         "bipartite": { "cases": 5, "worst": 2e-7 },
+        "random_3d": { "cases": 5, "worst": 0.2 },
+        "spiral_3d": { "cases": 5, "worst": 2.0e-7 },
+        "bipartite_3d": { "cases": 5, "worst": 5.0e-7 },
     }});
     let (pass, functions) = judge(CLOSED_FORM.ceilings, &result).expect("judged");
     assert!(!pass);
     assert_eq!(functions["layout.bipartite"]["unexplained"], 1);
     assert_eq!(functions["layout.spiral"]["unexplained"], 0);
+    assert_eq!(functions["layout.random.3d"]["unexplained"], 0);
+    assert_eq!(functions["layout.basic3d.spiral"]["unexplained"], 0);
+    assert_eq!(functions["layout.bipartite_3d"]["unexplained"], 0);
 }
 
 /// Two failure modes, one per direction, and neither touches a passing layout: a layout

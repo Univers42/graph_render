@@ -10,7 +10,7 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::rng::Mulberry32;
 use crate::stage::{Stage, StageError};
-use energy::{Field, delta};
+use energy::{Field, Probe, delta, resting};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 /// Energy weights.
@@ -186,6 +186,18 @@ struct Shape<'a> {
     half: f64,
 }
 
+impl<'a> Shape<'a> {
+    /// `Shape` as the [`Field`] the energy terms read, over the positions as they are now.
+    fn field<'b>(&'b self, pos: &'b [[f64; 2]]) -> Field<'b> {
+        Field {
+            pos,
+            adj: self.adj,
+            edges: self.edges,
+            half_width: self.half,
+        }
+    }
+}
+
 /// What one round holds constant while its nodes move.
 struct Round {
     fine: bool,
@@ -204,19 +216,20 @@ fn try_node(
     let (v, rng) = who;
     let mut angles: Vec<usize> = (0..TRIALS).collect();
     shuffle(&mut angles, rng);
+    // What this node already contributes to the two per-candidate terms, recorded once per
+    // position rather than once per candidate: all 30 candidates are tried from the same
+    // place, and only an accepted move changes the answer. Same values in the same order,
+    // so the energy is unchanged.
+    let mut rest = resting(&shape.field(pos), v, pos[v as usize]);
     for k in angles {
         let q = candidate(pos[v as usize], round.radius, k, shape.half);
-        let field = Field {
-            pos,
-            adj: shape.adj,
-            edges: shape.edges,
-            half_width: shape.half,
-        };
-        let d_e = delta(&field, &round.weights, v, (pos[v as usize], q));
+        let probe = Probe::new(shape.field(pos), &rest);
+        let d_e = delta(&probe, &round.weights, v, (pos[v as usize], q));
         let accept = d_e < 0.0 || (!round.fine && rng.next_f64() < libm::exp(-d_e / round.radius));
         if accept {
             pos[v as usize] = q;
             grow(bounds, q);
+            rest = resting(&shape.field(pos), v, q);
         }
     }
 }

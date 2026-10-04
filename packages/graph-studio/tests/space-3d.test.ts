@@ -26,7 +26,7 @@ function bytesClient(runs: readonly Uint8Array[]): MotorClient {
       const bytes = runs[Math.min(at, runs.length - 1)] ?? scriptBytes();
       at += 1;
       return Promise.resolve({
-        layoutId, postId, postError: null, bytes, digest: null,
+        layoutId, postId, postError: null, params: {}, bytes, digest: null,
         layoutMs: 1, postMs: 0, meta: SCRIPTED_META,
       });
     },

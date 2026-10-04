@@ -14,6 +14,7 @@ import { type Previews, createPreviews } from "./host/previews.ts";
 import { watchHost } from "./host/watch.ts";
 import { type LiveBridge, NOT_ASKED, createLiveBridge, watchRuns } from "./motor/bridge.ts";
 import { type MotorClient, createClient } from "./motor/client.ts";
+import { type DeltasPage, createDeltasPage } from "./motor/deltasPage.ts";
 import { createLiveDrag } from "./motor/liveDrag.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
 import { workerPort } from "./motor/workerPort.ts";
@@ -42,6 +43,8 @@ export interface Mounted {
   readonly root: Root;
   /** The live bridge: the drag, the forces panel and the progress strip all read it. */
   readonly bridge: LiveBridge;
+  /** The page's half of a delta batch: the structure it needs drawn, and the frame up to it. */
+  readonly deltas: DeltasPage;
   /** Stops watching the studio's state for a layout that settles live. */
   readonly unwatch: () => void;
   /** Stops measuring the panels over the canvas (ST-4). */
@@ -83,7 +86,10 @@ function download(name: string, data: Blob): void {
 function assetsOf(host: HTMLElement, threads: number | undefined): Assets {
   const absolute = (name: string, fallback: string): string => new URL(host.getAttribute(name) ?? fallback, document.baseURI).href;
   const assets = { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
-  return threads === undefined ? assets : { ...assets, threads };
+  // `?break-deltas=1` is the gate's negative control and nothing else: the worker drops the grow
+  // after an extend, so the batch is applied and the new nodes never move.
+  const gate = new URL(document.baseURI).searchParams.get("break-deltas") === "1" ? { breakDeltas: true } : {};
+  return threads === undefined ? { ...assets, ...gate } : { ...assets, threads, ...gate };
 }
 
 /**
@@ -116,6 +122,7 @@ interface Shown {
 function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, backend: BackendChoice): {
   readonly view: View;
   readonly bridge: LiveBridge;
+  readonly page: DeltasPage;
 } {
   const wires: { bridge: LiveBridge | null } = { bridge: null };
   // WHY an explicit `undefined` test and not `??`: the link answers `null` when the simulation
@@ -133,15 +140,23 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, 
       send: (request) => client.force?.(request),
     }),
   });
+  // The store is the studio's and the studio is made after this, so both are read late.
+  const page = createDeltasPage(
+    view,
+    () => shown.studio?.store.get().meta ?? null,
+    (meta) => { shown.studio?.store.update((state) => ({ ...state, meta })); },
+  );
   const bridge = createLiveBridge({
     send: (request) => client.force?.(request),
     onPush: (handler) => client.onForce?.(handler) ?? (() => undefined),
     onFail: (handler) => client.onFail?.(handler) ?? (() => undefined),
-    paint: (frame) => view.setPositions(frame.xs, frame.ys),
+    paint: (frame) => page.frame(frame.xs, frame.ys),
+    // The structure a delta batch needs drawn; the frames above are drawn up to its count.
+    structure: (run) => page.structure(run),
     report: (reason) => shown.note(reason),
   });
   wires.bridge = bridge;
-  return { view, bridge };
+  return { view, bridge, page };
 }
 
 function shadowOf(host: HTMLElement): { readonly canvas: HTMLCanvasElement; readonly chrome: HTMLElement } {
@@ -161,13 +176,48 @@ function shadowOf(host: HTMLElement): { readonly canvas: HTMLCanvasElement; read
   return { canvas, chrome };
 }
 
-type Parts = Pick<Mounted, "studio" | "view" | "client" | "bridge">;
+type Parts = Pick<Mounted, "studio" | "view" | "client" | "bridge" | "deltas">;
+
+/**
+ * The parts a mount has made so far, every member optional: a `throw` part-way leaves only what was
+ * made before it, and `release` is what takes those back.
+ *
+ * Each member is narrowed to the one release step `release` calls on it, which is also all
+ * `unmount` ever calls: the parts that take no argument and return nothing.
+ *
+ * No member for the client: its worker is spawned on the motor's first call, which happens inside
+ * `studio.start` — after the studio is on here, and `studio.destroy` closes it.
+ */
+export interface Building {
+  studio?: Pick<Studio, "destroy">;
+  view?: Pick<View, "destroy">;
+  bridge?: Pick<LiveBridge, "destroy">;
+  root?: Pick<Root, "unmount">;
+  unwatch?: () => void;
+  unwatchArea?: () => void;
+  unhost?: () => void;
+}
+
+/**
+ * The one definition of released. `unmount` and a mount that threw part-way both call this, so the
+ * two cannot drift: the steps are `unmount`'s, in `unmount`'s order, and each one runs only if its
+ * part was made. A studio here ends its worker; the rest stop watching and free what they made.
+ */
+export function release(parts: Building): void {
+  parts.unhost?.();
+  parts.root?.unmount();
+  parts.unwatchArea?.();
+  parts.unwatch?.();
+  parts.bridge?.destroy();
+  parts.studio?.destroy();
+  parts.view?.destroy();
+}
 
 function studioOf(host: HTMLElement, options: StudioElementOptions, canvas: HTMLCanvasElement): Parts {
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
   // The view is made before the studio, and the ids live in the studio's state: read late.
   const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
-  const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");
+  const { view, bridge, page } = livePair(canvas, client, shown, options.backend ?? "auto");
   const storage = pageStorage(host);
   const studio = createStudio({
     client,
@@ -179,41 +229,51 @@ function studioOf(host: HTMLElement, options: StudioElementOptions, canvas: HTML
     ...(storage === null ? {} : { storage, settings: openingSettings(storage) }),
   });
   shown.studio = studio;
-  return { studio, view, client, bridge };
+  return { studio, view, client, bridge, deltas: page };
 }
 
 /** `resolve` is read through `resolver` on every call, so the host may set it at any time. */
 export function mount(host: HTMLElement, options: StudioElementOptions, resolver: () => Resolve | null): Mounted {
-  const { canvas, chrome } = shadowOf(host);
-  const { studio, view, client, bridge } = studioOf(host, options, canvas);
-  const previews = createPreviews({ resolver });
-  // Before `start`: a studio that remembers draws at once, and that load is announced too.
-  const unwatchHost = watchHost({ host, store: studio.store, view, previews });
-  const unwatchGestures = watchGestures({ host, canvas, studio, view });
-  const unwatch = watchRuns(studio.store, bridge);
-  const root = createRoot(chrome);
-  root.render(createElement(Shell, {
-    studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge, previews,
-  }));
-  const started = studio.start(host.hasAttribute("remember"));
-  // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
-  // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
-  const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
-  const unhost = (): void => {
-    unwatchHost();
-    unwatchGestures();
-    previews.clear();
-  };
-  return { studio, view, client, root, bridge, unwatch, unwatchArea, verbs: hostVerbs(host, studio, started), previews, unhost };
+  const parts: Building = {};
+  try {
+    const { canvas, chrome } = shadowOf(host);
+    const { studio, view, client, bridge, deltas } = studioOf(host, options, canvas);
+    Object.assign(parts, { studio, view, bridge });
+    const previews = createPreviews({ resolver });
+    // Grown as the parts are made, so a throw between two of them releases both. The release steps
+    // themselves are `release`'s and `unmount`'s, and none of them is written out twice here.
+    const unhosted: (() => void)[] = [() => previews.clear()];
+    // Before `start`: a studio that remembers draws at once, and that load is announced too.
+    const unwatchHost = watchHost({ host, store: studio.store, view, previews });
+    unhosted.push(unwatchHost);
+    const unwatchGestures = watchGestures({ host, canvas, studio, view });
+    unhosted.push(unwatchGestures);
+    const unhost = (): void => {
+      for (const stop of unhosted) stop();
+    };
+    parts.unhost = unhost;
+    const unwatch = watchRuns(studio.store, bridge);
+    parts.unwatch = unwatch;
+    const root = createRoot(chrome);
+    parts.root = root;
+    root.render(createElement(Shell, {
+      studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge, previews,
+    }));
+    const started = studio.start(host.hasAttribute("remember"));
+    // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
+    // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
+    const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
+    parts.unwatchArea = unwatchArea;
+    return { studio, view, client, root, bridge, deltas, unwatch, unwatchArea, verbs: hostVerbs(host, studio, started), previews, unhost };
+  } catch (error) {
+    // `element.ts` hands `#mounted` only what this returns, so a throw part-way leaves the host
+    // with nothing to unmount: what was made is released here, and the error raised unchanged.
+    release(parts);
+    throw error;
+  }
 }
 
 export function unmount(mounted: Mounted | null): void {
   if (mounted === null) return;
-  mounted.unhost();
-  mounted.root.unmount();
-  mounted.unwatchArea();
-  mounted.unwatch();
-  mounted.bridge.destroy();
-  mounted.studio.destroy();
-  mounted.view.destroy();
+  release(mounted);
 }

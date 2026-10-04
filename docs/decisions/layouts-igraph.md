@@ -27,6 +27,21 @@ would be a derivative work.
    transcendentals, fixed reduction order, no `HashMap`. igraph's own RNG is never
    reproduced.
 
+**Correction (2026-10-04), on rule 4's reach.** The conformance matrix carried the claim that
+igraph's seed is unreachable from Python, which would have made rule 4 unreachable too (nothing
+to reproduce). It is wrong for python-igraph: the module installs the stdlib `random` module *as*
+igraph's RNG at import — `src/_igraph/random.c:295-325`, `igraphmodule_init_rng` calling
+`igraph_rng_Python_set_generator(random_module)`, the rngtype declared at `:54-58` with
+`is_seeded = 1`, and `igraph_rng_Python_get` at `:167-` drawing from `random.getrandbits` /
+`random.random`. So SciGraphs' `random.seed(get_layout_seed())`
+(`SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60`) does reseed igraph, and two
+consecutive `--reference` runs over the same fixtures produced **byte-identical** files on all
+64 rows. The reference is reproducible; rule 4 stands unchanged and still forbids what it
+forbids, which is reproducing the *stream* — so our Mulberry32 and igraph's Mersenne Twister
+part company at the first draw, the `rng` cause on those rows is a licence gap rather than an
+unreachable seed (`crates/graph-cli/src/oracle_python/conformance/gaps.rs`, `G_IGRAPH_SEED`), and
+the reachable target for them is shape, not bytes.
+
 ## Reference pin
 
 igraph 0.11.9 sdist (the PyPI package `igraph`; `python-igraph` 0.11.9 is a 9.7 kB shim),

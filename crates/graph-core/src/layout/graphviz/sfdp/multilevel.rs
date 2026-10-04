@@ -1,10 +1,18 @@
-//! The multilevel hierarchy: maximal matching up, prolongation back down.
+//! The multilevel hierarchy: maximal matching up.
 //!
-//! Reference: `Multilevel.c` (`Multilevel_new`, `Multilevel_get_coarsest`, `coarsen`) and
-//! `prolongate` at `lib/sfdpgen/post_process.c`, read as an algorithm reference. A level is
-//! `pair(coarse_node, fine_node)`; coarsening matches each unmatched fine node to an unmatched
-//! neighbour, or makes it its own singleton; prolongation lays a coarse solution back down by
-//! giving every fine node its matched partner's position, jittered.
+//! Reference: `Multilevel.c` (`Multilevel_new`, `Multilevel_get_coarsest`, `Multilevel_coarsen`,
+//! `maximal_independent_edge_set_heaviest_edge_pernode_supernodes_first`), read as an algorithm
+//! reference. A level is `pair(fine_node) -> coarse_node`; coarsening repeats matching passes
+//! ([`matching`]) until the level has shrunk to `min_coarsen_factor` of the one below or a pass
+//! stops making progress. Laying a coarse solution back down is [`super::prolongation`].
+//!
+//! **Graphviz's `sfdp` never reaches this module at its defaults.** `sfdp`'s `levels` attribute
+//! defaults to `0` (`sfdpinit.c:213`) and `Multilevel_establish` returns at
+//! `grid->level >= ctrl.maxlevel - 1` (`Multilevel.c:163`), so the engine runs a single level.
+//! This port always coarsens; `docs/measurements/sg-sfdp-collapse.md` measures what that costs
+//! and `sg-sfdp-step` owns closing it.
+
+use super::matching;
 
 /// One level: `pair[j]` is the coarse node that fine node `j` belongs to, and `coarse` the
 /// number of coarse nodes.
@@ -13,84 +21,37 @@ pub(super) struct Level {
     pub(super) coarse: u32,
 }
 
-/// The next coarser level, by maximal matching over `edges`.
-///
-/// Deterministic (D2): nodes are visited in dense index order and each takes the first
-/// unmatched neighbour it meets, so the matching is a function of the edge list alone and never
-/// of iteration order. The reference draws a random permutation to choose the order
-/// (`Multilevel.c`, via `gv_permutation`); using index order instead is recorded in the
-/// module's `Ponytail` note, and is the same set of matchings the reference produces up to
-/// which particular maximal matching is chosen.
-pub(super) fn coarsen(count: u32, edges: &[(u32, u32)]) -> Level {
-    let mut matched = vec![false; count as usize];
-    let mut next = vec![0u32; count as usize];
-    let mut coarse = 0u32;
-    // One adjacency list, built once: scanning `edges` per node is O(n·m), which at the
-    // gate's own sizes costs more than every force iteration in the layout put together.
-    // Built in dense index order and read in that order, so the matching below is still a
-    // function of the edge list alone (D2).
-    let mut adjacent: Vec<Vec<u32>> = vec![Vec::new(); count as usize];
-    for &(a, b) in edges {
-        if a != b {
-            adjacent[a as usize].push(b);
-            adjacent[b as usize].push(a);
-        }
-    }
-    for i in 0..count {
-        if matched[i as usize] {
-            continue;
-        }
-        let partner = adjacent[i as usize]
-            .iter()
-            .copied()
-            .find(|&j| j != i && !matched[j as usize]);
-        match partner {
-            Some(j) => {
-                matched[i as usize] = true;
-                matched[j as usize] = true;
-                next[i as usize] = coarse;
-                next[j as usize] = coarse;
-                coarse += 1;
-            }
-            None => {
-                next[i as usize] = coarse;
-                coarse += 1;
-            }
-        }
-    }
-    Level { pair: next, coarse }
-}
+/// The smallest level the reference keeps (`Multilevel.c:23`): a pass that would go below it
+/// is discarded and the level before it is the coarsest.
+const MIN_SIZE: u32 = 4;
 
-/// Lay a coarse solution down onto `count` fine nodes, adding the reference's jitter.
+/// A level must shrink to this fraction of the level below it (`Multilevel.c:24`).
+const MIN_COARSEN_FACTOR: f64 = 0.75;
+
+/// The next coarser level: matching passes repeat, composed, until the level has shrunk to
+/// [`MIN_COARSEN_FACTOR`] of `count`, or a pass stops making progress
+/// (`Multilevel_coarsen`, `Multilevel.c:206-242`). One pass alone is not a level: `K` shrinks
+/// once per level, and a graph that coarsens slowly would shrink it towards zero.
 ///
-/// `prolongate` (`post_process.c`) gives each fine node its coarse partner's position and then
-/// breaks ties among coincident points, because without that a matched pair lands exactly on
-/// top of each other and the two spring apart from a zero-length edge. The jitter here is
-/// derived from `(i, level)` through the quadtree's own counter-based generator
-/// (`crate::rng::jiggle`), so it is order-independent and bit-identical everywhere.
-pub(super) fn prolongate(
-    coarse_x: &[f64],
-    coarse_y: &[f64],
-    level: &Level,
-    count: u32,
-    seed: u32,
-) -> (Vec<f64>, Vec<f64>) {
-    let mut x = vec![0.0; count as usize];
-    let mut y = vec![0.0; count as usize];
-    for i in 0..count as usize {
-        let c = level.pair[i] as usize;
-        x[i] = coarse_x.get(c).copied().unwrap_or(0.0);
-        y[i] = coarse_y.get(c).copied().unwrap_or(0.0);
+/// A level that could not coarsen at all comes back as the identity, with `coarse == count`.
+pub(super) fn coarsen(count: u32, edges: &[(u32, u32)]) -> Level {
+    let mut level = Level {
+        pair: (0..count).collect(),
+        coarse: count,
+    };
+    let mut current = edges.to_vec();
+    while f64::from(level.coarse) > MIN_COARSEN_FACTOR * f64::from(count) {
+        let next = matching::pass(level.coarse, &current);
+        if next.coarse == level.coarse || next.coarse < MIN_SIZE {
+            break;
+        }
+        current = coarse_edges(&next, &current);
+        for coarse in &mut level.pair {
+            *coarse = next.pair[*coarse as usize];
+        }
+        level.coarse = next.coarse;
     }
-    // One pass of separation over coincident pairs, in dense index order.
-    for i in 0..count {
-        let (j, oi) = (i as usize, i);
-        let dx = crate::rng::jiggle(seed, oi, 0, (i, i));
-        let dy = crate::rng::jiggle(seed, oi, 1, (i, i));
-        x[j] += dx;
-        y[j] += dy;
-    }
-    (x, y)
+    level
 }
 
 /// The coarsened edge list at one level up, with each edge mapped through `level` and
@@ -137,16 +98,21 @@ mod tests {
     /// Every fine node lands in exactly one coarse node, and the coarse numbering is dense.
     #[test]
     fn coarsening_partitions_the_nodes_and_numbers_them_densely() {
-        let edges = [(0u32, 1u32), (2, 3)];
-        let level = coarsen(4, &edges);
-        assert_eq!(level.pair.len(), 4);
+        let edges = [(0u32, 1u32), (2, 3), (4, 5), (6, 7)];
+        let level = coarsen(8, &edges);
+        assert_eq!(level.pair.len(), 8);
         assert_eq!(
-            level.coarse, 2,
-            "four nodes in two edges make two coarse nodes"
+            level.coarse, 4,
+            "eight nodes in four edges make four coarse nodes"
         );
         let mut sorted = level.pair.clone();
         sorted.sort_unstable();
-        assert_eq!(sorted, vec![0, 0, 1, 1], "pairs {:?}", level.pair);
+        assert_eq!(
+            sorted,
+            vec![0, 0, 1, 1, 2, 2, 3, 3],
+            "pairs {:?}",
+            level.pair
+        );
     }
 
     /// Coarsening repeatedly must strictly shrink, or the driver's loop would not terminate.
@@ -158,21 +124,27 @@ mod tests {
         let n = 32u32;
         let mut edges: Vec<(u32, u32)> = (0..n).map(|i| (i, (i + 1) % n)).collect();
         let mut count = n;
-        for _ in 0..4 {
+        for _ in 0..3 {
             let level = coarsen(count, &edges);
             assert!(level.coarse < count, "{} -> {}", count, level.coarse);
             edges = coarse_edges(&level, &edges);
             count = level.coarse;
         }
+        assert_eq!(count, 4);
+        assert_eq!(
+            coarsen(count, &edges).coarse,
+            4,
+            "a pass below MIN_SIZE is discarded"
+        );
     }
 
     /// An isolated node is its own coarse node — it has no partner to match with.
     #[test]
     fn an_isolated_node_becomes_its_own_coarse_node() {
-        let level = coarsen(3, &[(0u32, 1u32)]);
-        assert_eq!(level.coarse, 2);
-        assert_ne!(
-            level.pair[2], level.pair[0],
+        let level = coarsen(9, &[(0u32, 1u32), (2, 3), (4, 5), (6, 7)]);
+        assert_eq!(level.coarse, 5);
+        assert!(
+            level.pair[..8].iter().all(|&c| c != level.pair[8]),
             "the isolated node joined another pair"
         );
     }
@@ -189,51 +161,6 @@ mod tests {
         };
         let out = coarse_edges(&level, &[(0u32, 1u32), (1, 0), (0, 1), (2, 3)]);
         assert_eq!(out, vec![(0, 1), (2, 3)]);
-    }
-
-    /// Prolongation gives every fine node its coarse partner's position, up to the jitter that
-    /// breaks matched pairs apart. The bound is the point: a jitter that were not tiny would
-    /// displace the drawing, and one that were zero would leave every matched pair stacked.
-    #[test]
-    fn prolongation_places_fine_nodes_at_their_coarse_partners() {
-        let level = Level {
-            pair: vec![0, 0, 1, 1],
-            coarse: 2,
-        };
-        let coarse_x = [10.0, 20.0];
-        let coarse_y = [30.0, 40.0];
-        let (x, y) = prolongate(&coarse_x, &coarse_y, &level, 4, 7);
-        assert_eq!(x.len(), 4);
-        // `pair = [0, 0, 1, 1]`: nodes 0 and 1 take coarse 0's position, nodes 2 and 3 coarse 1's.
-        for i in 0..4 {
-            let c = level.pair[i] as usize;
-            assert!(
-                (x[i] - coarse_x[c]).abs() < 1e-5 && (y[i] - coarse_y[c]).abs() < 1e-5,
-                "node {i} at ({}, {}), want ({}, {}) up to the jitter",
-                x[i],
-                y[i],
-                coarse_x[c],
-                coarse_y[c]
-            );
-        }
-    }
-
-    /// The two nodes of a matched pair must actually separate: the jitter is what stops them
-    /// landing exactly on top of each other, and zero jitter would leave the spring at length
-    /// zero forever.
-    #[test]
-    fn a_matched_pair_ends_up_apart() {
-        let level = Level {
-            pair: vec![0, 0],
-            coarse: 1,
-        };
-        let (x, y) = prolongate(&[10.0], &[30.0], &level, 2, 7);
-        assert!(
-            (x[0] - x[1]).abs() > 0.0 || (y[0] - y[1]).abs() > 0.0,
-            "a matched pair was prolonged onto one point: ({}, {})",
-            x[0],
-            y[0]
-        );
     }
 
     #[test]

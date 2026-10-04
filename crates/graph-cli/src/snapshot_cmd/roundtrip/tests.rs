@@ -3,7 +3,8 @@
 //! move without one of these going red.
 
 use super::{
-    Findings, OTHER_LAYOUTS, body, snapshot_total, sweep, swept_layouts, verdict, write_findings,
+    Findings, OTHER_LAYOUTS, body, progress_line, snapshot_total, sweep, sweep_with, swept_layouts,
+    verdict, write_findings,
 };
 
 /// A clean run of `seeds` seeds: every check empty, every notes case drawn, at least one
@@ -169,6 +170,40 @@ fn at_most_six_failures_are_printed_and_they_are_the_first_six() {
         .filter_map(|l| l.strip_prefix("  FAILED "))
         .collect();
     assert_eq!(failed, ["f0", "f1", "f2", "f3", "g0", "g1"]);
+}
+
+/// One progress line per seed, in seed order, naming the seed and the graph it is about
+/// to be given: a sweep that reported nothing left a killed run with an empty log and no
+/// way to name the seed it died in.
+#[test]
+fn every_seed_is_reported_before_it_is_worked() {
+    let mut lines: Vec<String> = Vec::new();
+    let found = sweep_with(5, |line| lines.push(line.to_owned())).expect("runs");
+    assert!(found.pass(5), "{found:?}");
+    assert_eq!(lines.len(), 5, "one line per seed: {lines:?}");
+    for (i, line) in lines.iter().enumerate() {
+        assert_eq!(line, &progress_line(i as u32, 5));
+        assert!(line.contains(&format!("seed {i}/5")), "{line}");
+        assert!(
+            line.contains(&format!("nodes {}", graph_core::gate_node_count(i as u32))),
+            "{line}"
+        );
+    }
+}
+
+/// The negative control of the line count: a sweep that reported only its first seed, or
+/// only every tenth, would leave a stall invisible for minutes. Pinned here so a future
+/// sampling of the progress (say, every 100th seed) goes red.
+#[test]
+fn progress_is_one_line_per_seed_not_a_sample() {
+    let mut count = 0;
+    sweep_with(7, |_| count += 1).expect("runs");
+    assert_eq!(
+        count, 7,
+        "a sampled or deduplicated progress line hides the stall"
+    );
+    let text = progress_line(0, 1000);
+    assert!(text.starts_with("roundtrip: seed 0/1000 nodes 2"), "{text}");
 }
 
 #[test]
