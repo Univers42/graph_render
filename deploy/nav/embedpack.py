@@ -102,7 +102,7 @@ def wasm_row(spec, seen, cdp):
 
 def pack_run(spec, args, host):
     """One run over the host directory: `embed.drive`'s rows, then this module's own wasm row."""
-    served, scratch = embed.served_copy(host, spec.broken_wasm)
+    served, scratch = embed.served_copy(host, spec)
     seen = []
     server = serve(served, spec.isolated, spec.csp, seen)
     with tempfile.TemporaryDirectory() as profile:
