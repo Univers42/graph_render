@@ -1,9 +1,17 @@
 /** How the element tells its host something happened (`docs/contract/host-api.md`, Events). */
 import type { HostEvents } from "./contract.ts";
 
-function frozen<Value>(value: Value): Value {
-  if (typeof value === "object" && value !== null) {
-    for (const inner of Object.values(value)) frozen(inner);
+/**
+ * Deep-freezes the copy, so no listener can change what the next one reads.
+ *
+ * WHY a set of what was already walked: the clone keeps whatever cycles the caller's `detail`
+ * had, and a depth-first walk without a visited set recurses through one forever — a cyclic
+ * detail overflows the stack here, inside the dispatch, and throws into the host's listener.
+ */
+function frozen<Value>(value: Value, seen: WeakSet<object> = new WeakSet()): Value {
+  if (typeof value === "object" && value !== null && !seen.has(value)) {
+    seen.add(value);
+    for (const inner of Object.values(value)) frozen(inner, seen);
     Object.freeze(value);
   }
   return value;

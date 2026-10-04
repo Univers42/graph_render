@@ -260,7 +260,9 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
     link: null, seq: 0, loaded: null, loads: 0, closed: false, waiting: new Map(), pushed: new Set(), failures: new Set(),
   };
   const linked = async (): Promise<Link> => {
-    if (state.closed) throw new Error("the motor client is closed");
+    // WHY: a call made after `stopMotor()` can never complete, so it carries the cancellation
+    // name the contract promises, not a generic failure name.
+    if (state.closed) throw new CancelledError();
     const link = state.link ?? connect(state, spawn, assets);
     await link.ready;
     if (state.link !== link) throw new CancelledError();

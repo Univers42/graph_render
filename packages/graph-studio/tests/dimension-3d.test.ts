@@ -116,7 +116,9 @@ test("a reserved dim is refused over the wire too, before the drawing is decoded
   const { studio, seen } = desk(dimClient(3));
   const entry = await studio.start();
   assert.deepEqual([entry.ok, entry.error?.title, entry.error?.code], [false, "SnapshotRefusal", "reserved-dim"]);
-  assert.equal(studio.store.get().graph?.name, "vault seed 1", "the graph loaded; the layout did not");
+  // The graph was taken and the drawing was never made of it, so the store is rolled back with
+  // the frame: it claims no graph rather than one nothing on screen is of (`studio/pipeline/clear.ts`).
+  assert.equal(studio.store.get().graph, null, "nothing is drawn of the graph, so nothing claims it");
   assert.equal(studio.store.get().run, null);
   assert.equal(seen.frames.at(-1)?.frame.nodeCount, 0);
 });

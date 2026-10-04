@@ -68,7 +68,16 @@ test("M5 an f64 face keeps its f64 range: a fractional value is legal", () => {
 test("M5 an f64 face carrying a non-finite value is refused", () => {
   // `1e999` is valid JSON text and parses to Infinity; `JSON.parse` will not refuse it, so
   // the parser's own finiteness check is the only thing standing between it and a caller.
-  refuses(face([["id", ID], ["kind", "f64"], ["nodeCount", 1], ["values", [1e999]]]), /values/);
+  // The token has to be spliced in: `JSON.stringify(1e999)` is `null`, so a face built the
+  // ordinary way tests the `null` path and not this one.
+  const text = face([
+    ["id", ID],
+    ["kind", "f64"],
+    ["nodeCount", 1],
+    ["values", ["NON_FINITE_PLACEHOLDER"]],
+  ]).replace('"NON_FINITE_PLACEHOLDER"', "1e999");
+  assert.ok(text.includes("1e999"), `the face must carry the literal token 1e999: ${text}`);
+  refuses(text, /values/);
 });
 
 // --- m18: `max` is a `u32` depth level, `modularity` a score --------------------------

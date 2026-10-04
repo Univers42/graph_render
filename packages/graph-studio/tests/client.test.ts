@@ -181,7 +181,22 @@ test("a closed client refuses every call", async () => {
   await catalog;
   client.close();
   assert.equal(first(ports).closed, true);
-  await assert.rejects(client.catalog(), /closed/);
+  await assert.rejects(client.catalog(), (error: unknown) => error instanceof CancelledError && error.name === "CancelledError");
+  assert.equal(ports.length, 1);
+});
+
+test("a call after a stop rejects with CancelledError, the name the contract names", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const catalog = client.catalog();
+  answer(first(ports));
+  await catalog;
+  assert.equal(ports.length, 1);
+  client.close();
+  await assert.rejects(
+    client.layout("layout.grid", null),
+    (error: unknown) => error instanceof Error && error.name === "CancelledError",
+  );
   assert.equal(ports.length, 1);
 });
 

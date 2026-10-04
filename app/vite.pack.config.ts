@@ -10,11 +10,23 @@
  * copying them: one React on a page, and the motor worker a module. `scripts/studio-pack.sh` and
  * `scripts/studio-embed.sh` pass the two directories in `PACK_OUT_DIR` and `PACK_DIR`.
  *
- * `rollupOptions.input` with `preserveEntrySignatures: "exports-only"`, not `build.lib`: the
- * element's exports must survive for the host, and the motor worker must stay a real file of its
- * own. A library build is free to fold that worker into the entry as a blob URL, and
- * `worker-src 'self'` — the CSP a host is asked for (docs/contract/packaging.md) — refuses a
- * blob: worker. Every chunk here is emitted under the flat names the pack verify checks.
+ * `rollupOptions.input` with `preserveEntrySignatures: "exports-only"`, not `build.lib`, for the
+ * two reasons a pack can be read:
+ *   - flat, unhashed file names. `build.lib` names its chunks `name-<hash>.js`; the pack's files
+ *     are `graph-studio.js`, `worker.js`, `helper.js`, siblings a host can name in its own HTML
+ *     and in its CSP, and check against `pack.json` (docs/contract/packaging.md:19-20,59-60).
+ *     The worker must also resolve against the entry's own origin, which a flat sibling does.
+ *   - the element's exports survive. `packaging.md:26` promises the host its exports;
+ *     `preserveEntrySignatures: "exports-only"` is what keeps them, and the pack does NOT define
+ *     the element on import (docs/decisions/two-bundles.md).
+ *
+ * The worker stays a real file of its own rather than being folded into the entry. The reason
+ * once written here — that a library build is "free to fold that worker into the entry as a blob
+ * URL", which `worker-src 'self'` refuses — was measured FALSE on vite 8.3.1:
+ * `docs/reviews/review-bundle-unify.md` section 0 built the service bundle and read
+ * `assets/worker-<hash>.js` on disk, a same-origin file. The premise was never there. The worker
+ * form is now WATCHED instead of assumed, over both bundles, by `scripts/worker-form.sh`: the row
+ * `embed-bundle` runs it on the service bundle and `scripts/studio-pack.sh` runs it on this pack.
  *
  * The pack is not minified: a host audits the bytes it ships, and every check in
  * scripts/studio-pack.sh is a line of the bundle. React is bundled (no `external`): an embed host
