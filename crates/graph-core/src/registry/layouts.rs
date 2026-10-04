@@ -3,6 +3,8 @@
 //! layout by INDEX, so an insertion repoints every index-keyed consumer with no compile
 //! error. The comments inside the array carry that reason per block.
 
+mod graphviz_dot;
+
 use super::capability::Capability;
 use super::params;
 use super::run_default;
@@ -18,7 +20,7 @@ use crate::layout::force::{
     BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
-use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
+use crate::layout::graphviz::{circo, dot, fdp, neato, osage, patchwork, sfdp};
 use crate::layout::grid::Grid;
 use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
@@ -31,6 +33,7 @@ use crate::stage::Stage;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 use forceatlas2_bh::FA2_BH;
+use graphviz_dot::DOT;
 use graphviz_circo::CIRCO;
 use graphviz_fdp::FDP;
 use graphviz_neato::NEATO;
@@ -44,7 +47,7 @@ use spectral::{PIVOT_MDS, SPECTRAL};
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 47] = [
+pub static LAYOUTS: [Capability; 48] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -289,4 +292,13 @@ pub static LAYOUTS: [Capability; 47] = [
     arms_3d::KAMADA_KAWAI_3D_LAYOUT,
     arms_3d::DRL_3D_LAYOUT,
     arms_3d::FA2_3D_LAYOUT,
+    // ---- p13-gv3-dot-position: Graphviz's own layered engine, the fourth Graphviz family
+    // to be registered after osage, patchwork, circo, fdp, neato and sfdp. Appended last by
+    // the append-only rule above, so every index-keyed consumer keeps its index.
+    Capability {
+        id: dot::ID,
+        run: dot::run,
+        params: &params::LayoutParams::NONE,
+        meta: DOT,
+    },
 ];

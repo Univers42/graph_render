@@ -407,4 +407,4 @@ fn count_of(row: &OracleRow) -> u32 {
 
 /// How many of the order-agreeing seeds the position pass places exactly as the oracle prints
 /// them, as `docs/measurements/p13-gv2-dot.md`'s "Position" section records the run measuring.
-const RECORDED_POSITION_AGREEMENT: usize = 5;
+const RECORDED_POSITION_AGREEMENT: usize = 10;
