@@ -111,7 +111,7 @@ un-aggregated top-10 reports `collide` four times.
 
 ### Top 10 by self time inside the timed batches — wasm32, Barnes-Hut
 
-| # | function | samples | share | ms per batch |
+| # | function | samples | share | ms, all 10 batches |
 |---:|---|---:|---:|---:|
 | 1 | `Table.intern` (`columns.ts:115`) — **JS** | 922 | 14.46 % | 160.39 |
 | 2 | `replay` (`prof-extend.mjs:56`) — harness `JSON.parse` | 832 | 13.05 % | 144.73 |
@@ -126,7 +126,7 @@ un-aggregated top-10 reports `collide` four times.
 
 ### Top 10 — wasm32, particle mesh
 
-| # | function | samples | share | ms per batch |
+| # | function | samples | share | ms, all 10 batches |
 |---:|---|---:|---:|---:|
 | 1 | `Table.intern` (`columns.ts:115`) — **JS** | 607 | 12.82 % | 98.24 |
 | 2 | `replay` (`prof-extend.mjs:56`) — harness `JSON.parse` | 605 | 12.78 % | 97.92 |
@@ -228,12 +228,12 @@ After (a), the largest remaining cost inside `extend` is `StringArena::find` and
 BH**, together about an eighth of it. Both are the FNV-1a hash in `arena.rs:47-52` walking an id
 byte at a time, once per lookup.
 
-It was left alone deliberately. FNV-1a is a serial recurrence, so making it faster means changing
-the value it produces, and the arena's map layout — and therefore every dense index the index
-hands out — follows from that value. The brief forbids changing any output byte, and D4 requires
-the same table layout on every run and every target. Speeding it up while producing the *same*
-hash is possible in principle and is not cheap; that is the next thing to measure, and it is named
-here rather than guessed at.
+It was left alone in this slice. The arena's handles do not come from the hash: `intern` hands
+out the `IndexMap` insertion index (`arena.rs:150` asserts `slot.index() == spans.len()`), so the
+hash decides bucket placement only and no dense index or output byte follows from its value. A
+cheaper hash is output-neutral by construction, and the hash gate is what has to confirm it.
+Whether the cost is the hash or the cache misses of probing a million-entry table is the next
+thing to measure.
 
 ### After
 
@@ -302,12 +302,8 @@ the profile entirely.
 
 So the next cost is **(c), the wasm32 motor — `StringArena::find` at 9.43 % and
 `StringArena::intern` at 5.79 %**, which is the FNV-1a in `crates/graph-core/src/arena.rs:47-52`
-walking an id byte at a time, once per lookup. It was **not** taken in this slice, and the
-reason is stated above rather than left implicit: the hash is a serial recurrence, so making it
-faster means changing the value it produces, and the arena's map layout — and so every dense
-index the index hands out — follows from that value. The brief forbids changing an output byte
-and D4 requires the same layout on every target. Doing it while producing the *same* hash is
-possible and is not cheap; it is the next thing to measure.
+walking an id byte at a time, once per lookup. It was not taken in this
+slice; "The next share" above says why a different hash cannot move a handle.
 
 One smaller, safe item is left on the table and is named here rather than taken: `utf8Length`
 (`columns-blob.ts`) walks a string with a code-point iterator, which allocates a one-character

@@ -55,8 +55,8 @@ export function encodeBatch(batch: GraphBatch): Uint8Array {
  *  a batch, and `docs/measurements/perf-p4f-wasm.md` measured `encodeBatch`'s own frame in the
  *  wasm32 `extend` profile. The values are already numbers and already in order, so they are
  *  written where they belong and nothing else is allocated. */
-function column<T extends object, K extends keyof T>(rows: readonly T[], field: K): Float64Array {
+function column<K extends string>(rows: readonly Readonly<Record<K, number>>[], field: K): Float64Array {
   const out = new Float64Array(rows.length);
-  for (const [row, item] of rows.entries()) out[row] = item[field] as number;
+  for (const [row, item] of rows.entries()) out[row] = item[field];
   return out;
 }
