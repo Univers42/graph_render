@@ -217,18 +217,23 @@ fn report(
         tally.equal[0], seeds
     );
     let stream = stream::arm::report(arms);
-    if let Err(err) = record(stamp, control, seeds, &tally, arms) {
-        eprintln!("force-gate: not recorded: {err}");
-        return ExitCode::from(2);
-    }
+    // A stream that cannot be compared is "could not run", like the seed arms above: no record.
     if let Some(text) = &stream.refusal {
         eprintln!("force-gate: stream arms not comparable: {text}");
         return ExitCode::from(2);
     }
-    if tally.diverged_seeds != 0 || stream.diverged {
-        if tally.diverged_seeds != 0 {
-            println!("FAIL: {} of {seeds} seeds diverge", tally.diverged_seeds);
-        }
+    if let Err(err) = record(stamp, control, seeds, &tally, arms) {
+        eprintln!("force-gate: not recorded: {err}");
+        return ExitCode::from(2);
+    }
+    verdict(tally.diverged_seeds, seeds, stream.diverged)
+}
+
+fn verdict(diverged_seeds: u32, seeds: u32, stream_diverged: bool) -> ExitCode {
+    if diverged_seeds != 0 {
+        println!("FAIL: {diverged_seeds} of {seeds} seeds diverge");
+    }
+    if diverged_seeds != 0 || stream_diverged {
         return ExitCode::from(1);
     }
     println!("PASS");
