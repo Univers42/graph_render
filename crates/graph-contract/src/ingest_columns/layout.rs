@@ -6,11 +6,18 @@
 //! allocates, so "no allocation is sized from a header field" is not a promise about this
 //! function — it is simply that there is none.
 
-use super::Columns;
 use super::error::ColumnsError;
+use super::{Columns, Format};
 
 /// `0x31434D47`, the four bytes `"GMC1"` read as a little-endian `u32`.
 pub(super) const MAGIC: u32 = 0x3143_4D47;
+/// `0x31584D47`, the four bytes `"GMX1"`: the same document as `MAGIC` with an edge endpoint
+/// naming a node id instead of a node row.
+///
+/// A distinct magic, not a version or a flag: both formats legitimately want version `1`, and
+/// this is the one header word that can never be reused for the other format, so a document
+/// handed to the wrong reader is refused by name rather than read as a variant of itself.
+pub(super) const BATCH_MAGIC: u32 = 0x3158_4D47;
 /// The only version this reader speaks.
 pub(super) const VERSION: u32 = 1;
 /// `header` is eight `u32` words.
@@ -19,7 +26,9 @@ pub(super) const HEADER_BYTES: u64 = 32;
 pub(super) const ABSENT: u32 = u32::MAX;
 
 /// The four `u64` words the exact-size check needs: node rows, edge rows, string entries,
-/// blob bytes. All four come from the `u32` header, widened — never narrowed back.
+/// blob bytes. All four come from the `u32` header, widened — never narrowed back. The
+/// format rides along because an endpoint cell means different things in each of them, and
+/// the value pass is the only place that reads it.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Shape {
     /// Node rows.
@@ -30,18 +39,22 @@ pub(super) struct Shape {
     pub strings: u64,
     /// Blob bytes.
     pub blob: u64,
+    /// Which document this is.
+    pub format: Format,
 }
 
 impl Shape {
     /// The exact total the header declares, and the zero pad that precedes the columns.
     /// Section order: offsets, blob, pad, then `node weight`, `node version`,
     /// `edge strength`, then the eight node `u32` columns and the eight edge ones.
+    /// `format` is not read here: every section is the same length in both formats.
     fn declared(&self) -> Result<(u64, u64), ColumnsError> {
         let Self {
             nodes,
             edges,
             strings,
             blob,
+            ..
         } = *self;
         let table = HEADER_BYTES
             .checked_add(strings.checked_add(1).ok_or(ColumnsError::SizeOverflow)? * 4)
@@ -168,13 +181,17 @@ fn check_padding(pad: &[u8], at: usize) -> Result<(), ColumnsError> {
 }
 
 /// The eight header words, read little-endian, each one refused before the next is trusted.
-pub(super) fn header(bytes: &[u8]) -> Result<Shape, ColumnsError> {
+///
+/// `format` is the reader's own answer to which document it is: the magic is compared against
+/// *that* format's word, so each reader refuses the other's bytes
+/// ([`ColumnsError::BadMagic`]) instead of accepting a variant of itself.
+pub(super) fn header(bytes: &[u8], format: Format) -> Result<Shape, ColumnsError> {
     let head: &[u8; 32] = bytes
         .get(..32)
         .and_then(|b| <&[u8; 32]>::try_from(b).ok())
         .ok_or(ColumnsError::ShortBuffer { found: bytes.len() })?;
     let word = |at: usize| u32::from_le_bytes(head[at..at + 4].try_into().expect("4 bytes"));
-    if word(0) != MAGIC {
+    if word(0) != format.magic() {
         return Err(ColumnsError::BadMagic { found: word(0) });
     }
     if word(4) != VERSION {
@@ -198,5 +215,6 @@ pub(super) fn header(bytes: &[u8]) -> Result<Shape, ColumnsError> {
         edges: u64::from(word(12)),
         strings: u64::from(word(16)),
         blob: u64::from(word(20)),
+        format,
     })
 }

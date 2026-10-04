@@ -33,6 +33,7 @@ npm-ci|0|scripts/orch/node-slim.sh npm ci --ignore-scripts
 negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
 force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
 negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
+negctl-drop-delta|0|scripts/orch/gr -e GM_MUTATE_DROP_DELTA=1 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-03.md:93 — p3 deterministic layouts: the 1000-seed gate, the fixture

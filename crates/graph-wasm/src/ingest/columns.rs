@@ -7,8 +7,16 @@
 //! across — and it lives here because graph-wasm is the one crate that depends on both
 //! `graph-contract` (which owns the bytes) and `graph-core` (which owns the graph).
 
-use graph_contract::ingest_columns::{self as wire, ColumnsDoc, decode};
-use graph_core::{EdgeCells, EntryTable, NodeCells, Topology, index_columns};
+use graph_contract::ingest_columns::{self as wire, ColumnsDoc, decode_batch};
+use graph_core::{BatchEdgeCells, EntryTable, NodeCells, Topology};
+
+// `index` is `gm_build_columns`'s body and `edge` its row mapping, so both are compiled only
+// where the exports are (C21): the native build reaches this module for `extend_batch`, which
+// the service façade shares with the force gate and the bench.
+#[cfg(any(test, target_arch = "wasm32"))]
+use graph_contract::ingest_columns::decode;
+#[cfg(any(test, target_arch = "wasm32"))]
+use graph_core::{EdgeCells, index_columns};
 
 use crate::errors::Code;
 
@@ -37,6 +45,7 @@ impl ColumnsError {
 ///
 /// Row `r` becomes dense index `r`, which is what an edge's endpoint rows name — and it only
 /// holds because `index_columns` refuses a repeated id instead of dropping the row.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn index(bytes: &[u8]) -> Result<Topology, ColumnsError> {
     if bytes.len() > crate::ingest::MAX_INGEST_BYTES {
         return Err(ColumnsError::TooLarge);
@@ -47,6 +56,50 @@ pub fn index(bytes: &[u8]) -> Result<Topology, ColumnsError> {
     let edges =
         (0..doc.edge_count()).map(|row| edge(doc.edge_cells(row).expect("a row below the count")));
     index_columns(&Table(doc), nodes, edges).map_err(|_| ColumnsError::Invalid)
+}
+
+/// Appends the `GMX1` batch in `bytes` to `topology`: `gm_graph_extend_columns`'s body
+/// (`docs/decisions/extend-columns.md`).
+///
+/// The same two refusals as a whole document's, and the same code for both classes — the
+/// decoder refused the buffer, or the graph refused what it describes
+/// ([`ColumnsError::Invalid`]). The length is checked first, before the decoder is handed a
+/// byte, so a buffer over the ceiling is `IngestTooLarge` and never a malformed document —
+/// `gm_graph_extend_columns` reaches this only after `InvalidHandle` and `BuildSourceInvalid`.
+///
+/// **Caveat:** the rows are handed over as an iterator of the decoded cells, read twice — once
+/// to resolve, once to admit — so a batch pays no `Vec` of rows on the way in, only the
+/// per-entry memo graph-core keeps for it.
+pub fn extend_batch(topology: &mut Topology, bytes: &[u8]) -> Result<(), ColumnsError> {
+    if bytes.len() > crate::ingest::MAX_INGEST_BYTES {
+        return Err(ColumnsError::TooLarge);
+    }
+    let doc = decode_batch(bytes).map_err(|_| ColumnsError::Invalid)?;
+    let nodes = || {
+        (0..doc.node_count()).map(|row| node(doc.node_cells(row).expect("a row below the count")))
+    };
+    let edges = || {
+        (0..doc.edge_count()).map(|row| {
+            let c = doc.edge_cells(row).expect("a row below the count");
+            // The two endpoints are entries naming node ids, which is the whole difference
+            // between a batch's row and a document's: a batch's edge may name a node the
+            // graph already holds.
+            BatchEdgeCells {
+                id: c.id,
+                source_entry: c.source_row,
+                target_entry: c.target_row,
+                kind: c.kind,
+                label: c.label,
+                record_id: c.record_id,
+                strength: c.strength,
+                directed: c.directed,
+                child_first: c.child_first,
+            }
+        })
+    };
+    topology
+        .extend_columns(&Table(doc), nodes(), edges())
+        .map_err(|_| ColumnsError::Invalid)
 }
 
 /// The document's string table, lent to graph-core. A newtype because graph-core owns the
@@ -82,6 +135,7 @@ fn node(c: wire::NodeCells) -> NodeCells {
     }
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
 fn edge(c: wire::EdgeCells) -> EdgeCells {
     EdgeCells {
         id: c.id,

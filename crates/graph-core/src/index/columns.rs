@@ -20,11 +20,89 @@
 
 use super::Topology;
 use super::admit::{InternedEdge, InternedNode};
+use super::extend::Load;
 use crate::arena::{CapacityError, StringArena};
-use cells::Entries;
 use core::fmt;
 
 pub use cells::{EdgeCells, EntryTable, NodeCells};
+// `index_columns`'s own pieces, widened one level for `index::extend::columns`: the append
+// path reaches them rather than reimplementing them, which is what keeps its intern order
+// equal to `index_columns`'s (`docs/decisions/extend-columns.md`, condition 7).
+pub(in crate::index) use cells::Entries;
+
+/// One `GMX1` batch edge row: every string a table entry, both endpoints **entries naming node
+/// ids**. This is where a batch differs from a whole document, whose endpoints are dense rows: a
+/// batch's edge may name a node the graph already holds, and a row number would have leaked an
+/// index that never crosses the wire.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BatchEdgeCells {
+    /// Entry of the content-addressed id.
+    pub id: u32,
+    /// Entry of the source node's id.
+    pub source_entry: u32,
+    /// Entry of the target node's id.
+    pub target_entry: u32,
+    /// Entry of the kind name.
+    pub kind: u32,
+    /// Entry of the label.
+    pub label: u32,
+    /// Entry of the backing row id, if any.
+    pub record_id: Option<u32>,
+    /// Strength.
+    pub strength: f64,
+    /// Directed flag.
+    pub directed: bool,
+    /// `source_entry` is the child (`child_of`).
+    pub child_first: bool,
+}
+
+/// What `nodes` and `edges` would add to a graph, counting every string as new: the same count
+/// [`extend::Load::of_batch`](super::extend::Load) makes over records, over entries instead of
+/// `String`s. Six strings per node (id, database, source, label, group, icon), three per edge
+/// (id, label, record id). A kind name is **not** one: it resolves to a `NodeKind` or an
+/// `EdgeKind` and is never interned, on either path. Nor is an endpoint's entry — it names a
+/// node id, counted where that node is carried, or already interned by the graph.
+///
+/// `pub(in crate::index)` so the columns twin of [`Topology::extend`](super::extend)'s capacity
+/// test can pin this rule on the production count.
+pub(in crate::index) fn batch_load<T, N, E>(table: &T, nodes: N, edges: E) -> Load
+where
+    T: EntryTable + ?Sized,
+    N: ExactSizeIterator<Item = NodeCells>,
+    E: ExactSizeIterator<Item = BatchEdgeCells>,
+{
+    let mut load = Load {
+        strings: 0,
+        bytes: 0,
+        nodes: nodes.len() as u64,
+        edges: edges.len() as u64,
+    };
+    for node in nodes {
+        let named = [node.id, node.source, node.label];
+        for entry in [node.database_id, node.group, node.icon] {
+            counted(&mut load, table, entry);
+        }
+        for entry in named {
+            counted(&mut load, table, Some(entry));
+        }
+    }
+    for edge in edges {
+        for entry in [Some(edge.id), Some(edge.label), edge.record_id] {
+            counted(&mut load, table, entry);
+        }
+    }
+    load
+}
+
+/// One named string counted as new. An entry the table does not have counts for nothing: the
+/// decoder refused such a batch before graph-core saw it, and a count is not the place to
+/// refuse it twice.
+fn counted<T: EntryTable + ?Sized>(load: &mut Load, table: &T, entry: Option<u32>) {
+    if let Some(text) = entry.and_then(|entry| table.text(entry)) {
+        load.strings += 1;
+        load.bytes += text.len() as u64;
+    }
+}
 
 /// Why a columnar document could not be indexed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,7 +197,7 @@ pub fn index_columns<T: EntryTable + ?Sized>(
 ///
 /// **Caveat:** over-counts by repeated entries and absent optional cells, and is never more
 /// than an all-distinct build would grow to.
-fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
+pub(in crate::index) fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
     let named = nodes
         .saturating_mul(6)
         .saturating_add(edges.saturating_mul(3));
@@ -127,7 +205,7 @@ fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
 }
 
 /// Admits the next node row, interning its strings in `admit_node`'s order.
-fn index_node<T: EntryTable + ?Sized>(
+pub(in crate::index) fn index_node<T: EntryTable + ?Sized>(
     topology: &mut Topology,
     entries: &mut Entries<'_, T>,
     cells: &NodeCells,
@@ -154,7 +232,7 @@ fn index_node<T: EntryTable + ?Sized>(
 }
 
 /// Admits the next edge row: the endpoint-row check, then `admit_edge`'s intern order.
-fn index_edge<T: EntryTable + ?Sized>(
+pub(in crate::index) fn index_edge<T: EntryTable + ?Sized>(
     topology: &mut Topology,
     entries: &mut Entries<'_, T>,
     cells: &EdgeCells,
