@@ -66,9 +66,11 @@ function spawnWorker(): ReturnType<Spawn> {
   return workerPort(new Worker(new URL("./motor/worker.ts", import.meta.url), { type: "module" }));
 }
 
-// Ponytail: the object URL is released a minute after the click, because a click only
-// starts a download and nothing says when it ended. A download that takes longer than
-// that to START is cut short; the largest export here is a PNG of the canvas.
+// Caveat: a download whose START takes longer than a minute is cut short, because the object
+// URL is released a minute after the click and a click only starts a download, nothing saying
+// when it ended. It then fails to begin rather than arriving short; create and revoke the
+// object URL yourself once the write is known to have begun. The largest export here is a PNG
+// of the canvas.
 function download(name: string, data: Blob): void {
   const link = document.createElement("a");
   link.href = URL.createObjectURL(data);

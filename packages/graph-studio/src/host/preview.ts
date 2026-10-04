@@ -9,6 +9,7 @@ export interface PreviewLimits {
 
 /** In code points, not UTF-16 units: a cut never splits a surrogate pair. */
 export const PREVIEW_LIMITS: PreviewLimits = Object.freeze({ title: 256, text: 4096, icon: 16 });
+/** Caveat: a title over 256, a text over 4096 or an icon over 16 code points loses its tail unmarked and reads short; a wider `limits` on `createPreviews` is the way out. */
 
 /**
  * `text` cut to `max` code points. O(max): a string of a gigabyte is walked only as far as the

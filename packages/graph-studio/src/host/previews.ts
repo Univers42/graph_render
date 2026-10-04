@@ -42,6 +42,7 @@ export interface Previews {
 }
 
 export const PREVIEW_CAPACITY = 256;
+/** Caveat: a graph with more than 256 nodes answered drops the oldest previews, so asking for one again re-resolves; a `capacity` on `createPreviews` raises the ceiling. */
 /**
  * Caveat: a host that takes longer than this is cut off and its answer dropped, even when it
  * would have been right; one that ignores `signal` keeps working after the cut.
