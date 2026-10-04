@@ -139,10 +139,24 @@ test("a reset on a new graph shares the hover's frame, so the pair is one node-h
 });
 
 /** A detail a host built with a cycle in it: the clone keeps the cycle, so the walk must as well. */
-function cyclicSelect(): HostEvents["node-select"] {
+type CyclicSelect = HostEvents["node-select"] & {
+  /** What the host hung off its detail; `node-select`'s own type has no such member. */
+  readonly node: { readonly self?: unknown };
+};
+
+function cyclicSelect(): CyclicSelect {
   const node: { self?: unknown } = {};
   node.self = node;
-  return { ids: ["a"], node } as unknown as HostEvents["node-select"];
+  return { ids: ["a"], node };
+}
+
+/** The `node` of a listener's `node-select` detail, or null when it heard no such detail. */
+function heardNode(event: Event): { readonly self?: unknown } | null {
+  if (!(event instanceof CustomEvent)) return null;
+  const detail: unknown = event.detail;
+  if (typeof detail !== "object" || detail === null || !("node" in detail)) return null;
+  const node: unknown = detail.node;
+  return typeof node === "object" && node !== null && "self" in node ? node : null;
 }
 
 /** True when a walk gives up by throwing, which is what a walk with no visited set does on a cycle. */
@@ -157,10 +171,14 @@ function overflows(walk: () => unknown): boolean {
 
 test("emit sends a detail that refers to itself instead of overflowing the stack", () => {
   const target = new EventTarget();
-  const held: CustomEvent<Record<string, unknown>>[] = [];
-  target.addEventListener("node-select", (event) => void held.push(event as CustomEvent<Record<string, unknown>>));
+  const held: Event[] = [];
+  target.addEventListener("node-select", (event) => void held.push(event));
   emit(target, "node-select", cyclicSelect());
-  const node = held[0]?.detail.node as { readonly self?: unknown };
+  assert.equal(held.length, 1, "the event was dispatched, not thrown from");
+  const [event] = held;
+  assert.ok(event !== undefined, "the listener heard the event");
+  const node = heardNode(event);
+  assert.ok(node !== null, "and it carried the object the cycle is in");
   assert.equal(Object.isFrozen(node), true, "the object that holds the cycle is frozen");
   assert.equal(Object.isFrozen(node.self), true, "and so is what it points at");
 });

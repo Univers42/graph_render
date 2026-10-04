@@ -17,23 +17,21 @@ import { type Building, release } from "../../src/mount.ts";
 const ORDER = ["unhost", "root", "unwatchArea", "unwatch", "bridge", "studio", "view"] as const;
 
 /**
- * `made` of the parts, each standing for its own release step: every fake carries the single member
- * `release` calls on it, which is all `release` asks of a real one.
+ * `made` of the parts, each standing for its own release step. A fake carries the single member
+ * `release` calls on it, which is all `release` asks of a real one; a part `made` does not name is
+ * left out, which is what a `throw` part-way through `mount` leaves.
  */
 function recording(made: readonly string[]): { readonly parts: Building; readonly steps: string[] } {
   const steps: string[] = [];
   const step = (name: string) => (): void => void steps.push(name);
-  const every: Readonly<Record<string, unknown>> = {
-    studio: { destroy: step("studio") },
-    view: { destroy: step("view") },
-    bridge: { destroy: step("bridge") },
-    root: { unmount: step("root") },
-    unwatch: step("unwatch"),
-    unwatchArea: step("unwatchArea"),
-    unhost: step("unhost"),
-  };
-  // A throw leaves a part missing, which the real shapes cannot express: they are all required.
-  const parts = Object.fromEntries(made.map((name) => [name, every[name]])) as Building;
+  const parts: Building = {};
+  if (made.includes("unhost")) parts.unhost = step("unhost");
+  if (made.includes("root")) parts.root = { unmount: step("root") };
+  if (made.includes("unwatchArea")) parts.unwatchArea = step("unwatchArea");
+  if (made.includes("unwatch")) parts.unwatch = step("unwatch");
+  if (made.includes("bridge")) parts.bridge = { destroy: step("bridge") };
+  if (made.includes("studio")) parts.studio = { destroy: step("studio") };
+  if (made.includes("view")) parts.view = { destroy: step("view") };
   return { parts, steps };
 }
 

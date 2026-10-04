@@ -182,14 +182,17 @@ type Parts = Pick<Mounted, "studio" | "view" | "client" | "bridge" | "deltas">;
  * The parts a mount has made so far, every member optional: a `throw` part-way leaves only what was
  * made before it, and `release` is what takes those back.
  *
+ * Each member is narrowed to the one release step `release` calls on it, which is also all
+ * `unmount` ever calls: the parts that take no argument and return nothing.
+ *
  * No member for the client: its worker is spawned on the motor's first call, which happens inside
  * `studio.start` — after the studio is on here, and `studio.destroy` closes it.
  */
 export interface Building {
-  studio?: Studio;
-  view?: View;
-  bridge?: LiveBridge;
-  root?: Root;
+  studio?: Pick<Studio, "destroy">;
+  view?: Pick<View, "destroy">;
+  bridge?: Pick<LiveBridge, "destroy">;
+  root?: Pick<Root, "unmount">;
   unwatch?: () => void;
   unwatchArea?: () => void;
   unhost?: () => void;
