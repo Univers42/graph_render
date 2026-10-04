@@ -63,7 +63,7 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_SFDP",
-        "7b7aeabb59599b55eee5ed41b82ee8ce5431c396e3ad7079be1c4d8e7fb2bd6f",
+        "ff26903d9f02934638e535e212c40daa6ba717693f2fb7b31dc6e29276a14473",
         "c6f3141123dedb84bfa577fb2b1b3d971a05cd3fee46bc5b653f42ef46479aab",
         "",
         1e0,

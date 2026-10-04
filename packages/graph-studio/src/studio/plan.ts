@@ -52,7 +52,11 @@ export function planOf(state: StudioState, next: Settings): Plan {
   // A filter that asks to be laid out again is one the last run was not made under, or the
   // layout would repeat the drawing already on screen for a filter nobody changed.
   const relayout = next.filter.relayout && JSON.stringify(next.filter) !== state.runFilter;
-  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges || relayout;
+  // A value the last run was not made at is the same thing: the picture on screen is not the
+  // one these settings ask for.
+  const params = JSON.stringify(next.params[next.layout] ?? {});
+  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges
+    || relayout || params !== state.runParams;
   const asked = next.analysis !== null && (load || state.analysis?.id !== next.analysis);
   return { load, layout, analysis: asked || (next.analysis === null && state.analysis !== null) };
 }

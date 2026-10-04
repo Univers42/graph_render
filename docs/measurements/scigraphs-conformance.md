@@ -224,7 +224,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 23 | `GRAPHVIZ_DOT` | _none_ | `dot` via `gv_exact` | `shape` | not run | not run | not run | not run | not run | not run | `reference-absent` | **not run:** not run: no motor layout for this name |
 | 24 | `GRAPHVIZ_NEATO` | `layout.force.neato` | `neato` via `gv_exact` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 5.59 | 0.424 | 0.95 | `rng` | different shape |
 | 25 | `GRAPHVIZ_FDP` | `layout.force.fdp` | `fdp` via `gv_exact` | `bitwise` | 340/1020 | 340/1020 | 3.10e+16 | 5.72 | 0.661 | 0.944 | `rng` | different shape _(reference not pinned: the engine's own start is not seeded by -Gstart: two runs differ)_ |
-| 26 | `GRAPHVIZ_SFDP` | `layout.force.sfdp` | `sfdp` via `gv_exact` | `shape` | 340/1020 | 340/1020 | 1.71e+16 | 6.87 | 0.848 | 0.978 | `algorithm` | different shape at the **same seed on both sides**: grey is a line with a fan, green a small cluster |
+| 26 | `GRAPHVIZ_SFDP` | `layout.force.sfdp` | `sfdp` via `gv_exact` | `shape` | 340/1020 | 340/1020 | 1.71e+16 | 6.87 | **0.340** | 0.978 | `algorithm` | **different shape at the same seed on both sides**, but no longer a line: the motor's `lesmis` layout was a one-dimensional strip (shape ratio 0.006, 40 coincident pairs) and is now 0.271 against Graphviz's 0.414; median Procrustes 0.848 → 0.340. Repair `sg-sfdp-collapse` |
 | 27 | `GRAPHVIZ_TWOPI` | `layout.twopi` | `twopi` via `gv_exact` | `tolerance` | 364/1020 | 841/1020 | 8.75e+18 | 1.70e-07 | 2.09e-16 | 7.85e-16 | `arithmetic` | **same shape** — the green ring sits on the grey ring; what is left is the port's own arithmetic and the motor's `f32` narrowing, now that the reference reads `ND_coord` and not the `-Tplain` text |
 | 28 | `GRAPHVIZ_CIRCO` | `layout.circular.circo` | `circo` via `gv_exact` | `shape` | 351/1020 | 351/1020 | 9.31e+18 | 5.08 | 0.284 | 0.875 | `algorithm` | **same shape on the tree** (disparity 6.5e-05) and **different on lesmis** (0.308): the ring agrees where the tree is small and the boxes are equal |
 | 29 | `GRAPHVIZ_OSAGE` | `layout.packing.osage` | `osage` via `gv_exact` | `shape` | 344/1020 | 355/1020 | 1.95e+16 | 5.02 | 0.711 | 0.964 | `algorithm` | same grid of rows, different row assignment: the y coordinates agree to 1e-5 of the span, the x to 7% |
@@ -268,9 +268,17 @@ was the origin and then the `%.5g`; see repair 2 and `docs/measurements/sg-graph
 All three are now `tolerance`/`arithmetic`, none `bitwise`/`convention`.
 
 **3. `GRAPHVIZ_SFDP` differs at the same seed on both sides.** The motor arm calls
-`sfdp::run_seeded(981798123)` and the engine is given `-Gstart=981798123`; the disparity is 0.848.
-Same seed, same engine, different answer — so the cause is `algorithm` and no amount of seed
-plumbing will reach it.
+`sfdp::run_seeded(981798123)` and the engine is given `-Gstart=981798123`; the disparity was
+0.848 and is now **0.340** (repair `sg-sfdp-collapse`, landed 2026-10-04). Same seed, same engine,
+different answer — so the cause is `algorithm` and no amount of seed plumbing will reach it. The
+two things that are *not* the algorithm, and were repaired: the iteration moved every node by the
+initial step instead of the cooled one and stopped on `tol / K` instead of `tol`, and the
+prolongation stacked matched pairs on one another and separated them by a 5e-7 jiggle instead of
+`K·0.001` from Graphviz's own `drand()` stream. The cause stays `algorithm` because two
+divergences remain and neither is a seed: the coarsening permutation stream, and the fact that
+**Graphviz's `sfdp` runs one level at its defaults** (`levels` defaults to `0`,
+`sfdpinit.c:213`) while this port coarsens through four. Both are named in
+`docs/measurements/sg-sfdp-collapse.md`; the second belongs to `sg-sfdp-step`.
 
 **4. igraph's reference is seedable and reproducible; its RNG stream is simply out of licence.**
 An earlier version of this finding said `_reset_layout_rng`
@@ -505,12 +513,27 @@ assignment differs (x off by 7%). Compare the engine's row assignment against ou
 fixture and fix the order in which `osage` claims rows.
 **Expected:** `lesmis` disparity 0.902 -> ~1e-16.
 
-### 8. `GRAPHVIZ_SFDP` — `algorithm`, the one a seed cannot fix
-**File:** `crates/graph-core/src/layout/graphviz/sfdp.rs:116`. **Change:** both sides are at seed
-981798123 and the disparity is 0.848, so the port's *step* differs from the engine's. Diff one
-sfdp iteration's force evaluation against Graphviz 16.1.0's `spring_electrical.c`.
-**Expected:** the disparity falls; whether it reaches `bitwise` is the open question, which is
-why it is not first on this list.
+### 8. `GRAPHVIZ_SFDP` — `algorithm`, the one a seed cannot fix (partly landed)
+**File:** `crates/graph-core/src/layout/graphviz/sfdp.rs`. **Change, 2026-10-04
+(`sg-sfdp-collapse`):** the solver, done. The iteration moved every node by the *initial* step
+rather than the cooled one (the reference normalises the force and multiplies by the step as it
+stands, `spring_electrical.c:634-638`), every level ran adaptive cooling instead of only the
+coarsest (`:1160-1161`), the stop test was `step > tol / K` instead of `step > tol` with
+`tol = 0.001` absolute (`:650`), and prolongation gave a matched pair a ±5e-7 jiggle instead of
+the reference's `interpolate_coord` plus `K·0.001·(drand()-0.5)` from the same glibc stream the
+start drew (`:814-852`). The Barnes-Hut tree was rebuilt to the reference's shape and the exact
+all-pairs repulsion below `quadtree_size = 45` restored (`:39`, `:543`).
+**Measured:** `lesmis` shape ratio 0.006 → 0.271 against Graphviz's 0.414, coincident pairs 40 → 0,
+row median Procrustes 0.848 → 0.340, p13 oracle worst case 3.881e+02 → 3.887e+02 (the ceiling
+stays 1e3). The **tier did not move** — `shape` at 1e0, cause `algorithm` — which is the finding:
+**this row passed while the layout was a one-dimensional strip**, so a 1e0 shape ceiling cannot
+see a collapsed drawing. `docs/measurements/p13-gv2-sfdp.md` now carries that as the ceiling's
+documented blind spot, and the six property tests that do see it are in
+`crates/graph-core/src/layout/graphviz/sfdp/contract.rs`.
+**Still open, and named rather than guessed:** the coarsening permutation stream, and the driver's
+level count — Graphviz runs a **single** level at its defaults (`levels` defaults to `0`,
+`sfdpinit.c:213`; `Multilevel_establish` returns at `Multilevel.c:163`) and this port always
+coarsens. `sg-sfdp-step` owns coarsening order and smoothing.
 
 ### 9. `SPECTRAL_3D`, `MDS_3D` — `convention`, the two-dimensional id against a three-dimensional reference (landed)
 **Files:** `crates/graph-core/src/layout/spectral.rs`, `spectral/{width,pack}.rs`, `pivot_mds.rs`,

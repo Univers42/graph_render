@@ -1,0 +1,20 @@
+# service-supply.rows — the supply-side rows for `docs/contract/service-api.md` "Verdict":
+# conditions 1 (features), 7 (digest manifest) and 8 (lock parity with features).
+#
+# Each row that can be wrong has a `negctl-*` row after it: the same script with its `--break`
+# control, or the same test with `GM_SVC_DIGEST_BREAK=1`, which must exit 1. The `; test $? -eq 1`
+# idiom is scripts/orch/rows/quick.rows's: the row passes only if the control exits exactly 1,
+# so a control that dies of an unrelated error (a missing toolchain, exit 2) is red too.
+#
+# `cargo test --release` for the digest rows, not `--locked`: the manifest is data the test
+# reads, and the row is about digests, not about the lock. `svc-floor` owns fmt/clippy.
+
+svc-digest|0|scripts/orch/svc-digest.sh
+negctl-svc-digest|0|scripts/orch/svc-digest.sh --break; test $? -eq 1
+svc-digest-wasm|0|scripts/orch/svc-digest-wasm.sh
+negctl-svc-digest-wasm|0|scripts/orch/svc-digest-wasm.sh --break; test $? -eq 1
+svc-features|0|scripts/orch/svc-features.sh
+negctl-svc-features|0|scripts/orch/svc-features.sh --break; test $? -eq 1
+lock-parity|0|scripts/orch/lock-parity.sh
+negctl-lock-parity-version|0|scripts/orch/lock-parity.sh --break-version; test $? -eq 1
+negctl-lock-parity-feature|0|scripts/orch/lock-parity.sh --break-feature; test $? -eq 1

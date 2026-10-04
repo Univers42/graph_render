@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { exportSettings, importSettings } from "../src/state/portable.ts";
-import { DEFAULT_SETTINGS, withAppearance, withFilter } from "../src/state/settings.ts";
+import { withAppearance, withFilter } from "../src/state/settings.ts";
 import { desk, refusingClient } from "./desk.ts";
 import { DRAWN } from "./drawn.ts";
 
-const CHANGED = withFilter(withAppearance(DEFAULT_SETTINGS, { theme: "light", nodeScale: 2 }), { minDegree: 3 });
+/** The drawn document's own settings, so a panel reset on them plans no relayout. */
+const BASE = DRAWN.settings;
+const CHANGED = withFilter(withAppearance(BASE, { theme: "light", nodeScale: 2 }), { minDegree: 3 });
 
 function changed(): ReturnType<typeof desk> {
   const made = desk(refusingClient());
@@ -43,7 +45,7 @@ test("export, reset the panels, import: the export is byte-identical", async () 
   const [before = ""] = await textsOf(made);
   await made.studio.dispatch("settings.reset.appearance");
   await made.studio.dispatch("settings.reset.filter");
-  assert.deepEqual(made.studio.store.get().settings, DEFAULT_SETTINGS);
+  assert.deepEqual(made.studio.store.get().settings, BASE);
   const entry = await made.studio.dispatch("settings.import", { text: before });
   assert.equal(entry.ok, true, entry.message);
   await made.studio.dispatch("settings.export");
@@ -54,8 +56,8 @@ test("resetting one panel restores only that panel's keys", async () => {
   const made = changed();
   await made.studio.dispatch("settings.reset.filter");
   const { settings } = made.studio.store.get();
-  assert.deepEqual(settings.filter, DEFAULT_SETTINGS.filter);
+  assert.deepEqual(settings.filter, BASE.filter);
   assert.deepEqual(settings.appearance, CHANGED.appearance);
   await made.studio.dispatch("settings.reset.appearance");
-  assert.deepEqual(made.studio.store.get().settings.appearance, DEFAULT_SETTINGS.appearance);
+  assert.deepEqual(made.studio.store.get().settings.appearance, BASE.appearance);
 });

@@ -1,4 +1,4 @@
-> **Status (2026-09-30):** MERGED into develop — branch head 2538f0a is an ancestor of develop; p3 landed inside p6f, merge 45a653f. Its 1000-seed gate and mutants run as part of the develop gate. See prompts/RESUME.md.
+> **Status (2026-10-04):** MERGED into develop — branch head 2538f0a is an ancestor of develop; p3 landed inside p6f, merge 45a653f. Its 1000-seed gate and mutants run as part of the develop gate (`hashgate-1000`, scripts/orch/rows/develop-full.rows:239, timed at 3052 s per docs/reports/phase-03.md:104). The stage list has grown from p3's 20-odd to 47 layout ids (crates/graph-core/src/registry/layouts.rs:47, `[Capability; 47]`), so the per-stage knob count grew with it: 20 negative controls now, one per stage family, from `negctl-degree` to `negctl-studio-smoke` (scripts/orch/rows/develop-full.rows, `grep -c '^negctl'`). Still owed, unchanged: the mutants run for p3 is part of the develop gate, never per-branch. See docs/reports/STATUS.md.
 
 # Phase 3 — The deterministic one-shot layouts
 
