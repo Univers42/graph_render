@@ -161,19 +161,46 @@ per_slot = body + ingest peak + run peak at cap.
 | run peak at cap | 3,343,908,864 | 3189 MiB, rounded up from 3188.2 MiB: VmHWM of `post.style.orthogonal` over `layout.circular.radial`, dense rung n 1048576, m 4194304 (`ladder.log` line 499). The next highest are `post.style.bezier` at 3187.9 MiB and bezier over grid at 3089.7 MiB |
 | **per_slot** | **4,635,677,069** | 4.32 GiB, using the contract ingest term |
 
-- Container limit for N workers is N × per_slot + base. Here `base` is the server's idle RSS, which
-  `svc-limits` measures.
+- Container limit for N workers is N × per_slot + base. Here `base` is the server's idle footprint,
+  measured on the image below ("Base").
   - N = 1: 4,635,677,069 B
   - N = 2: 9,271,354,138 B
   - N = 4: 18,542,708,276 B
   - N = 20 (one per core here): 92,713,541,380 B
 - Rule: `workers = min(cores, floor((memory.max − base) / per_slot))`, and the server refuses to start
-  when this is 0. With base = 0 this is `min(cores, floor(memory.max / per_slot))`.
-  - memory.max 4 GiB gives 0 workers (4,294,967,296 / 4,635,677,069 = 0.93 → 0).
+  when this is 0. With base = 11 MiB (`BASE_BYTES`) and per_slot = 4,635,677,069 B:
+  - memory.max 4 GiB gives 0 workers (4,283,386,880 / 4,635,677,069 = 0.92 → 0).
   - memory.max 8 GiB gives 1.
   - memory.max 16 GiB gives 3.
   - memory.max 32 GiB gives 7.
   - memory.max 64 GiB gives 14.
+
+### Base
+
+`BASE_BYTES` (`server/graph-server/src/config/slots.rs`) is the server's idle footprint, kept out of
+the slots so a slot is never short of it. Measured 2026-10-04 on the image
+`graph-motor:4412ecaad92ed124`: three starts at `--memory 8g --memory-swap 8g`, each read with
+`docker exec <name> cat /sys/fs/cgroup/memory.current` once the `listening` line was in the log, no
+request in flight.
+
+| run | memory.current (B) |
+|---|---:|
+| 1 | 11,534,336 |
+| 2 | 10,940,416 |
+| 3 | 8,011,776 |
+
+`BASE_BYTES = 11,534,336`, the largest of the three and already a whole MiB (11 MiB). What the
+constant gets wrong:
+
+- The three readings of an idle server differ by 3.5 MiB, so this is one sample's high-water mark, not
+  an idle floor. It is the largest reading on purpose: `base` is subtracted from the budget, so
+  overstating it grants one slot too few and understating it grants one too many.
+- `memory.current` is the cgroup's, not the process's: it counts page cache and socket buffers the
+  process never held as resident memory. The binary's own RSS is below it.
+- It says nothing about what a busy slot's allocator arenas add on top. That is what `per_slot`
+  carries, and `per_slot` is measured, not derived from `base`.
+- It was measured on this host with an idle server, once. A different kernel, cgroup or base image
+  moves it, and nothing in a row re-measures it.
 
 ### Ingest term for `source=contract`
 
@@ -216,6 +243,139 @@ the same test on the unfixed reader:
 
 - Time grew about 4× per doubling (quadratic). The largest contract body that read within 15 s was 4 MiB.
 
+## Measured on the image (2026-10-04)
+
+The two rows of `scripts/orch/rows/service-limits.rows`, against the image `graph-motor:4412ecaad92ed124`
+(`scripts/service.sh build`, 86,958,004 B). Each script starts the image detached under a unique container
+name through `scripts/orch/drun`, mints its own key, and removes the container on every exit path.
+`scripts/service-limits.sh` reads `PER_SLOT_BYTES` and `BASE_BYTES` from
+`server/graph-server/src/config/slots.rs` with `grep`; neither script writes a number of the budget down.
+
+| row | command | exit |
+|---|---|---:|
+| `svc-limits` | `timeout 1800 scripts/service-limits.sh` | 0 |
+| `negctl-svc-limits` | `SERVICE_LIMITS_MEM=1g …`, then `test $? -eq 1 && grep -q '^FAIL oom' …` | 0 |
+| `svc-caps-time` | `timeout 5400 scripts/service-caps-time.sh` | 0 |
+| `negctl-svc-caps-time` | `SERVICE_CAPS_TIME_TIMEOUT_MS=1 …`, then the `grep -c '^FAIL' … -ge 50` | 0 |
+
+### svc-limits: one slot inside M
+
+`GRAPH_WORKERS=1`, `--memory M --memory-swap M`, both requests
+`layout.circular.radial` + `post.style.orthogonal`, the default `GRAPH_MAX_BODY` (64 MiB) and nothing
+else raised.
+
+| term | value |
+|---|---:|
+| M = `PER_SLOT_BYTES + BASE_BYTES`, rounded up to a whole MiB | 4,647,288,832 B (4432 MiB) |
+| contract body | 67,108,770 B, 405,756 records → n 405,772, m 1,217,266 |
+| studio body | 67,013,078 B, 134,217 nodes → n 134,217, m 208,010 |
+| cgroup `memory.peak` over both requests | 1,620,025,344 B (34.9% of M) |
+| load1 at the start and the end | 42.99 → 44.67 |
+
+| check | verdict | detail |
+|---|---|---|
+| `status-contract` | PASS | HTTP 200, n 405,772, m 1,217,266 |
+| `status-studio` | PASS | HTTP 200, n 134,217, m 208,010 |
+| `oom` | PASS | OOMKilled false, running true |
+| `peak` | PASS | memory.peak 1,620,025,344 ≤ 4,647,288,832 |
+
+The peak is 34.9% of M, which is the over-estimate the `Caveat:` on `PER_SLOT_BYTES` names: the run peak
+inside `per_slot` is the peak at n 1 048 576 (3,343,908,864 B), and a 64 MiB body carries 405,772 nodes at
+most, so that run peak is not reachable through the default body limit. The budget holds with room to
+spare; nothing here says it holds at n 1 048 576, which no body can ask for at the default limit.
+
+The negative control, `SERVICE_LIMITS_MEM=1g`, is the same run under a 1 GiB container: the kernel
+OOM-kills the server during the first request (OOMKilled true, running false, `memory.peak` unreadable
+because the container is gone), so all four checks FAIL and the script exits 1.
+
+### svc-caps-time: every cap at its cap, within GRAPH_TIMEOUT_MS
+
+One container for the whole run: `--memory 8g`, `GRAPH_WORKERS=1`, `GRAPH_MAX_BODY` raised to its own
+maximum 1,073,741,824 B, `GRAPH_TIMEOUT_MS` at its 30,000 default. The graph of a row is the one the cap
+ladder used, `graph-cli bench --n <cap_n> --seed 1 --emit-scale-fixture`, whose m came out 1.5474 n.
+`reduced:n>1000000` marks a row asked at 1,000,000 nodes because `graph-cli`'s own ceiling
+(`graph_core::registry::MAX_BENCH_NODES`) is below the row's cap_n; `reduced:m>cap_m` would mark a graph
+whose edges are past the cap, and no row hit it. All 50 rows answered 200; load1 went 5.67 → 17.73 over the
+run, so the tail of the table ran under load and still passed.
+
+| id | cap_n | cap_m | layout asked | n | status | ms | reduced |
+|---|---:|---:|---|---:|---:|---:|---|
+| `layout.grid` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 4533 | reduced:n>1000000 |
+| `layout.tree.tidy` | 1048576 | 4194304 | `layout.tree.tidy` | 1000000 | 200 | 4630 | reduced:n>1000000 |
+| `layout.treemap.squarified` | 1048576 | 4194304 | `layout.treemap.squarified` | 1000000 | 200 | 4615 | reduced:n>1000000 |
+| `layout.circular.radial` | 1048576 | 4194304 | `layout.circular.radial` | 1000000 | 200 | 6032 | reduced:n>1000000 |
+| `layout.packing.circle` | 2048 | 8192 | `layout.packing.circle` | 2048 | 200 | 10233 | - |
+| `layout.spectral` | 700 | 2800 | `layout.spectral` | 700 | 200 | 25 | - |
+| `layout.mds.pivot` | 100000 | 400000 | `layout.mds.pivot` | 100000 | 200 | 642 | - |
+| `layout.force.barnes_hut` | 100000 | 154978 | `layout.force.barnes_hut` | 100000 | 200 | 18198 | - |
+| `layout.forceatlas2` | 8192 | 32768 | `layout.forceatlas2` | 8192 | 200 | 5757 | - |
+| `layout.dag.sugiyama` | 200000 | 800000 | `layout.dag.sugiyama` | 200000 | 200 | 2272 | - |
+| `layout.random` | 1000000 | 4000000 | `layout.random` | 1000000 | 200 | 7464 | - |
+| `layout.circular.ring` | 1000000 | 4000000 | `layout.circular.ring` | 1000000 | 200 | 7512 | - |
+| `layout.spiral` | 1000000 | 4000000 | `layout.spiral` | 1000000 | 200 | 7562 | - |
+| `layout.bipartite` | 1000000 | 4000000 | `layout.bipartite` | 1000000 | 200 | 7419 | - |
+| `layout.force.yifan_hu` | 65536 | 101565 | `layout.force.yifan_hu` | 65536 | 200 | 19514 | - |
+| `layout.force.fruchterman_reingold` | 2000 | 8000 | `layout.force.fruchterman_reingold` | 2000 | 200 | 1765 | - |
+| `layout.force.kamada_kawai` | 2000 | 8000 | `layout.force.kamada_kawai` | 2000 | 200 | 4756 | - |
+| `layout.force.graphopt` | 2000 | 8000 | `layout.force.graphopt` | 2000 | 200 | 4531 | - |
+| `layout.force.davidson_harel` | 500 | 768 | `layout.force.davidson_harel` | 500 | 200 | 4818 | - |
+| `layout.force.lgl` | 1000 | 4000 | `layout.force.lgl` | 1000 | 200 | 155 | - |
+| `layout.force.drl` | 5000 | 20000 | `layout.force.drl` | 5000 | 200 | 3346 | - |
+| `layout.twopi` | 1000000 | 4000000 | `layout.twopi` | 1000000 | 200 | 4879 | - |
+| `layout.packing.osage` | 1000000 | 4000000 | `layout.packing.osage` | 1000000 | 200 | 4496 | - |
+| `layout.force.spring` | 8192 | 32768 | `layout.force.spring` | 8192 | 200 | 6527 | - |
+| `layout.circular.hierarchy` | 1048576 | 4194304 | `layout.circular.hierarchy` | 1000000 | 200 | 6496 | reduced:n>1000000 |
+| `layout.circular.circo` | 1000 | 1541 | `layout.circular.circo` | 1000 | 200 | 5554 | - |
+| `layout.treemap.patchwork` | 1000000 | 4000000 | `layout.treemap.patchwork` | 1000000 | 200 | 5925 | - |
+| `layout.force.neato` | 2048 | 8192 | `layout.force.neato` | 2048 | 200 | 14637 | - |
+| `layout.force.fdp` | 1000 | 4000 | `layout.force.fdp` | 1000 | 200 | 4549 | - |
+| `layout.basic3d.sphere` | 1000000 | 4000000 | `layout.basic3d.sphere` | 1000000 | 200 | 7684 | - |
+| `layout.basic3d.helix` | 1000000 | 4000000 | `layout.basic3d.helix` | 1000000 | 200 | 7390 | - |
+| `layout.basic3d.cube` | 1000000 | 4000000 | `layout.basic3d.cube` | 1000000 | 200 | 7563 | - |
+| `layout.hierarchical3d` | 1000000 | 4000000 | `layout.hierarchical3d` | 1000000 | 200 | 7959 | - |
+| `layout.force.spring3d` | 4096 | 16384 | `layout.force.spring3d` | 4096 | 200 | 2252 | - |
+| `layout.force.sfdp` | 16384 | 65536 | `layout.force.sfdp` | 16384 | 200 | 8433 | - |
+| `layout.forceatlas2.barnes_hut` | 65536 | 262144 | `layout.forceatlas2.barnes_hut` | 65536 | 200 | 6211 | - |
+| `layout.bipartite_3d` | 1000000 | 4000000 | `layout.bipartite_3d` | 1000000 | 200 | 7651 | - |
+| `layout.basic3d.spiral` | 1000000 | 4000000 | `layout.basic3d.spiral` | 1000000 | 200 | 7316 | - |
+| `layout.force.particle_mesh` | 262144 | 406717 | `layout.force.particle_mesh` | 262144 | 200 | 12459 | - |
+| `layout.forceatlas2.forcesim` | 2000 | 8000 | `layout.forceatlas2.forcesim` | 2000 | 200 | 1048 | - |
+| `layout.spectral3d` | 256 | 1024 | `layout.spectral3d` | 256 | 200 | 84 | - |
+| `layout.mds.pivot3d` | 100000 | 400000 | `layout.mds.pivot3d` | 100000 | 200 | 993 | - |
+| `post.route.grid` | 3225 | 4988 | `layout.grid` | 3225 | 200 | 11510 | - |
+| `post.bundle.fdeb` | 4451 | 6900 | `layout.grid` | 4451 | 200 | 378 | - |
+| `post.bundle.mingle` | 1935 | 3000 | `layout.grid` | 1935 | 200 | 391 | - |
+| `post.separate.grid` | 4096 | 10000 | `layout.treemap.squarified` | 4096 | 200 | 1287 | - |
+| `post.style.straight` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 4896 | reduced:n>1000000 |
+| `post.style.orthogonal` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 4622 | reduced:n>1000000 |
+| `post.style.bezier` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 4687 | reduced:n>1000000 |
+| `post.style.quadratic` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 4744 | reduced:n>1000000 |
+
+No cap was lowered: every row came in under `GRAPH_TIMEOUT_MS`, the slowest being
+`layout.force.yifan_hu` at 19,514 ms, 65% of the mark. The negative control,
+`SERVICE_CAPS_TIME_TIMEOUT_MS=1`, answers 503 on all 50 rows (load1 6.49 → 6.37), so the PASS above is a
+reading of the status and of the elapsed time and not of anything else.
+
+### Caveat of this section
+
+- **One host, one request per row, no median.** `docs/measurements/service-caps.md` "Caveat" above
+  applies to these numbers too, and load1 reached 44.67 during the `svc-limits` run. Load only makes a row
+  slower, so a loaded host can turn a PASS into a FAIL and never the reverse.
+- **Nine rows are not at their cap_n.** They are 4.7% under it, because the generator's own ceiling is
+  1,000,000 nodes. A cap of 1,048,576 with no body limit behind it is unmeasured here.
+- **`source=studio` for every row of this table.** No command line in the repo writes a contract document,
+  and the contract reader derives its topology from records and links, so a contract document of the same
+  size is a different graph and would not measure the rung the ladder measured. The studio body of
+  n 1,000,000 is 499,854,493 B, which is why `GRAPH_MAX_BODY` had to be raised to the server's maximum.
+- **`post.separate.grid` is asked over `layout.treemap.squarified`**, the post's other documented input.
+  Over the binding input `layout.packing.circle` the pair is capped at 2,048 nodes, half the post's own
+  cap, so the row would have measured half the work.
+- **The ms include the upload and the ingest.** `GRAPH_TIMEOUT_MS` starts before the body is read, so the
+  mark covers the whole request; the 4.5–8.0 s of the million-node rows is mostly a 500 MB body crossing
+  the loopback and the studio reader parsing it, not the layout.
+- **`memory.peak` is the cgroup's, not the process's**, and it never comes down between the two requests,
+  so `status-studio` is charged `status-contract`'s peak.
+
 ## Caveat
 
 The caps and per_slot are measurements of one machine under load, not bounds. In detail:
@@ -223,7 +383,8 @@ The caps and per_slot are measurements of one machine under load, not bounds. In
 - **Loaded host.** load1 was 3.76–38.76 on 20 cores. Each rung was run once. A rung near 15 s can land on
   either side of the line from one run to the next. Load biases the caps low, which is the safe direction.
   It also means another host can be slower still. The CPU is the host's, not the service image's reference
-  CPU.
+  CPU. ("Measured on the image" above is still the host's CPU: the image runs the same binary on the same
+  20 cores, with the body read and the ingest the ladder never timed.)
 - **Doubling gap.** Sizes between two rungs are never tried. The largest size under 15 s can be up to
   twice the cap reported.
 - **Synthetic density.** The model's m/n is 1.52–1.6, plus one dense rung at m = 4n. A graph with the same n

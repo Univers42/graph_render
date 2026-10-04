@@ -78,6 +78,11 @@ fn default_workers_is_the_smaller_of_cores_and_memory_slots() {
     );
     assert_eq!(default_workers(2, Some(64 * PER_SLOT_BYTES)), 2);
     assert_eq!(default_workers(8, Some(PER_SLOT_BYTES - 1)), 0);
+    assert_eq!(
+        default_workers(8, Some(4 << 30)),
+        0,
+        "4 GiB holds no slot: the published docker run --memory 4g refuses to start"
+    );
     assert_eq!(default_workers(8, Some(8 << 30)), 1, "8 GiB holds one slot");
     assert_eq!(
         default_workers(64, Some(64 << 30)),
