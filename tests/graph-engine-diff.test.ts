@@ -49,7 +49,7 @@ test("diffGraph: an icon-only edit is an update, not a no-op (regression)", () =
   const patch = diffGraph(before, after);
   assert.equal(isEmptyPatch(patch), false);
   assert.equal(patch.updatedNodes.length, 1);
-  assert.equal(patch.updatedNodes[0].icon, "NEGCTL");
+  assert.equal(patch.updatedNodes[0].icon, "🚀");
   assert.deepEqual(patch.addedNodes, []);
   assert.deepEqual(patch.removedNodeIds, []);
 });

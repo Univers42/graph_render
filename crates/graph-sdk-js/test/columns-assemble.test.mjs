@@ -85,7 +85,7 @@ test("a multi-byte string takes the exact path, builds, and its id reads back th
   assert.equal(m.nodeCount(handle), 3);
   const ids = idsOf(m, handle);
   assert.equal(ids[0], "n-é", "the multi-byte id came back as itself");
-  assert.equal(ids[1], "NEGCTL");
+  assert.equal(ids[1], "n-1");
   assert.equal(ids[2], "n-2");
   assert.ok(!ids.some((id) => id.includes("�")), "nothing became U+FFFD on the way through");
 });
