@@ -15,7 +15,6 @@ use super::run;
 use crate::layout::coords::probe::{assert_close, graph, points};
 
 mod crossings;
-mod path;
 mod repeats;
 mod skeleton;
 
