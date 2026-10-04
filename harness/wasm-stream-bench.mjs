@@ -143,7 +143,14 @@ async function* lines(path) {
   }
 }
 
-/** One batch: `extend`, then `grow`, each in its own timer, then one untimed `tick(1)`. */
+/**
+ * One batch: `extend`, then `grow`, each in its own timer, then one untimed `tick(1)`.
+ *
+ * Caveat: `tick(1)` runs after both timers close, so this measures what the contract names
+ * and not what a host's frame costs — a host that ticked per batch would pay a tick per
+ * 10 000 nodes that no column here shows. And `motor.extend` is timed whole, including the
+ * SDK's `JSON.stringify`, which the native `service::extend` never does.
+ */
 function batch(motor, handle, session, parsed) {
   const startedExtend = performance.now();
   motor.extend(handle, { nodes: parsed.nodes, edges: parsed.edges });

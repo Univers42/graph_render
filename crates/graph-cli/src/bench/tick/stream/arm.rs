@@ -106,6 +106,10 @@ impl<'a> Run<'a> {
 
 /// Line 0, untimed: the whole graph this run starts from. Its timer is deliberately nobody's —
 /// the contract is a batch, and the first build is not one.
+///
+/// Caveat: at 1M nodes this line is 448 MB of JSON and the build that reads it is seconds, so
+/// a run that timed it would report the input, not a batch. Untimed here means unaccounted
+/// too: it is not folded into any batch's `extend`.
 fn head(file: &mut BufReader<File>, path: &Path) -> Result<Topology, String> {
     let line = read_line(file, path, 0)?;
     service::build(&line, Source::Ingest).map_err(|e| format!("line 0: {}", e.name()))
