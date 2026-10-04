@@ -34,10 +34,18 @@ tower = { version = "=0.5.3", default-features = false, features = ["util"] }
 # Streamed request bodies (chunked, slow, failing) for the limit tests; already in the lock
 # through axum.
 futures-util = { version = "=0.3.34", default-features = false }
+# This crate on itself, to switch the `test-hooks` feature on for the tests alone. Cargo's
+# resolver 2 (server/Cargo.toml) keeps a dev-dependency's features out of a normal build, so
+# `cargo build --release` never sees the hook and the binary carries no seam. Row `hooks-gated`
+# in scripts/orch/rows/svc-floor.rows proves both halves; `src/app.rs` `Hooks` is empty without it.
+graph-server = { path = ".", features = ["test-hooks"] }
 
 [features]
 # The negative controls' server-side breaks (`src/breaks.rs`). Off in every shipped build.
 negctl = []
+# The test-only seams (`src/app.rs` `Hooks`), enabled for the integration tests through the
+# dev-dependency above and never for a build that does not need dev-dependencies.
+test-hooks = []
 
 [lints.rust]
 missing_docs = "warn"

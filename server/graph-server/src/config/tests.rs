@@ -1,4 +1,7 @@
-use super::{BASE_BYTES, ConfigError, PER_SLOT_BYTES, Settings, default_workers, start_line};
+use super::{
+    BASE_BYTES, BODY_BYTES, ConfigError, PER_SLOT_BYTES, Settings, default_workers, per_slot_bytes,
+    start_line,
+};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 
@@ -70,24 +73,47 @@ fn origins_are_a_trimmed_comma_list() {
 }
 
 #[test]
-fn default_workers_is_the_smaller_of_cores_and_memory_slots() {
-    assert_eq!(default_workers(8, None), 8);
+fn the_default_body_reproduces_the_published_slot_figure() {
+    assert_eq!(per_slot_bytes(BODY_BYTES), PER_SLOT_BYTES);
     assert_eq!(
-        default_workers(8, Some(BASE_BYTES + 2 * PER_SLOT_BYTES + 1)),
-        2
+        PER_SLOT_BYTES, 4_635_677_069,
+        "docs/measurements/service-caps.md"
     );
-    assert_eq!(default_workers(2, Some(64 * PER_SLOT_BYTES)), 2);
-    assert_eq!(default_workers(8, Some(PER_SLOT_BYTES - 1)), 0);
+}
+
+#[test]
+fn default_workers_is_the_smaller_of_cores_and_memory_slots() {
+    let at = |cores, memory_max| default_workers(cores, BODY_BYTES, memory_max);
+    assert_eq!(at(8, None), 8);
+    assert_eq!(at(8, Some(BASE_BYTES + 2 * PER_SLOT_BYTES + 1)), 2);
+    assert_eq!(at(2, Some(64 * PER_SLOT_BYTES)), 2);
+    assert_eq!(at(8, Some(PER_SLOT_BYTES - 1)), 0);
     assert_eq!(
-        default_workers(8, Some(4 << 30)),
+        at(8, Some(4 << 30)),
         0,
         "4 GiB holds no slot: the published docker run --memory 4g refuses to start"
     );
-    assert_eq!(default_workers(8, Some(8 << 30)), 1, "8 GiB holds one slot");
+    assert_eq!(at(8, Some(8 << 30)), 1, "8 GiB holds one slot");
+    assert_eq!(at(64, Some(64 << 30)), 14, "the doc's 64 GiB row");
+}
+
+#[test]
+fn a_body_the_budget_does_not_cover_holds_no_slot() {
+    let one_gib = 1 << 30;
     assert_eq!(
-        default_workers(64, Some(64 << 30)),
-        14,
-        "the doc's 64 GiB row"
+        per_slot_bytes(one_gib),
+        24_012_200_144,
+        "16 x 64 MiB bodies at the measured ingest ratio, plus the run peak"
+    );
+    assert_eq!(
+        default_workers(8, one_gib, Some(8 << 30)),
+        0,
+        "8 GiB holds no slot at the 1 GiB body, so an unset GRAPH_WORKERS refuses the start"
+    );
+    assert_eq!(
+        default_workers(8, BODY_BYTES, Some(8 << 30)),
+        1,
+        "and one slot at the default body"
     );
 }
 
@@ -99,6 +125,37 @@ fn memory_under_one_slot_refuses_the_default_and_not_an_explicit_count() {
     let one = |name: &str| (name == "GRAPH_WORKERS").then(|| OsString::from("1"));
     let limits = super::read_limits(&super::Env(&one), Some(PER_SLOT_BYTES - 1));
     assert_eq!(limits.map(|l| l.workers), Ok(1));
+}
+
+#[test]
+fn the_worker_count_follows_the_body_in_force_and_not_the_default_one() {
+    let big = BTreeMap::from([("GRAPH_MAX_BODY".to_owned(), OsString::from("1073741824"))]);
+    let eight_gib = Some(8 << 30);
+    // 8 GiB and the 1 GiB body: the budget derived from the default body holds one slot, the
+    // effective budget holds none, so the unset count is refused with the existing line.
+    let refused = super::read_limits(&super::Env(&|_: &str| None), eight_gib);
+    assert_eq!(
+        refused.map(|l| l.workers),
+        Ok(1),
+        "the default body still holds a slot"
+    );
+    let env = super::Env(&|name: &str| big.get(name).cloned());
+    let err = super::read_limits(&env, eight_gib).unwrap_err();
+    assert_eq!(err.name, "GRAPH_WORKERS");
+    assert_eq!(
+        err.reason,
+        "unset, and memory.max holds no slot (docs/measurements/service-caps.md)"
+    );
+    // An explicit count still overrides the budget, at either body.
+    let counted = BTreeMap::from([
+        ("GRAPH_MAX_BODY".to_owned(), OsString::from("1073741824")),
+        ("GRAPH_WORKERS".to_owned(), OsString::from("1")),
+    ]);
+    let env = super::Env(&|name: &str| counted.get(name).cloned());
+    assert_eq!(
+        super::read_limits(&env, eight_gib).map(|l| l.workers),
+        Ok(1)
+    );
 }
 
 #[test]

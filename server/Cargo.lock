@@ -197,6 +197,7 @@ dependencies = [
  "futures-util",
  "graph-contract",
  "graph-core",
+ "graph-server",
  "graph-wasm",
  "http-body-util",
  "hyper",

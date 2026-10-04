@@ -32,11 +32,15 @@ pub struct App {
     pub cors_origins: Vec<String>,
     /// Generated request ids.
     pub ids: RequestIds,
-    /// Test seams; empty in the binary.
+    /// Test seams; absent unless the `test-hooks` feature is on.
+    #[cfg(feature = "test-hooks")]
     pub hooks: Hooks,
 }
 
-/// Code the tests run inside a request, to make a run slow or make it panic.
+/// Code the tests run inside a request, to make a run slow or make it panic. Compiled only with
+/// the `test-hooks` feature, which the crate's dev-dependency on itself turns on for the tests and
+/// no build of the binary turns on at all (row `hooks-gated`).
+#[cfg(feature = "test-hooks")]
 #[derive(Default)]
 pub struct Hooks {
     /// Called on the blocking thread before the motor builds the graph.
@@ -67,6 +71,7 @@ impl App {
             embed,
             cors_origins: settings.cors_origins.clone(),
             ids: RequestIds::new()?,
+            #[cfg(feature = "test-hooks")]
             hooks: Hooks::default(),
         })
     }

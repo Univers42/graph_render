@@ -12,7 +12,7 @@ mod origins;
 mod slots;
 use origins::read_origins;
 use slots::cgroup_memory_max;
-pub use slots::{BASE_BYTES, PER_SLOT_BYTES, default_workers};
+pub use slots::{BASE_BYTES, BODY_BYTES, PER_SLOT_BYTES, default_workers, per_slot_bytes};
 
 /// Every variable the server reads, in the order the start line lists them.
 pub const NAMES: [&str; 14] = [
@@ -157,11 +157,18 @@ fn read_auth(env: &Env<'_>, bind: IpAddr) -> Result<(bool, Option<PathBuf>), Con
 /// The compute limits. Caveat on every default below, and each is one the operator may want to
 /// move, so none of them is a measurement:
 ///
-/// - `GRAPH_WORKERS` defaults to `default_workers(cores, memory.max)`, and 1024 is its ceiling. The
-///   derivation reads `/sys/fs/cgroup/memory.max`, so outside a cgroup it is just the core count and
-///   the budget is gone; an explicit count overrides it and then nothing checks it against memory.
+/// - `GRAPH_WORKERS` defaults to `default_workers(cores, GRAPH_MAX_BODY, memory.max)`, and 1024 is
+///   its ceiling. The derivation reads `/sys/fs/cgroup/memory.max`, so outside a cgroup it is just
+///   the core count and the budget is gone; an explicit count overrides it and then nothing checks it
+///   against memory.
 /// - `GRAPH_MAX_BODY` defaults to 64 MiB and stops at the motor's own 1 GiB ingest ceiling. It is a
-///   buffer bound, not a work bound: a 64 MiB document can still be refused by a layout's cap.
+///   **memory** bound as well as a buffer bound, and the one that decides the slot budget: one slot is
+///   charged the body plus the contract ingest peak, which was measured at 18.25x the body for a
+///   contract document (`per_slot_bytes`, `docs/measurements/service-caps.md` "Memory per slot"), so a
+///   1 GiB body asks ~24 GB per slot and a container that holds no slot of that body refuses to start
+///   with `GRAPH_WORKERS` unset. That ratio is a linear fit off one body size, not a measurement at
+///   1 GiB, and an explicit `GRAPH_WORKERS` still overrides the budget. Past the memory bound it is
+///   also a work bound: any body, the default included, can be refused by a layout's cap.
 /// - `GRAPH_QUEUE` defaults to 2 × the worker count, so a burst waits for roughly two run lengths
 ///   and a longer burst is 429. Raising it raises the memory each queued request holds.
 /// - `GRAPH_TIMEOUT_MS` defaults to 30 000 ms, under the caps' measured ladder with room for it;
@@ -173,9 +180,16 @@ fn read_auth(env: &Env<'_>, bind: IpAddr) -> Result<(bool, Option<PathBuf>), Con
 /// The escape hatch for all of them is the variable itself; an unset one falls back here, and a
 /// refused value is exit 2 naming the variable and never its value.
 fn read_limits(env: &Env<'_>, memory_max: Option<u64>) -> Result<Limits, ConfigError> {
-    let workers = read_workers(env, memory_max)?;
+    // The body first: the worker count is derived from it, so an unset GRAPH_WORKERS follows the
+    // body actually in force and not the default one (docs/reviews/review-svc-r3.md condition 1).
+    let max_body = env.number(
+        "GRAPH_MAX_BODY",
+        BODY_BYTES as usize,
+        1..=graph_wasm_max_ingest(),
+    )?;
+    let workers = read_workers(env, max_body as u64, memory_max)?;
     Ok(Limits {
-        max_body: env.number("GRAPH_MAX_BODY", 64 << 20, 1..=graph_wasm_max_ingest())?,
+        max_body,
         workers,
         queue: env.number("GRAPH_QUEUE", 2 * workers, 0..=65_536)?,
         timeout: env.millis("GRAPH_TIMEOUT_MS", 30_000)?,
@@ -183,9 +197,13 @@ fn read_limits(env: &Env<'_>, memory_max: Option<u64>) -> Result<Limits, ConfigE
     })
 }
 
-fn read_workers(env: &Env<'_>, memory_max: Option<u64>) -> Result<usize, ConfigError> {
+fn read_workers(
+    env: &Env<'_>,
+    max_body: u64,
+    memory_max: Option<u64>,
+) -> Result<usize, ConfigError> {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
-    let fallback = default_workers(cores, memory_max);
+    let fallback = default_workers(cores, max_body, memory_max);
     if fallback == 0 && env.text("GRAPH_WORKERS")?.is_none() {
         return Err(refuse(
             "GRAPH_WORKERS",

@@ -97,6 +97,8 @@ async fn compute(app: &Arc<App>, permit: OwnedSemaphorePermit, job: Job, deadlin
 
 /// Build, the cap check, the run and the encoding, on the blocking thread.
 fn work(app: &App, job: Job) -> Ran {
+    // The test seam, compiled only with the `test-hooks` feature (row `hooks-gated`).
+    #[cfg(feature = "test-hooks")]
     if let Some(hook) = &app.hooks.before_run {
         hook();
     }
