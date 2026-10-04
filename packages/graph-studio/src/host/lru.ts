@@ -3,7 +3,9 @@
  * moves its key to the end, and a write past `capacity` drops the first key.
  *
  * Caveat: it holds what it was given and never re-validates it. A value that changed at its
- * source reads stale until it is deleted, cleared or evicted.
+ * source reads stale until it is deleted, cleared or evicted. It has no dispose hook either: an
+ * evicted value is dropped, so one that owned a resource (an object URL, a motor handle) would leak.
+ * The only holder, `previews.ts:162`, caches frozen plain data; take an `onEvict` when that changes.
  */
 export interface Lru<Value> {
   get(key: string): Value | undefined;
