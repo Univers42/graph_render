@@ -54,7 +54,7 @@ impl Default for Fa2Params {
 }
 
 /// The widest point this port keeps; see
-/// [`crate::layout::force::fruchterman_reingold::MAX_DIM`].
+/// `crate::layout::force::fruchterman_reingold::MAX_DIM`.
 pub const MAX_DIM: usize = 3;
 
 pub(super) struct Fa2State {
