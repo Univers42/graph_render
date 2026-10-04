@@ -15,10 +15,10 @@
 //! measured — the load average is printed on the row rather than assumed idle.
 
 use crate::bench::campaign::median;
+use crate::bench::tick::stream::prefix::prefix;
 use crate::bench::tiers::markdown::loadavg;
 use graph_core::layout::force::{ForceParams, ForceSession};
 use graph_core::{EdgeRecord, NodeRecord, REFERENCE_DEGREE, Topology, index_model, seeded_model};
-use std::collections::HashSet;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -111,24 +111,6 @@ fn timed(
         (out.new_nodes, out.new_edges) = (new.node_count(), new.edge_count());
     }
     Ok(out)
-}
-
-/// The first `keep` nodes, and only the edges with both endpoints among them. Node order is
-/// the model's own, so the kept prefix keeps the dense rows `index_model` gave it, and that
-/// is what lets the carry map ids across the two topologies.
-fn prefix(
-    nodes: &[NodeRecord],
-    edges: &[EdgeRecord],
-    keep: u32,
-) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
-    let kept: Vec<NodeRecord> = nodes.iter().take(keep as usize).cloned().collect();
-    let ids: HashSet<&str> = kept.iter().map(|n| n.id.as_str()).collect();
-    let edges: Vec<EdgeRecord> = edges
-        .iter()
-        .filter(|e| ids.contains(e.source.as_str()) && ids.contains(e.target.as_str()))
-        .cloned()
-        .collect();
-    (kept, edges)
 }
 
 /// The lowest and highest sample, in that order; an empty list is `(0.0, 0.0)`.

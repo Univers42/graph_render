@@ -39,7 +39,7 @@ negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 ca
 # differential in both arms, the geometry invariants, the ledger. `hashgate-1000` is the row
 # the whole phase-03..08 chain reports at 3052 s; `# slow:` moves it to the end.
 # ---------------------------------------------------------------------------------------------
-roundtrip-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- roundtrip --seeds 1000
+roundtrip-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- roundtrip --seeds 1000
 emit-fixtures-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fixtures --seeds 1000
 oracle-layouts|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-layouts
 geometry-invariants|0|scripts/orch/gr cargo test -p graph-core geometry_invariants
