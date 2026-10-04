@@ -42,9 +42,25 @@ export function bad(path: string, what: string): never {
 /** Byte order, matching the contract's writer and `harness/adapter-convergence.mjs`.
  * `Array.sort`'s default is UTF-16 code units, which disagrees with byte order outside
  * the Basic Multilingual Plane; a column or property id is arbitrary text, so the rule is
- * stated rather than inherited. */
+ * stated rather than inherited.
+ *
+ * UTF-8 byte order is code point order, so this walks code points and encodes nothing:
+ * Node's `Buffer`, used here before, does not exist in the studio's browser worker. A lone
+ * surrogate counts as U+FFFD, the character the UTF-8 encoder writes for it. */
 export function compareBytes(a: string, b: string): number {
-  return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
+  let at = 0;
+  while (at < a.length && at < b.length) {
+    const left = scalarAt(a, at);
+    const right = scalarAt(b, at);
+    if (left !== right) return left < right ? -1 : 1;
+    at += left > 0xffff ? 2 : 1;
+  }
+  return Math.sign(a.length - b.length);
+}
+
+function scalarAt(text: string, at: number): number {
+  const point = text.codePointAt(at) ?? 0;
+  return point >= 0xd800 && point <= 0xdfff ? 0xfffd : point;
 }
 
 /** A record's cells, as the contract document's `values` map, in one place so the two

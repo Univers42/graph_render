@@ -1,7 +1,11 @@
 //! What the integration tests share: a server state built the way the binary builds it, with a
 //! key minted in the test (never committed), a captured log, and one-shot requests through
 //! `tower::ServiceExt::oneshot`.
-#![allow(dead_code, reason = "each test binary uses a part of this module")]
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "each test binary uses a part of this module"
+)]
 
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -16,6 +20,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tower::ServiceExt;
+
+mod child;
+mod documents;
+pub use child::*;
+pub use documents::*;
 
 /// A server under test.
 pub struct Server {
@@ -42,6 +51,13 @@ impl Reply {
         let body: serde_json::Value =
             serde_json::from_slice(&self.body).expect("a JSON error body");
         body["error"].as_str().expect("an error name").to_owned()
+    }
+
+    /// The error body's `message` field.
+    pub fn message(&self) -> String {
+        let body: serde_json::Value =
+            serde_json::from_slice(&self.body).expect("a JSON error body");
+        body["message"].as_str().expect("a message").to_owned()
     }
 
     /// A header as text, `""` when absent.
@@ -80,6 +96,8 @@ pub fn server_with(env: &[(&str, &str)], hooks: Hooks) -> Server {
         "GRAPH_API_KEYS_FILE".into(),
         keys_file.display().to_string(),
     );
+    // The default worker count follows the host's cgroup; a test names its own.
+    vars.insert("GRAPH_WORKERS".into(), "2".into());
     for (name, value) in env {
         vars.insert((*name).to_owned(), (*value).to_owned());
     }
@@ -123,6 +141,13 @@ impl Server {
         let uri = format!("/v1/layout?{query}");
         self.send(self.request("POST", &uri).body(doc.into()).unwrap())
             .await
+    }
+
+    /// `POST /v1/layout?query` declaring `length` bytes, with a body that fails if read.
+    pub async fn declared(&self, query: &str, length: usize) -> Reply {
+        let uri = format!("/v1/layout?{query}");
+        let request = self.request("POST", &uri).header("content-length", length);
+        self.send(request.body(failing_body()).unwrap()).await
     }
 
     /// A request builder carrying the key.
@@ -189,9 +214,24 @@ impl Hold {
         self.held.store(false, Ordering::SeqCst);
     }
 
+    /// A guard that releases on drop. A failed assertion unwinds past `release`, and the
+    /// runtime's drop then waits forever on the blocking threads still held.
+    pub fn release_on_drop(&self) -> Release {
+        Release(Arc::clone(&self.held))
+    }
+
     /// Waits until `count` runs reached the hook.
     pub async fn reached(&self, count: u64) {
         until(|| self.reached.load(Ordering::SeqCst) >= count).await;
+    }
+}
+
+/// Releases a [`Hold`] when dropped.
+pub struct Release(Arc<AtomicBool>);
+
+impl Drop for Release {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -206,55 +246,4 @@ pub async fn until(done: impl Fn() -> bool) {
         );
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-}
-
-/// A studio ingest document of `n` nodes and `m` edges, no loop and no repeated pair while
-/// `m <= n * (n - 1) / 2` in the first `n / 2` offsets.
-pub fn doc(n: usize, m: usize) -> String {
-    let node = |i: usize| {
-        format!(
-            r#"{{"id":"n{i}","kind":"record","database_id":null,"source":"t","label":"N{i}","group":null,"weight":1.0,"version":0.0,"has_note":false,"icon":null}}"#
-        )
-    };
-    let edge = |e: usize| {
-        let (from, offset) = (e % n, 1 + e / n);
-        let to = (from + offset) % n;
-        format!(
-            r#"{{"id":"e{e}","source":"n{from}","target":"n{to}","kind":"relation","label":"","strength":0.5,"directed":false,"record_id":null,"child_first":false}}"#
-        )
-    };
-    let nodes: Vec<String> = (0..n).map(node).collect();
-    let edges: Vec<String> = (0..m).map(edge).collect();
-    format!(
-        r#"{{"version":1,"nodes":[{}],"edges":[{}]}}"#,
-        nodes.join(","),
-        edges.join(",")
-    )
-}
-
-/// A committed fixture, by its path under the repository root.
-pub fn fixture(path: &str) -> Vec<u8> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    std::fs::read(root.join(path)).unwrap_or_else(|_| panic!("fixture {path}"))
-}
-
-/// A body whose first read is an error.
-pub fn failing_body() -> Body {
-    let chunk: Result<Bytes, std::io::Error> = Err(std::io::Error::other("read"));
-    Body::from_stream(futures_util::stream::iter([chunk]))
-}
-
-/// A chunked body (no `Content-Length`) of `count` chunks of `size` bytes, `pause` apart.
-pub fn chunked(size: usize, count: usize, pause: Duration) -> Body {
-    let chunks = futures_util::stream::unfold(0, move |sent| async move {
-        if sent == count {
-            return None;
-        }
-        if !pause.is_zero() {
-            tokio::time::sleep(pause).await;
-        }
-        let chunk: Result<Bytes, std::io::Error> = Ok(Bytes::from(vec![b' '; size]));
-        Some((chunk, sent + 1))
-    });
-    Body::from_stream(chunks)
 }

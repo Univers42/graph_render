@@ -1,4 +1,4 @@
-use super::{ConfigError, PER_SLOT_BYTES, Settings, default_workers, start_line};
+use super::{BASE_BYTES, ConfigError, PER_SLOT_BYTES, Settings, default_workers, start_line};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 
@@ -72,13 +72,28 @@ fn origins_are_a_trimmed_comma_list() {
 #[test]
 fn default_workers_is_the_smaller_of_cores_and_memory_slots() {
     assert_eq!(default_workers(8, None), 8);
-    assert_eq!(default_workers(8, Some(2 * PER_SLOT_BYTES + 1)), 2);
-    assert_eq!(default_workers(2, Some(64 * PER_SLOT_BYTES)), 2);
     assert_eq!(
-        default_workers(8, Some(PER_SLOT_BYTES / 2)),
-        1,
-        "never zero"
+        default_workers(8, Some(BASE_BYTES + 2 * PER_SLOT_BYTES + 1)),
+        2
     );
+    assert_eq!(default_workers(2, Some(64 * PER_SLOT_BYTES)), 2);
+    assert_eq!(default_workers(8, Some(PER_SLOT_BYTES - 1)), 0);
+    assert_eq!(default_workers(8, Some(8 << 30)), 1, "8 GiB holds one slot");
+    assert_eq!(
+        default_workers(64, Some(64 << 30)),
+        14,
+        "the doc's 64 GiB row"
+    );
+}
+
+#[test]
+fn memory_under_one_slot_refuses_the_default_and_not_an_explicit_count() {
+    let unset = |_: &str| None;
+    let refused = super::read_limits(&super::Env(&unset), Some(PER_SLOT_BYTES - 1));
+    assert_eq!(refused.map_err(|e| e.name), Err("GRAPH_WORKERS"));
+    let one = |name: &str| (name == "GRAPH_WORKERS").then(|| OsString::from("1"));
+    let limits = super::read_limits(&super::Env(&one), Some(PER_SLOT_BYTES - 1));
+    assert_eq!(limits.map(|l| l.workers), Ok(1));
 }
 
 #[test]

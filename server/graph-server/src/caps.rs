@@ -2,19 +2,17 @@
 //! than the cap of its layout, or of its POST pass, is a 413 `IngestTooLarge` before anything
 //! runs. One row per registered id, `id<TAB>cap_n<TAB>cap_m`; `0 0` means no size fits.
 //!
-//! Caveat: the table is a placeholder, not a measurement. svc-caps measures the real caps into
-//! `docs/measurements/service-caps.tsv` (same format); until it lands, `caps.placeholder.tsv`
-//! holds layouts at `min(scale_ceiling, 1000)` nodes and 4 edges per node, and POST passes at
-//! 1000 nodes and `min(scale_ceiling, 4000)` edges. It refuses graphs a slot could run, and it
-//! can still admit a graph whose run outlasts `GRAPH_TIMEOUT_MS` on a slow host. Switch the
-//! `include_str!` below when the measured file lands.
+//! The table is `docs/measurements/service-caps.tsv`, measured by `scripts/caps-ladder.sh`.
+//! Caveat: one machine under load, not a bound. A slower host can still run past
+//! `GRAPH_TIMEOUT_MS` at the cap (a 503), and a cap of a million nodes is never reached under
+//! the default 64 MiB `GRAPH_MAX_BODY`, which binds first: a 413 `IngestTooLarge` naming the body, before ingest.
 
 use crate::breaks;
 use crate::error::ApiError;
 use std::collections::BTreeMap;
 
 /// The committed table.
-const TABLE: &str = include_str!("../caps.placeholder.tsv");
+const TABLE: &str = include_str!("../../../docs/measurements/service-caps.tsv");
 /// The table's first line.
 const HEADER: &str = "id\tcap_n\tcap_m";
 

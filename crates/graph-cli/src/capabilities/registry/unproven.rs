@@ -68,6 +68,11 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // Different but not worse than the exact dense sum, by the stress record
         // (`graph-cli` `stress/fa2.rs`); a picture of its own, so never `gated` on a hash alone.
         "layout.forceatlas2.barnes_hut" => Some(("stress", Status::Implemented)),
+        // `stress`, and **not** `oracle-fa2`, because that record is a differential against
+        // networkx's own `forceatlas2_layout` — which is this layout's *sibling*
+        // (`layout.forceatlas2`), not this layout. This layout's own oracle is the
+        // SciGraphs FORCEATLAS2 conformance row.
+        "layout.forceatlas2.forcesim" => Some(("stress", Status::Implemented)),
         // Ponytail: no differential exists for SciGraphs' own multilevel layout; the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         // (Graphviz's `sfdp` is a different algorithm and has its own differential below.)
@@ -181,7 +186,14 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // stage, not the comparison. Deliberately NOT `oracle-closed-form`: that is
         // `layout.bipartite`'s record, and it covers networkx's two columns, none of the two
         // rings this row draws.
-        "layout.bipartite_3d" => Some(("scigraphs-conformance", Status::Implemented)),
+        //
+        // `layout.spectral3d` and `layout.mds.pivot3d` stand on the same record for the same
+        // reason: they are SciGraphs' `SPECTRAL_3D` and `MDS_3D` rows of that gate, and
+        // `harness/oracle-spectral.py` pins only the 2D ids. They used to fall through to
+        // `roundtrip`, which has no hand oracle for them and records neither.
+        "layout.bipartite_3d" | "layout.spectral3d" | "layout.mds.pivot3d" => {
+            Some(("scigraphs-conformance", Status::Implemented))
+        }
         // **The same record as `layout.force.spring`, deliberately.** They are one
         // algorithm at two dimensions over one kernel (`spring3d.rs` is `spring.rs` with
         // `D = 3`), so one stress-ratio measurement run at `dim = 3` is the comparison

@@ -1,0 +1,175 @@
+{
+  "collections": [
+    {
+      "fields": [
+        {
+          "id": "blocks",
+          "link": {
+            "cardinality": "many",
+            "collection": "task",
+            "symmetric": false
+          },
+          "name": "Blocks",
+          "role": "link"
+        },
+        {
+          "id": "body",
+          "link": null,
+          "name": "Body",
+          "role": "scalar"
+        },
+        {
+          "id": "effort",
+          "link": null,
+          "name": "Effort",
+          "role": "weight"
+        },
+        {
+          "id": "labels",
+          "link": null,
+          "name": "Labels",
+          "role": "tags"
+        },
+        {
+          "id": "name",
+          "link": null,
+          "name": "Name",
+          "role": "title"
+        },
+        {
+          "id": "slug",
+          "link": null,
+          "name": "Slug",
+          "role": "label"
+        },
+        {
+          "id": "state",
+          "link": null,
+          "name": "State",
+          "role": "group"
+        },
+        {
+          "id": "up",
+          "link": null,
+          "name": "Up",
+          "role": "parent"
+        }
+      ],
+      "id": "task",
+      "name": "Tasks",
+      "titleField": "name"
+    },
+    {
+      "fields": [
+        {
+          "id": "name",
+          "link": null,
+          "name": "Name",
+          "role": "title"
+        },
+        {
+          "id": "reports_to",
+          "link": null,
+          "name": "Reports to",
+          "role": "parent"
+        }
+      ],
+      "id": "person",
+      "name": "People",
+      "titleField": "name"
+    }
+  ],
+  "records": [
+    {
+      "collection": "task",
+      "deleted": false,
+      "id": "t1",
+      "updatedAt": 1700000001,
+      "values": {
+        "body": "long text nobody reads",
+        "effort": 3,
+        "labels": [
+          "docs",
+          "p0"
+        ],
+        "name": "Write the contract",
+        "slug": "write-the-contract",
+        "state": "doing"
+      }
+    },
+    {
+      "collection": "task",
+      "deleted": false,
+      "id": "t2",
+      "updatedAt": 1700000002,
+      "values": {
+        "blocks": [
+          "t3"
+        ],
+        "effort": 5,
+        "labels": [
+          "p0"
+        ],
+        "name": "Ship the adapters",
+        "slug": "ship-the-adapters",
+        "state": "doing",
+        "up": [
+          "t1"
+        ]
+      }
+    },
+    {
+      "collection": "task",
+      "deleted": false,
+      "id": "t3",
+      "updatedAt": 1700000003,
+      "values": {
+        "effort": 8,
+        "labels": [
+          "p0",
+          "graph"
+        ],
+        "name": "Prove convergence",
+        "slug": "prove-convergence",
+        "state": "todo",
+        "up": [
+          "t2"
+        ]
+      }
+    },
+    {
+      "collection": "task",
+      "deleted": true,
+      "id": "t4",
+      "updatedAt": 1700000004,
+      "values": {
+        "name": "Retired task",
+        "slug": "retired-task",
+        "state": "done"
+      }
+    },
+    {
+      "collection": "person",
+      "deleted": false,
+      "id": "p1",
+      "updatedAt": 1700000010,
+      "values": {
+        "name": "Ada"
+      }
+    },
+    {
+      "collection": "person",
+      "deleted": false,
+      "id": "p2",
+      "updatedAt": 1700000011,
+      "values": {
+        "name": "Grace",
+        "reports_to": [
+          "p1"
+        ]
+      }
+    }
+  ],
+  "source": "lib",
+  "version": 1
+}

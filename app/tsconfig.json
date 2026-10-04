@@ -1,9 +1,9 @@
 {
-  "//": "The host and everything it bundles. The packages are checked again, more strictly, with their own tsconfig; here the flags are the ones the motor's SDK sources pass.",
+  "//": "The host and everything it bundles. The packages are checked again, more strictly, with their own tsconfig; here the flags are the ones the motor's SDK sources pass. `lib` is ES2024, matching crates/graph-sdk-js/tsconfig.json, because `src/main.ts` reaches `motor/local.ts` and so the SDK's encoder — which refuses a lone surrogate with the ES2024 String.prototype.isWellFormed. `target` stays ES2022: that is what the bundle is emitted for.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable", "WebWorker"],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
