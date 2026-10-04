@@ -41,6 +41,19 @@ pub enum Layout {
     ParticleMesh,
 }
 
+/// Which reader a stream run appends each batch through.
+///
+/// `Json` is the default, so every command that was valid before `--path` exists still means
+/// what it meant; `--path columns` is the same measurement over the columnar batch
+/// (`docs/decisions/extend-columns.md`).
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum BatchPath {
+    /// The provisional ingest JSON, read and appended by `service::extend`.
+    Json,
+    /// The same records re-encoded as a `GMX1` batch, appended by `service::extend_columns`.
+    Columns,
+}
+
 /// What one `graph-cli tick` invocation measures.
 #[derive(clap::Args)]
 pub struct Plan {
@@ -96,6 +109,16 @@ pub struct Plan {
     /// Stream mode: replay the stream file written by `--emit`.
     #[arg(long, value_name = "PATH")]
     pub from: Option<PathBuf>,
+    /// Stream mode: the reader each replayed batch is appended through. `json` — the default,
+    /// so every existing command means what it did — reads the line and appends it as the
+    /// provisional ingest JSON; `columns` reads the same line, re-encodes the records as a
+    /// `GMX1` batch and appends that, so the timed half is the append alone on both paths.
+    /// An unknown value is refused by the parse, with a non-zero exit.
+    ///
+    /// Caveat: the read and the encode are outside both timers, so `--path columns` measures
+    /// what a host that already holds a columnar batch pays — not what encoding one costs.
+    #[arg(long, value_enum, default_value_t = BatchPath::Json)]
+    pub path: BatchPath,
 }
 
 /// The table's header, printed once above the row.

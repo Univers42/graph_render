@@ -52,6 +52,31 @@ What refuses the whole batch, with nothing changed:
 These are C12's rules, applied to the cumulative graph. A graph grown by valid batches is therefore
 the graph `index_model` builds from all the records in order, with nothing dropped.
 
+### The same batch in columns (`GMX1`)
+
+A batch may also arrive as a **columnar document** — the format of
+`docs/contract/ingest-columns.md`, under its own magic `0x31584D47` (`"GMX1"`) — and be appended
+through `gm_graph_extend_columns`. Same records, same refusals, same resulting topology: the
+`extend_columns_matches_extend` test is that claim, over the seeded stream, judged on the topology
+stage's bytes.
+
+One rule differs, and only one. In a whole columnar **document** an edge endpoint is a **node row
+number**; in a `GMX1` **batch** it is a **required string index naming a node id**, because a
+batch's edge may point at a node the graph already holds and a dense row is an internal index that
+never crosses the wire. So:
+
+- an endpoint cell that is `u32::MAX`, or an index past the string table, is refused as
+  `ColumnsInvalid` (a document's `EndpointRow` refusal has no meaning here);
+- an endpoint naming no node of the graph and none of the batch is refused as a dangling endpoint,
+  the same rule the JSON path refuses;
+- the endpoints' rows are resolved **before the first intern**, so a refused batch has claimed no
+  id and no arena slot — the validate-then-mutate rule above, not a second one.
+
+The two formats are not interchangeable: a `GMC1` document handed to `gm_graph_extend_columns`, or
+a `GMX1` batch handed to `gm_build_columns`, is `ColumnsInvalid` rather than a graph built from
+dense rows. `graph_wasm::columns_batch` is the writer both the tests and the benches use, so a
+measurement and a gate digest are taken over one encoder's bytes.
+
 ## The motor: two operations
 
 ### `Topology::extend(&mut self, nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<(), ExtendError>`
@@ -134,23 +159,32 @@ gives today, but every row pays a 12 B span against `Csr`'s 4 B offset, grown or
 (`docs/decisions/delta-abi.md`, "Memory"). Every reader of `SimpleGraph::rows` keeps `row()` and `rows()`
 unchanged.
 
-## The wasm ABI: two exports
+## The wasm ABI: three exports
 
 | export | signature | notes |
 |---|---|---|
 | `gm_graph_extend` | `(graph: u32, ptr: u32, len: u32) -> u32` | `(ptr, len)` is a live `gm_alloc` buffer holding one batch (C5). It is copied, never freed (C7). Returns `1` when appended, `0` on refusal: `InvalidHandle`, `BuildSourceInvalid` (the buffer is not a live allocation, as `gm_build`), `IngestInvalid` or `IngestTooLarge`. On success it clears the handle's snapshot and geometry, so the next read is `NoGeometryYet` until a `gm_run`, and every column address read from that handle before is invalid. |
+| `gm_graph_extend_columns` | `(graph: u32, ptr: u32, len: u32) -> u32` | **Additive**, and the same buffer contract and the same C4/C7 invalidation as `gm_graph_extend`. `(ptr, len)` holds one `GMX1` batch (the section above). Returns `1` when appended, `0` on refusal: `InvalidHandle`, `BuildSourceInvalid`, `IngestTooLarge` on the length before any byte is decoded, then `ColumnsInvalid` for a format fault **and** for a graph fault. A refusal leaves the topology unchanged. |
 | `gm_force_session_grow` | `(session: u32, graph: u32) -> u32` | Absorbs what `graph` gained since the session last saw it. Returns `1`, or `0` on refusal: `InvalidSession` (as every `gm_force_session_*` call), `InvalidHandle`, and `SessionRefused` when `graph` is not the graph the session was created over or has fewer nodes or edges than it absorbed. Every column address read from the session before is invalid: its columns may have moved. |
 
+- The two extend exports give **different codes for the same logical refusal**. A repeated id or a
+  dangling endpoint is `IngestInvalid` through `gm_graph_extend` and `ColumnsInvalid` through
+  `gm_graph_extend_columns`, because `ColumnsInvalid`'s published meaning is already "the columnar
+  path refused this buffer", stated in both clauses, while `IngestInvalid` means "text that is not
+  JSON or is JSON of the wrong shape" and would send a host looking for a bad member in a binary
+  document. A host that swaps one call for the other therefore loses its error handling unless it
+  reads both rows — the SDK's `BuildRefusedError` against `ColumnsRefusedError` is where that lands
+  (`docs/contract/wasm-abi.md`, "Errors").
 - The session records its graph id at `gm_force_session_create`. Graph ids are never reissued (C6), so
   a recorded id cannot alias a later graph. A released graph refuses with `InvalidHandle`.
 - No new error code. Codes 20 to 23 are being claimed by other branches, so reusing the existing ones
   avoids a renumbering.
 - `gm_abi_version` stays 2. Adding an export changes no signature, no code's meaning and no
-  document version (`crates/graph-wasm/src/lib.rs:132-136`, `wasm-abi.md:31`). The two exports add
+  document version (`crates/graph-wasm/src/lib.rs:132-136`, `wasm-abi.md:31`). The exports add
   invalidation events to C7, but a host that never calls them sees no change. P4b writes that rule
   into `wasm-abi.md`'s version line and C7. It also rewrites the comments that promise a fixed
   topology or never-resized session columns: `graph-wasm/src/handle.rs:24-28`,
-  `graph-wasm/src/session.rs:198-205` and `barnes_hut/link.rs:30-31`. The SDK adds both names to
+  `graph-wasm/src/session.rs:198-205` and `barnes_hut/link.rs:30-31`. The SDK adds the names to
   `EXPORT_NAMES` (`crates/graph-sdk-js/src/wasm.ts:60-71`), so a module built before them is refused
   by name at load.
 - These are the plan's `gm_force_session_apply`, split in two. Extending is a graph operation and
@@ -208,5 +242,5 @@ unchanged.
 - **Lenient batches.** A batch is strict. A host that wants first-wins dedup filters its batch first.
 - **Renderer append.** The renderer still takes whole snapshots. Drawing new elements between
   structure snapshots needs an append path in `packages/graph-render`, which a peer owns.
-- **Ingest contract batches.** Only the provisional v1 shape is read. `gm_build_contract`'s format
-  has no extend path.
+- **Ingest contract batches.** Only the provisional v1 shape and the `GMX1` batch have an extend
+  path. `gm_build_contract`'s format has none.

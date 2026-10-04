@@ -19,6 +19,8 @@ use std::collections::BTreeSet;
 
 type Records = (Vec<NodeRecord>, Vec<EdgeRecord>);
 
+mod columns;
+
 /// The gate's model for `seed` cut after node `kept`: the base holds the first `kept` nodes and
 /// every edge between them, the batch the rest, both in model order.
 fn split(seed: u32, count: u32, kept: usize) -> (Records, Records) {

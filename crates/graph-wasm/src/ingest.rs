@@ -26,8 +26,10 @@ use graph_core::{EdgeRecord, NodeRecord};
 use graph_core::{EdgeKind, NodeKind};
 
 mod at;
-// Only `gm_build_columns` reads it, and the exports are wasm32-only (C21 in `lib.rs`).
-#[cfg(any(test, target_arch = "wasm32"))]
+// Only `gm_build_columns` reads it, and the exports are wasm32-only (C21 in `lib.rs`) — but
+// `service::extend_columns` is the native façade's, and the force-gate's columns arm and
+// `tick --path columns` call that natively, so this module is ungated for the same reason
+// `contract` and `errors` are (C21 in `lib.rs`).
 pub mod columns;
 mod element;
 mod ids;

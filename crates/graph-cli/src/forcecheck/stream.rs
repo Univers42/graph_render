@@ -23,8 +23,9 @@ use super::TICKS;
 use crate::hashgate::compare::Arm;
 use crate::hashgate::knob::Setting;
 use crate::runner::sha256_hex;
+use graph_core::Topology;
 use graph_core::layout::force::ForceSession;
-use graph_wasm::service::{self, Source};
+use graph_wasm::service::{self, Code, Source};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -32,6 +33,40 @@ use std::process::ExitCode;
 /// report that named one stage id for both would say a divergence was in a stage it was not
 /// run in. Written in `stream-arm.mjs` too, and `tests.rs` holds the pair still together.
 pub const STREAM_STAGE: &str = "force.session.stream";
+
+/// How this process appends its batches, chosen by the caller through this environment
+/// variable. Not a flag: the hidden subcommand's declaration is this crate's `command.rs`, and
+/// adding a fifth arm must not edit it — the stage already selects behaviour through the
+/// environment for [`Setting`]. Anything but `json` or `columns` is refused by name, so a typo
+/// cannot quietly make an arm the JSON one.
+pub const ROUTE_ENV: &str = "GM_STREAM_PATH";
+
+/// Which reader this arm appends a batch through. Both leave the same topology, which is what
+/// makes the stage's comparison the judge of the columns path rather than of the two writers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    /// The provisional ingest JSON, through `service::extend` — the path the wasm arms drive.
+    Json,
+    /// The same records as a `GMX1` batch, through `service::extend_columns`.
+    Columns,
+}
+
+/// `value` as a [`Route`]. `None` is the JSON path, so every existing command means what it
+/// did. Split from [`route`] so the parse is testable without the environment.
+pub fn parse_route(value: Option<&str>) -> Result<Route, String> {
+    match value {
+        None | Some("json") => Ok(Route::Json),
+        Some("columns") => Ok(Route::Columns),
+        Some(other) => Err(format!(
+            "{ROUTE_ENV}: {other:?} is not one of json, columns"
+        )),
+    }
+}
+
+/// This process's [`Route`], from [`ROUTE_ENV`].
+pub fn route() -> Result<Route, String> {
+    parse_route(std::env::var(ROUTE_ENV).ok().as_deref())
+}
 
 /// The fixtures, in the order both arms walk them. The same list `emit-stream-fixtures`
 /// writes, so a fixture added there without a line here is a file nothing reads — and the
@@ -68,14 +103,15 @@ pub fn fixture_path(name: &str) -> PathBuf {
 /// Body of the hidden `force-gate-stream-arm` subcommand: one native pass over every
 /// fixture, one line per batch.
 pub fn arm() -> ExitCode {
-    let setting = match super::env_setting() {
-        Ok(setting) => setting,
-        Err(err) => {
-            eprintln!("force-gate-stream-arm: {err}");
-            return ExitCode::from(2);
-        }
-    };
-    match arm_lines(&setting) {
+    let (setting, route) =
+        match super::env_setting().and_then(|setting| route().map(|route| (setting, route))) {
+            Ok(pair) => pair,
+            Err(err) => {
+                eprintln!("force-gate-stream-arm: {err}");
+                return ExitCode::from(2);
+            }
+        };
+    match arm_lines(&setting, route) {
         Ok(lines) => {
             print!("{lines}");
             ExitCode::SUCCESS
@@ -87,11 +123,12 @@ pub fn arm() -> ExitCode {
     }
 }
 
-/// Every fixture's lines, in [`FIXTURES`] order, at `setting`'s live parameters.
-pub fn arm_lines(setting: &Setting) -> Result<String, String> {
+/// Every fixture's lines, in [`FIXTURES`] order, at `setting`'s live parameters and over
+/// `route`'s reader.
+pub fn arm_lines(setting: &Setting, route: Route) -> Result<String, String> {
     let mut out = String::new();
     for name in FIXTURES {
-        out.push_str(&fixture_lines(setting, name)?);
+        out.push_str(&fixture_lines(setting, name, route)?);
     }
     Ok(out)
 }
@@ -110,7 +147,7 @@ pub fn arm_lines(setting: &Setting) -> Result<String, String> {
 /// arm is behind it stays behind: every later batch is skipped too, the session keeps
 /// stepping and the gate reports the batch where the arms first differed, which is the one
 /// the control named. The wasm arm, which reads no environment variable, keeps every batch.
-fn fixture_lines(setting: &Setting, name: &str) -> Result<String, String> {
+fn fixture_lines(setting: &Setting, name: &str, route: Route) -> Result<String, String> {
     let docs = documents(name)?;
     let mut topology = service::build(&docs[0], Source::Ingest)
         .map_err(|code| format!("{name} line 0: {}", code.name()))?;
@@ -122,8 +159,8 @@ fn fixture_lines(setting: &Setting, name: &str) -> Result<String, String> {
     for (batch, doc) in docs.iter().enumerate().skip(1) {
         behind = behind || setting.drop_delta() == Some(batch as u32);
         if !behind {
-            service::extend(&mut topology, doc)
-                .map_err(|code| format!("{name} batch {batch}: {}", code.name()))?;
+            append(&mut topology, doc, route)
+                .map_err(|err| format!("{name} batch {batch}: {err}"))?;
             session
                 .grow(&topology)
                 .map_err(|e| format!("{name} batch {batch}: grow refused: {e}"))?;
@@ -132,6 +169,26 @@ fn fixture_lines(setting: &Setting, name: &str) -> Result<String, String> {
         out.push_str(&line(name, batch as u32, &super::native::columns(&session)));
     }
     Ok(out)
+}
+
+/// One batch appended through `route`, both through the export's own body so the arms differ
+/// in the append and in nothing else.
+///
+/// The columns route reads the line with **the JSON reader `service::extend` uses** and
+/// re-encodes it, untimed: this stage hashes what the two appends leave behind, and a host's
+/// own batch preparation is not what it is judging. The re-encode is `graph_wasm`'s one writer,
+/// the same `tick --path columns` and the wasm SDK's `encodeBatch` write through.
+fn append(topology: &mut Topology, doc: &[u8], route: Route) -> Result<(), String> {
+    let named = |code: Code| code.name().to_owned();
+    match route {
+        Route::Json => service::extend(topology, doc).map_err(named),
+        Route::Columns => {
+            let (nodes, edges) = graph_wasm::ingest_records(doc)
+                .map_err(|err| format!("the batch line did not read: {err:?}"))?;
+            let batch = graph_wasm::columns_batch(&nodes, &edges);
+            service::extend_columns(topology, &batch).map_err(named)
+        }
+    }
 }
 
 /// One arm's line for `name`'s `batch`: the stage, the fixture, the batch and the digest.

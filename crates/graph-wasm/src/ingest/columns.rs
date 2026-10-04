@@ -7,8 +7,16 @@
 //! across — and it lives here because graph-wasm is the one crate that depends on both
 //! `graph-contract` (which owns the bytes) and `graph-core` (which owns the graph).
 
-use graph_contract::ingest_columns::{self as wire, ColumnsDoc, decode, decode_batch};
-use graph_core::{BatchEdgeCells, EdgeCells, EntryTable, NodeCells, Topology, index_columns};
+use graph_contract::ingest_columns::{self as wire, ColumnsDoc, decode_batch};
+use graph_core::{BatchEdgeCells, EntryTable, NodeCells, Topology};
+
+// `index` is `gm_build_columns`'s body and `edge` its row mapping, so both are compiled only
+// where the exports are (C21): the native build reaches this module for `extend_batch`, which
+// the service façade shares with the force gate and the bench.
+#[cfg(any(test, target_arch = "wasm32"))]
+use graph_contract::ingest_columns::decode;
+#[cfg(any(test, target_arch = "wasm32"))]
+use graph_core::{EdgeCells, index_columns};
 
 use crate::errors::Code;
 
@@ -37,6 +45,7 @@ impl ColumnsError {
 ///
 /// Row `r` becomes dense index `r`, which is what an edge's endpoint rows name — and it only
 /// holds because `index_columns` refuses a repeated id instead of dropping the row.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn index(bytes: &[u8]) -> Result<Topology, ColumnsError> {
     if bytes.len() > crate::ingest::MAX_INGEST_BYTES {
         return Err(ColumnsError::TooLarge);
@@ -126,6 +135,7 @@ fn node(c: wire::NodeCells) -> NodeCells {
     }
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
 fn edge(c: wire::EdgeCells) -> EdgeCells {
     EdgeCells {
         id: c.id,
