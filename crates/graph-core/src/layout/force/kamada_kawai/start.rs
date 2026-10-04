@@ -16,7 +16,7 @@ const MAX_DIM: usize = 3;
 /// zero by [`super::solve`]'s guard, and the layout never leaves the plane: the 3D arm would
 /// have answered with a z column of zeros.
 pub(super) fn circle_start(n: usize, dim: usize) -> Vec<[f64; MAX_DIM]> {
-    let radius = 0.36 * libm::sqrt(n as f64);
+    let radius = 0.36 * f64::sqrt(n as f64);
     if dim == 2 {
         return ring(n, radius);
     }
@@ -44,11 +44,11 @@ fn ring(n: usize, radius: f64) -> Vec<[f64; MAX_DIM]> {
 /// minimum, and the differential compares stress rather than coordinates — and the escape
 /// hatch is `sphere`'s formula, which is one line to change.
 fn sphere(n: usize, radius: f64) -> Vec<[f64; MAX_DIM]> {
-    let golden = core::f64::consts::PI * (3.0 - libm::sqrt(5.0));
+    let golden = core::f64::consts::PI * (3.0 - f64::sqrt(5.0));
     (0..n)
         .map(|i| {
             let y = 1.0 - 2.0 * (i as f64 + 0.5) / n as f64;
-            let r = libm::sqrt((1.0 - y * y).max(0.0));
+            let r = f64::sqrt((1.0 - y * y).max(0.0));
             let angle = golden * i as f64;
             [
                 radius * r * libm::cos(angle),
@@ -73,10 +73,10 @@ mod tests {
         let n = 12;
         let start = circle_start(n, 3);
         assert_eq!(start.len(), n);
-        let radius = 0.36 * libm::sqrt(n as f64);
+        let radius = 0.36 * f64::sqrt(n as f64);
         assert!(start.iter().any(|p| p[2] != 0.0), "z is live");
         for p in &start {
-            let r = libm::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+            let r = f64::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
             assert!(
                 (r - radius).abs() < 1e-12,
                 "off the sphere: {r} vs {radius}"
@@ -90,7 +90,7 @@ mod tests {
     fn the_2d_start_is_the_circle_it_always_was() {
         let n = 6;
         let start = circle_start(n, 2);
-        let radius = 0.36 * libm::sqrt(n as f64);
+        let radius = 0.36 * f64::sqrt(n as f64);
         for (i, p) in start.iter().enumerate() {
             let angle = 2.0 * core::f64::consts::PI * i as f64 / n as f64;
             assert!((p[0] - radius * libm::cos(angle)).abs() < 1e-12);

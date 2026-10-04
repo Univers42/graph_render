@@ -70,7 +70,7 @@ fn worst_overlap(geometry: &Geometry, r: f32, margin: f32) -> f32 {
     let mut worst = 0.0f32;
     for i in 0..x.len() {
         for j in i + 1..x.len() {
-            let d = libm::sqrtf((x[i] - x[j]) * (x[i] - x[j]) + (y[i] - y[j]) * (y[i] - y[j]));
+            let d = f32::sqrt((x[i] - x[j]) * (x[i] - x[j]) + (y[i] - y[j]) * (y[i] - y[j]));
             worst = worst.max(r + r + margin - d);
         }
     }
@@ -167,7 +167,7 @@ fn a_point_radius_separates() {
     let mut worst = 0.0f32;
     for i in 0..n {
         for j in i + 1..n {
-            let d = libm::sqrtf((x[i] - x[j]) * (x[i] - x[j]) + (y[i] - y[j]) * (y[i] - y[j]));
+            let d = f32::sqrt((x[i] - x[j]) * (x[i] - x[j]) + (y[i] - y[j]) * (y[i] - y[j]));
             worst = worst.max(2.0 - d);
         }
     }
@@ -196,11 +196,11 @@ fn a_box_layout_is_separated_by_its_circumscribed_radius() {
         panic!("boxes stay boxes");
     };
     // half-diagonal of a 2x2 box
-    let r = libm::sqrtf(2.0);
+    let r = f32::sqrt(2.0);
     let mut worst = 0.0f32;
     for i in 0..n {
         for j in i + 1..n {
-            let d = libm::sqrtf((x[i] - x[j]) * (x[i] - x[j]) + (y[i] - y[j]) * (y[i] - y[j]));
+            let d = f32::sqrt((x[i] - x[j]) * (x[i] - x[j]) + (y[i] - y[j]) * (y[i] - y[j]));
             worst = worst.max(2.0 * r - d);
         }
     }

@@ -96,7 +96,7 @@ fn the_cone_spans_the_radii_and_the_heights_its_docstring_names() {
         "the foot: r = scale/2, z = -scale"
     );
     assert!(
-        (libm::sqrt(x[6] * x[6] + y[6] * y[6]) - 5.0).abs() < 1e-12,
+        (f64::sqrt(x[6] * x[6] + y[6] * y[6]) - 5.0).abs() < 1e-12,
         "the head is at radius scale"
     );
     assert!(
@@ -145,7 +145,7 @@ fn the_turn_count_is_the_references_count_with_its_floor() {
 #[test]
 fn the_floor_lifts_only_the_five_smallest_counts() {
     for n in 6u32..=14 {
-        let raw = libm::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI)).round_ties_even();
+        let raw = f64::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI)).round_ties_even();
         assert_eq!(raw, 2.0, "n={n}: the raw rounded value is already 2");
         assert_eq!(
             super::super::turns(n),
@@ -154,7 +154,7 @@ fn the_floor_lifts_only_the_five_smallest_counts() {
         );
     }
     for n in 1u32..=5 {
-        let raw = libm::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI)).round_ties_even();
+        let raw = f64::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI)).round_ties_even();
         assert_eq!(raw, 1.0, "n={n}: the floor is what lifts this one");
         assert_eq!(super::super::turns(n), 2, "n={n}: floored to 2");
     }

@@ -127,3 +127,25 @@ fn the_model_the_oracle_arm_lays_out_is_the_model_this_arm_lays_out() {
     );
     assert_eq!(topology.edge_count(), 9);
 }
+
+/// The campaign makes the same refusal a `bench` row makes. It used to label and run every
+/// size, and the gate row ran spectral and ForceAtlas2 at 10⁶ until it was killed.
+#[test]
+fn the_campaign_refuses_past_the_ceiling_and_names_what_it_refused() {
+    use super::super::campaign::{refused, report, run};
+    let asked = Plan {
+        sizes: vec![12, 701],
+        layouts: vec!["layout.spectral".into()],
+        ..Plan::for_tests()
+    };
+    let rows = run(&asked).expect("runs");
+    let sizes: Vec<u32> = rows[0].1.iter().map(|s| s.n).collect();
+    assert_eq!(sizes, [12]);
+    let text = report::markdown(&asked, &rows, 16.67);
+    assert!(
+        text.contains("refused n=[701]: past its scale_ceiling of 700"),
+        "{text}"
+    );
+    let spectral = registry::find("layout.spectral").expect("registered");
+    assert!(!refused(&plan(true, false), spectral, 701));
+}

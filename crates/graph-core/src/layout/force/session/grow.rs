@@ -14,7 +14,7 @@
 //! | `link::geometry` over every edge | [`edge_geometry`] over the edges whose degrees moved |
 //! | `Placement` over every row | [`beside_carried`] over the new rows, else the spiral |
 //! | fresh zeroed `vx`, `vy`, `px`, `py` and free pins | the same, pushed for new rows |
-//! | `Mesh::new(rows)` | `Mesh::new(rows)` |
+//! | `Mesh::new(rows)` | [`grow`](crate::layout::force::particle_mesh::Mesh::grow): the same buffers, resized, and the ones keyed on the mesh's side rebuilt only when it moves |
 
 use super::carry::beside_carried;
 use super::{ForceSession, SessionError};
@@ -24,7 +24,6 @@ use crate::index::Topology;
 use crate::layout::force::SimpleGraph;
 use crate::layout::force::barnes_hut::link::edge_geometry;
 use crate::layout::force::barnes_hut::sim::{Sim, spiral_point};
-use crate::layout::force::particle_mesh::Mesh;
 
 impl ForceSession {
     /// This session grown onto `topology`, which must be the topology it is over with
@@ -33,8 +32,10 @@ impl ForceSession {
     ///
     /// Equal, bit for bit, to `self.carry(previous, topology)`: carried rows keep their
     /// position, velocity and pins; new rows start at rest where a carry places them; the
-    /// run keeps its heat, tick count and parameters; a particle-mesh session gets a fresh
-    /// mesh, as a carried one does.
+    /// run keeps its heat, tick count and parameters; a particle-mesh session's mesh is
+    /// resized onto the new row count, which is the carried mesh field for field — the
+    /// buffers a tick overwrites are resized and the ones keyed on the mesh's side are
+    /// rebuilt when it moves.
     ///
     /// Refused, with nothing changed, by [`SessionError::ColumnLength`] (column `grow`) when
     /// `topology` has fewer nodes than the session's rows or fewer edges than it absorbed,
@@ -51,12 +52,14 @@ impl ForceSession {
             absorb(&mut sim.graph, topology, self.absorbed).map_err(SessionError::Capacity)?;
         relink(sim, &touched);
         place(sim, old_rows, rows);
+        // `px`/`py` are the tick's scratch and every layout writes all of them before it
+        // reads any, so only the new rows need a value; a `clear()` here would be an O(n)
+        // write of 16 MB a batch for bytes no tick reads.
         for scratch in [&mut sim.px, &mut sim.py] {
-            scratch.clear();
             scratch.resize(rows as usize, 0.0);
         }
-        if self.mesh.is_some() {
-            self.mesh = Some(Mesh::new(rows));
+        if let Some(mesh) = &mut self.mesh {
+            mesh.grow(rows);
         }
         self.absorbed = topology.edge_count();
         Ok(())

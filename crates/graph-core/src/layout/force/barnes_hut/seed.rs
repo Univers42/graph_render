@@ -45,9 +45,9 @@ pub(super) fn golden_spiral(n: u32) -> (Vec<f64>, Vec<f64>) {
 pub(in crate::layout::force) fn sphere_point(i: u32) -> (f64, f64, f64) {
     let radius = 12.0 * f64::sqrt(f64::from(i) + 1.0);
     let n = f64::from(u16::MAX);
-    let golden = core::f64::consts::PI * (3.0 - libm::sqrt(5.0));
+    let golden = core::f64::consts::PI * (3.0 - f64::sqrt(5.0));
     let y = 1.0 - 2.0 * (f64::from(i) + 0.5) / n;
-    let r = libm::sqrt((1.0 - y * y).max(0.0));
+    let r = f64::sqrt((1.0 - y * y).max(0.0));
     let angle = golden * f64::from(i);
     (
         radius * r * libm::cos(angle),

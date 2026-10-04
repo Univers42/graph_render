@@ -102,7 +102,7 @@ pub(super) fn run_scaled(n: u32, scale: f64) -> Result<Geometry, StageError> {
 /// changes nothing and `turns` would be 2 without it. `round` is half-to-even, which
 /// `floor(x + 0.5)` would not be at an exact `x.5`.
 fn turns(n: u32) -> u32 {
-    let estimate = libm::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI));
+    let estimate = f64::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI));
     estimate.round_ties_even().max(2.0) as u32
 }
 
@@ -137,7 +137,7 @@ fn speed_at(grid: f64, omega: f64, scale: f64) -> f64 {
     let radial = 0.5 * scale;
     let climb = radial * (1.0 + grid) * omega;
     let axial = 2.0 * scale;
-    libm::sqrt(radial * radial + climb * climb + axial * axial)
+    f64::sqrt(radial * radial + climb * climb + axial * axial)
 }
 
 /// `basic.py:50`: a leading `0.0` followed by `cumsum(0.5*(speed[1:] + speed[:-1])*step)`.
