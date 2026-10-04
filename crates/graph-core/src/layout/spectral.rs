@@ -46,6 +46,9 @@ pub(crate) use pack::{pack_component_blocks_3d, pack_components, rescale_to_scal
 use solve::solve_component;
 pub(crate) use width::Width;
 
+mod z_axis;
+pub(crate) use z_axis::{center_z, last_axis};
+
 /// Output dimensionality of the two-dimensional ids. The reference solves 3D
 /// (`dims=3`); [`DIMS_3D`] is that, and the two-dimensional arm ports every one of them.
 pub const DIMS: usize = 2;

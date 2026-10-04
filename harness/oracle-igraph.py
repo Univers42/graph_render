@@ -1,9 +1,22 @@
-"""Differential of the six igraph-family force layouts against python-igraph 0.11.9, run in
+"""Differential of the igraph-family force layouts against python-igraph 0.11.9, run in
 the ge-python-oracle image:
 
   graph-cli emit-igraph-fixtures --seeds 100
   docker run --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-igraph.py target/igraph-fixtures
   graph-cli oracle-igraph
+
+and, for the 3D arms, the same three steps over ``igraph3d``:
+
+  graph-cli emit-igraph3d-fixtures --seeds 100
+  docker run --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-igraph.py target/igraph3d-fixtures
+  graph-cli oracle-igraph3d
+
+**The fixture directory's name is what selects the dimension.** ``igraph`` is the 2D set
+and ``igraph3d`` the 3D one; the two differ in more than the seed's width, so they are two
+runs of this one file rather than one run guessing. In the 3D set every reference call
+carries ``dim = 3`` and the start is an ``[x, y, z]`` triple per node — which is what
+python-igraph's ``seed`` takes in 3D (``igraph_layouts.py:301``) and what SciGraphs' own
+``IGRAPH_FR``/``IGRAPH_KK``/``IGRAPH_DRL`` pass.
 
 Per seed, igraph lays the same graph out from our start positions (`seed=`) where the
 layout takes one; LGL and the reference RNG are otherwise seeded through `random`. Both
@@ -11,8 +24,8 @@ arms are scored by normalised stress against graph distance after the optimal un
 scale, and the recorded worst per layout is max(ours / igraph) over the seeds where `ours`
 was emitted. A layout with no `ours` column has zero cases: graph-cli fails it.
 
-**The metric is two-dimensional, and so is the reference.** `ours` carries `x`/`y` only and
-the score is a stress ratio between two drawings of the same dimension, so `DIMS[name]`
+**In the ``igraph`` set the metric is two-dimensional, and so is the reference.** `ours` carries `x`/`y` only and
+the score is a stress ratio between two drawings of the same dimension, so the `dim` column of `REFERENCES`
 below is `2` for every layout here and is passed explicitly rather than left to igraph's
 own default. SciGraphs' 3-D arms (`igraph_layouts.py:74`, `:99`, `:342`) pass `dim=3`, but
 those are the *3-D* layouts; the 2-D DrL at `:406` passes `dim=2`, which is the one this
@@ -31,7 +44,7 @@ coincidence of a library default: measured identical worst (0.4937) either way.
 Ponytail: stress is not what FR, DrL, LGL or Graphopt optimise, so the ratio is a quality
 floor, not a coordinate agreement; only pairs inside one component are scored, so a
 disconnected graph is judged on its components alone. A reference stress of zero (a graph
-with no scored pair) is skipped, and a ratio uses a 1e-3 floor under igraph's stress (so near-trees where both arms reach ~0 do not divide noise by noise, and a real gap smaller than 1e-3 there is invisible).
+with no scored pair) is skipped, and a ratio uses a 1e-3 floor under igraph's stress (so near-trees where both arms reach ~0 do not divide noise by noise, and a real gap smaller than 1e-3 there is invisible). Stress in 3D is a *different* measurement from stress in 2D, not the same number in a bigger box, which is why the 3D arms carry their own ceilings (``docs/measurements/p12-t4b.md``).
 """
 import json
 import os
@@ -54,18 +67,20 @@ from oracle_common import (  # noqa: E402
 if len(sys.argv) != 2:
     sys.exit("usage: oracle-igraph.py <fixtures-dir>")
 directory = sys.argv[1]
-manifest, digest = read_manifest(directory, "igraph")
-with open(os.path.join(directory, "igraph.jsonl")) as handle:
+# The set's own name is the dimension: `igraph3d` is 3D, anything else is the 2D set.
+NAME = os.path.basename(os.path.normpath(directory)).removesuffix("-fixtures")
+if NAME not in ("igraph", "igraph3d"):
+    sys.exit(f"{NAME}: not an igraph fixture set (want igraph or igraph3d)")
+DIM = 3 if NAME == "igraph3d" else 2
+manifest, digest = read_manifest(directory, NAME)
+with open(os.path.join(directory, f"{NAME}.jsonl")) as handle:
     lines = handle.readlines()
-require_seeds(manifest, lines, "igraph")
+require_seeds(manifest, lines, NAME)
 
 FLOOR = 1e-3
 
-# The width of every drawing this arm compares. `ours` carries `x`/`y` and nothing else, so
-# the stress ratio is only meaningful between two drawings of the same width.
-DIMENSION = 2
-
-# key -> (method name, takes a start layout as `seed`, the `dim` to pass or None)
+# key -> (method name, takes a start layout as `seed`, the 2D set's `dim` or None). The 3D
+# set passes `dim = 3` to the same layouts and lays out only those.
 REFERENCES = {
     "fruchterman_reingold": ("layout_fruchterman_reingold", True, 2),
     "kamada_kawai": ("layout_kamada_kawai", True, 2),
@@ -84,6 +99,10 @@ REFERENCES = {
 # dimensions.
 DIMENSIONLESS = "igraph has no dim parameter for this layout; it is 2-D only"
 
+# The layouts with a 3D arm, hence a 3D igraph counterpart. SciGraphs calls FR, KK and
+# DrL at `'dim': 3` (`igraph_layouts.py:74`, `:99`, `:342`).
+DIM_ARMED = {key for key, (_, _, dim) in REFERENCES.items() if dim is not None}
+
 
 # SciGraphs' Davidson-Harel parameters (`docs/layouts/layout.force.davidson_harel.md`), which
 # our defaults follow; python-igraph's own defaults are density-dependent and anneal longer.
@@ -99,19 +118,19 @@ EXPLICIT = {
 
 
 def reference_layout(graph, key, start, seed):
-    """igraph's own drawing, at the dimensionality this two-dimensional metric needs."""
+    """igraph's own drawing, at the dimensionality of the set's metric."""
     method, takes_start, dim = REFERENCES[key]
     random.seed(seed)
     kwargs = {"seed": start} if takes_start else {}
     if dim is not None:
-        kwargs["dim"] = dim
+        kwargs["dim"] = DIM
     kwargs.update(EXPLICIT.get(key, {}))
     coords = np.array(getattr(graph, method)(**kwargs).coords, dtype=float)
-    # The comparison is `ours` (x/y, 2-D) against the reference under one stress ratio, so a
-    # reference drawing of any other width is refused rather than scored. This is the check
+    # The comparison is `ours` (one column per axis) against the reference under one stress
+    # ratio, so a reference drawing of any other width is refused rather than scored. This is the check
     # that makes `dim` load-bearing here without a silent comparison across dimensions.
-    if coords.shape[1] != DIMENSION:
-        sys.exit(f"{key}: igraph returned {coords.shape[1]} dimensions, want {DIMENSION}")
+    if coords.shape[1] != DIM:
+        sys.exit(f"{key}: igraph returned {coords.shape[1]} dimensions, want {DIM}")
     return coords
 
 
@@ -135,23 +154,44 @@ def normalised_stress(coords, dist):
     if denom <= 0.0:
         return None
     scale = (w * d * e).sum() / denom
-    return finite(float((w * (scale * e - d) ** 2).sum() / w.sum()), "igraph stress")
+    # Not `finite`: a non-finite stress is counted as unscoreable by the caller, not refused.
+    return float((w * (scale * e - d) ** 2).sum() / w.sum())
 
 
-layouts = {key: {"cases": 0, "worst": 0.0, "reference_worst": 0.0} for key in REFERENCES}
+layouts = {
+    key: {
+        "cases": 0, "worst": 0.0, "reference_worst": 0.0,
+        # Seeds where no finite stress ratio exists, split by which side degenerated.
+        "unscoreable": 0, "unscoreable_reference": 0,
+    }
+    for key in (DIM_ARMED if DIM == 3 else REFERENCES)
+}
 for text in lines:
     case = json.loads(text)
     graph = igraph.Graph(n=case["n"], edges=list(zip(case["source"], case["target"])))
     graph.simplify()
     dist = np.array(graph.distances(), dtype=float)
-    start = list(zip(case["initial"]["x"], case["initial"]["y"]))
+    axes = ("x", "y", "z")[:DIM]
+    start = list(zip(*[case["initial_3d" if DIM == 3 else "initial"][a] for a in axes]))
     for key, ours in case["ours"].items():
         theirs = reference_layout(graph, key, start, case["seed"])
         s_ref = normalised_stress(theirs, dist)
-        s_our = normalised_stress(np.column_stack([ours["x"], ours["y"]]).astype(float), dist)
+        s_our = normalised_stress(np.column_stack([ours[a] for a in axes]).astype(float), dist)
         if s_ref is None or s_our is None:
             continue
         row = layouts[key]
+        # A non-finite stress on either side is skipped, and counted. `max()` would drop a
+        # NaN silently and the row would read as if every seed had been compared, which is
+        # the vacuous-pass failure mode: the case is genuinely unscoreable (no finite
+        # uniform scale exists over a coordinate set that is not finite), so skipping it is
+        # honest, but hiding *how many* were skipped is not. Measured at dim=3: igraph's
+        # own 3D KK returns a NaN stress on seed 601 (n=3, a triangle) — the reference
+        # degenerating, not this port, whose stress there is 2.4e-3.
+        if not (np.isfinite(s_ref) and np.isfinite(s_our)):
+            row["unscoreable"] += 1
+            if not np.isfinite(s_ref):
+                row["unscoreable_reference"] += 1
+            continue
         row["cases"] += 1
         # `finite` before the accumulator: `max` is false for a NaN, so a NaN ratio would
         # leave `worst` at its 0.0 initialiser and the layout would report as a perfect match.
@@ -159,14 +199,14 @@ for text in lines:
         row["worst"] = max(row["worst"], ratio)
         row["reference_worst"] = max(row["reference_worst"], s_ref)
 
-require_cases(layouts, tuple(REFERENCES), "igraph")
+require_cases(layouts, tuple(layouts), NAME)
 
 result = {
     "fingerprint": manifest["fingerprint"],
     "sha256": digest,
-    "oracle": f"python-igraph {igraph.__version__} (C core {igraph.__igraph_version__})",
+    "oracle": f"python-igraph {igraph.__version__} (C core {igraph.__igraph_version__}) at dim={DIM}",
     "layouts": layouts,
 }
-with open(os.path.join(directory, "igraph-result.json"), "w") as out:
+with open(os.path.join(directory, f"{NAME}-result.json"), "w") as out:
     json.dump(result, out, indent=1)
 print(json.dumps(layouts))

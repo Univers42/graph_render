@@ -30,6 +30,12 @@ impl Interned {
 /// FNV-1a, 64-bit. A fixed hash, so a map's internal layout — not only its iteration
 /// order — is the same on every run and every target (D4). Not collision-resistant;
 /// nothing here is adversarial.
+///
+/// The integer writer is little-endian, as core's default is not: `write_u32` serialises
+/// with `to_ne_bytes`, so a `u32` key hashed on a big-endian target lands in a different
+/// bucket than the same key on x86_64 or wasm32, and `neighborhood.rs` keys its tables on
+/// `u32`. `to_le_bytes` is the same four bytes core already writes on every little-endian
+/// target, so no table moves here.
 pub struct Fnv1a(u64);
 
 impl Default for Fnv1a {
@@ -43,6 +49,10 @@ impl Hasher for Fnv1a {
         for &byte in bytes {
             self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x100_0000_01B3);
         }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.write(&value.to_le_bytes());
     }
 
     fn finish(&self) -> u64 {
@@ -181,12 +191,17 @@ impl StringArena {
 /// The handle for the string interned at map position `index`. Interning only ever
 /// appends, so the map's insertion order and `spans` are the same order and a
 /// position names its handle (D4).
+///
+/// `index + 1` is checked, not wrapped: `usize::MAX` is a position a `Vec` cannot hold, so
+/// the add would overflow-panic in a debug build on wasm32 before the `try_from` could
+/// refuse it.
 fn handle_at(index: usize) -> Result<Interned, CapacityError> {
     let overflow = CapacityError {
         what: "string arena",
     };
-    u32::try_from(index + 1)
-        .ok()
+    index
+        .checked_add(1)
+        .and_then(|slot| u32::try_from(slot).ok())
         .and_then(NonZeroU32::new)
         .map(Interned)
         .ok_or(overflow)
@@ -197,79 +212,4 @@ fn resolve<'a>(text: &'a str, spans: &[Span], handle: Interned) -> &'a str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn interning_collapses_repeats_and_keeps_first_seen_order() {
-        let mut arena = StringArena::default();
-        let a = arena.intern("group-a").expect("fits");
-        let b = arena.intern("").expect("fits");
-        assert_eq!(arena.intern("group-a"), Ok(a));
-        assert_ne!(a, b);
-        assert_eq!((arena.get(a), arena.get(b)), ("group-a", ""));
-        assert_eq!((arena.len(), arena.byte_len()), (2, 7));
-        assert!(!arena.is_empty() && StringArena::default().is_empty());
-        assert_eq!(size_of::<Option<Interned>>(), 4);
-    }
-
-    #[test]
-    fn find_never_stores_and_tells_near_misses_apart() {
-        let mut arena = StringArena::default();
-        let note = arena.intern("note:1").expect("fits");
-        assert_eq!(arena.find("note:1"), Some(note));
-        assert_eq!(arena.find("NOTE:1"), None);
-        assert_eq!(arena.find("note:"), None);
-        assert_eq!(arena.len(), 1);
-    }
-
-    #[test]
-    fn with_capacity_holds_exactly_what_a_default_arena_holds() {
-        let values = ["group-a", "", "group-b", "group-a", "label:1"];
-        let bytes: usize = values.iter().map(|v| v.len()).sum();
-        let mut sized = StringArena::with_capacity(values.len(), bytes);
-        let mut grown = StringArena::default();
-        assert!(sized.is_empty() && sized.find("group-a").is_none());
-        assert!(sized.text.capacity() >= bytes);
-        assert!(sized.spans.capacity() >= values.len());
-        assert!(sized.lookup.capacity() >= values.len());
-        let handles: Vec<_> = values
-            .iter()
-            .map(|v| {
-                let (a, b) = (sized.intern(v), grown.intern(v));
-                assert_eq!(a, b, "same handle for {v:?}");
-                a
-            })
-            .collect();
-        for (handle, value) in handles.iter().zip(&values) {
-            assert_eq!(sized.get(handle.expect("fits")), *value);
-        }
-        assert_eq!(sized.len(), 4);
-        assert_eq!(sized.len(), grown.len());
-        assert_eq!(sized.byte_len(), grown.byte_len());
-        assert_eq!(sized.find("group-a"), Some(handles[0].expect("fits")));
-        assert_eq!(sized.find("nope"), None);
-    }
-
-    #[test]
-    fn a_capacity_error_names_what_overflowed() {
-        let err = CapacityError {
-            what: "string arena",
-        };
-        let text = "string arena exceeds the u32 index space";
-        assert_eq!(err.to_string(), text);
-        assert_eq!(crate::StageError::Capacity(err).to_string(), text);
-    }
-
-    #[test]
-    fn fnv1a_matches_the_published_64_bit_vectors() {
-        let hash = |bytes: &[u8]| {
-            let mut h = Fnv1a::default();
-            h.write(bytes);
-            h.finish()
-        };
-        assert_eq!(hash(b""), 0xCBF2_9CE4_8422_2325);
-        assert_eq!(hash(b"a"), 0xAF63_DC4C_8601_EC8C);
-        assert_eq!(hash(b"foobar"), 0x8594_4171_F739_67E8);
-    }
-}
+mod tests;

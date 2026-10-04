@@ -1,6 +1,6 @@
 //! The tree repulsion against the dense pair loop it replaces, on the same state.
 
-use super::super::{Fa2Params, Fa2State};
+use super::super::{Fa2Params, Fa2State, MAX_DIM};
 use super::{THETA2, Tree};
 use crate::index::{Topology, index_model};
 use crate::records::build::{edge, node};
@@ -20,19 +20,15 @@ fn graph(n: u32) -> Topology {
 }
 
 /// The repulsion alone on `state`'s current positions: dense when `theta2` is `None`.
+/// `dim` is pinned at 2 throughout this file: the tree arm has no 3D id, so every state
+/// here is the 2D one and the two live axes are the only ones read.
 fn repulsion(state: &mut Fa2State, theta2: Option<f64>) -> Vec<(f64, f64)> {
-    state.ux.fill(0.0);
-    state.uy.fill(0.0);
+    state.u.fill([0.0; MAX_DIM]);
     match theta2 {
         Some(theta2) => state.repel_tree(&mut Tree::default(), theta2),
         None => state.repulsion(),
     }
-    state
-        .ux
-        .iter()
-        .copied()
-        .zip(state.uy.iter().copied())
-        .collect()
+    state.u.iter().map(|row| (row[0], row[1])).collect()
 }
 
 /// `(per-node rms of |approx - exact| / |exact|, total |approx - exact| / total |exact|)`.
@@ -56,7 +52,7 @@ fn settling(n: u32, iterations: u32) -> Fa2State {
         max_iter: iterations,
         ..Fa2Params::default()
     };
-    let mut state = Fa2State::new(&graph(n), params);
+    let mut state = Fa2State::new(&graph(n), params, 2);
     state.run();
     state
 }
@@ -94,12 +90,11 @@ fn a_far_cell_moves_the_force_by_a_few_percent_at_most() {
 #[test]
 fn the_tree_run_is_the_same_twice_and_finite() {
     let run = |_| {
-        let mut state = Fa2State::new(&graph(300), Fa2Params::default()).with_tree();
+        let mut state = Fa2State::new(&graph(300), Fa2Params::default(), 2).with_tree();
         state.run();
-        let (x, y) = state.positions();
-        (x.to_vec(), y.to_vec())
+        state.positions().to_vec()
     };
     let (a, b) = (run(0), run(1));
     assert_eq!(a, b);
-    assert!(a.0.iter().chain(&a.1).all(|v| v.is_finite()));
+    assert!(a.iter().flatten().all(|v| v.is_finite()));
 }

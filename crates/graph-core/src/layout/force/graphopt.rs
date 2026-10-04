@@ -5,11 +5,29 @@
 #[cfg(test)]
 mod tests;
 
-use super::fruchterman_reingold::{sqrt, start_positions};
+use super::fruchterman_reingold::sqrt;
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::rng::Mulberry32;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
+
+/// Uniform in the square of side `sqrt(n)` centred on the origin.
+///
+/// Graphopt's own 2D start, kept local rather than borrowed from
+/// [`super::fruchterman_reingold`]: that one is now `dim`-parameterised and hands back
+/// three-wide positions, and this layout is 2D-only, so sharing it would mean reading the
+/// third slot this kernel never wrote.
+fn square_start(n: usize, seed: u32) -> Vec<[f64; 2]> {
+    let side = sqrt(n as f64);
+    let mut rng = Mulberry32::new(seed);
+    (0..n)
+        .map(|_| {
+            let x = (rng.next_f64() - 0.5) * side;
+            [x, (rng.next_f64() - 0.5) * side]
+        })
+        .collect()
+}
 
 /// Parameters, all at the values SciGraphs takes from the original graphopt.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,7 +84,7 @@ impl Stage for Graphopt {
 
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
         let n = topology.node_count() as usize;
-        let mut pos = start_positions(n, params.seed);
+        let mut pos = square_start(n, params.seed);
         let edges = topology.edges();
         let pairs: Vec<(usize, usize)> = (0..topology.edge_count() as usize)
             .map(|e| (edges.source[e] as usize, edges.target[e] as usize))

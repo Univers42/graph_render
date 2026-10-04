@@ -23,15 +23,21 @@
 //! The session owns its columns; the id is this module's table's, monotonic and never
 //! reissued, released by [`release`]. `column` hands out the *address* of the session's own
 //! `Vec<f64>` — which is why the value lives behind a `Box` in [`Table`], so no later
-//! insert can move it, and why there is no path here that resizes it (see the column
-//! invariant test).
+//! insert can move it. One path resizes it: [`grow`] appends the rows a `gm_graph_extend`
+//! added, which can move the storage, so an address is good until the session's next
+//! `grow` or tick and no longer (see [`column`]).
 
 /// The wire format itself, reachable as `crate::session::params` because the export layer
 /// encodes and decodes the buffer — everything else here is the table and the naming.
 pub(crate) mod params;
 
+mod grow;
 #[cfg(test)]
 mod tests;
+mod warm;
+
+pub use grow::grow;
+pub use warm::create_warm;
 
 /// The parameter buffer's byte length: one `f64` per [`LiveParams`] field, little-endian.
 /// Re-exported from `params` because it is the number the wire's two parameter calls are
@@ -84,7 +90,15 @@ thread_local! {
     /// thread, like `exports::state`'s `HANDLES`: wasm is single-threaded here, and a
     /// `RefCell` borrow panic is the honest failure for a reentrant call rather than a lock
     /// that silently serialises two halves of one tick.
-    static SESSIONS: RefCell<Table<ForceSession>> = const { RefCell::new(Table::new()) };
+    static SESSIONS: RefCell<Table<Live>> = const { RefCell::new(Table::new()) };
+}
+
+/// One live session and the graph handle it was created over: [`grow`] takes only that
+/// graph, since `ForceSession::grow` cannot tell an extension of its topology from another
+/// topology with at least as many rows.
+struct Live {
+    graph: u32,
+    session: ForceSession,
 }
 
 /// The tick a session runs: Barnes-Hut's tree, or the particle mesh's grids
@@ -95,19 +109,29 @@ pub enum Engine {
     ParticleMesh,
 }
 
-/// A session over `topology` at `params`, and the id it answers to.
+/// A session over `topology`, the topology of the graph handle `graph`, at `params`, and
+/// the id it answers to.
 ///
 /// Refused with [`Code::SessionRefused`] when a parameter is out of range — never clamped,
 /// never dropped (`docs/decisions/live-force-session.md`), and never created half-set: a
 /// session that exists is a session whose parameters it will accept.
-pub fn create(topology: &Topology, params: LiveParams, engine: Engine) -> Result<u32, Code> {
+pub fn create(
+    graph: u32,
+    topology: &Topology,
+    params: LiveParams,
+    engine: Engine,
+) -> Result<u32, Code> {
     let session = ForceSession::new(topology, params).map_err(|_| Code::SessionRefused)?;
+    insert(graph, session, engine)
+}
+
+fn insert(graph: u32, session: ForceSession, engine: Engine) -> Result<u32, Code> {
     let session = match engine {
         Engine::BarnesHut => session,
         Engine::ParticleMesh => session.with_particle_mesh(),
     };
     SESSIONS
-        .with(|live| live.borrow_mut().insert(session))
+        .with(|live| live.borrow_mut().insert(Live { graph, session }))
         .ok_or(Code::HandlesExhausted)
 }
 
@@ -195,10 +219,12 @@ pub fn unpin_all(id: u32) -> Result<(), Code> {
 /// `axis` `0` is `x`, `1` is `y`. The two calls mirror `gm_column_ptr`/`gm_column_len`'s
 /// shape rather than inventing a third convention.
 ///
-/// The address is the session's own column, which **no path in this ABI resizes**, so it
-/// stays valid for the session's whole life rather than only until the next call (C7) —
-/// `set_positions`, the only writer that could move a `Vec`'s storage, is reachable solely
-/// from `ForceSession::from_positions`, which this ABI does not export. A host still
+/// The address is the session's own column, good until the session's next
+/// `gm_force_session_grow` or tick (C7): [`grow`] pushes a row per node `gm_graph_extend`
+/// appended, which may move the `Vec`'s storage, and a particle-mesh tick swaps the column
+/// with its scratch. `set_positions`, the other writer that could move it, is reachable
+/// solely from `ForceSession::from_positions`, which this ABI calls only to build a new session
+/// ([`create_warm`]), never on a live one. A host still
 /// treats a view as good only until the next motor call, because a wasm memory growth
 /// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's. An address
 /// or length the wire's `u32` cannot carry is refused with [`Code::IndexOutOfRange`], never
@@ -232,11 +258,16 @@ pub fn release(id: u32) -> Result<(), Code> {
         .ok_or(Code::InvalidSession)
 }
 
-fn with<T>(id: u32, read: impl FnOnce(&ForceSession) -> Result<T, Code>) -> Result<T, Code> {
+/// `read` over session `id`, or [`Code::InvalidSession`]. Crate-visible so the export
+/// layer's tests can read a session's columns as bits.
+pub(crate) fn with<T>(
+    id: u32,
+    read: impl FnOnce(&ForceSession) -> Result<T, Code>,
+) -> Result<T, Code> {
     SESSIONS.with(|live| {
         let live = live.borrow();
-        let session = live.get(id).ok_or(Code::InvalidSession)?;
-        read(session)
+        let entry = live.get(id).ok_or(Code::InvalidSession)?;
+        read(&entry.session)
     })
 }
 
@@ -246,8 +277,8 @@ fn with_mut<T>(
 ) -> Result<T, Code> {
     SESSIONS.with(|live| {
         let mut live = live.borrow_mut();
-        let session = live.get_mut(id).ok_or(Code::InvalidSession)?;
-        write(session)
+        let entry = live.get_mut(id).ok_or(Code::InvalidSession)?;
+        write(&mut entry.session)
     })
 }
 

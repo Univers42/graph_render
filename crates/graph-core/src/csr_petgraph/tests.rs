@@ -51,3 +51,11 @@ fn petgraph_reuse_counts_the_same_weak_component_as_labeling() {
     let g = CsrDigraph::new(&t);
     assert_eq!(petgraph::algo::connected_components(g), 1);
 }
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+#[should_panic(expected = "node index exceeds u32")]
+fn an_index_past_the_u32_space_panics_instead_of_wrapping() {
+    let t = topology();
+    let _ = CsrDigraph::new(&t).from_index(1usize << 32);
+}
