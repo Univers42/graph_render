@@ -42,7 +42,6 @@ mod walk;
 
 use graph_contract::canonical_json::JsonError;
 
-use super::IngestError;
 /// Deepest nesting read, as `graph_contract::canonical_json::parse` reads it.
 pub(super) const MAX_DEPTH: u32 = 32;
 
