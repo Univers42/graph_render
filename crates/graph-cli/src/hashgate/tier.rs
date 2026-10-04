@@ -95,13 +95,18 @@ pub fn arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
 ///
 /// Its lines come from [`crate::hashgate::arm_lines`] split on newlines, the same split the
 /// child-process arms go through, so an arm built in-process and one read off a pipe are
-/// the same list of strings and `compare` cannot tell them apart.
+/// the same list of strings and `compare` cannot tell them apart. The seeds are split over
+/// `std::thread::scope` and merged by [`super::shard::merge`], the same way the child arms'
+/// are: `--tiers all` adds six full recomputes, and running them one after another on one
+/// core is what ran the gate out of wall clock.
 pub fn scalar_arm(seeds: u32) -> Result<Arm, String> {
     let setting = super::env_setting()?;
-    let printed = super::arm_lines(seeds, &setting)?;
     Ok((
         Tier::Scalar.arm_name(),
-        printed.lines().map(str::to_owned).collect(),
+        super::sharded_child(seeds, |shard| {
+            super::arm_lines(seeds, shard, &setting)
+                .map(|printed| printed.lines().map(str::to_owned).collect::<Vec<String>>())
+        })?,
     ))
 }
 
@@ -114,11 +119,17 @@ pub fn scalar_arm(seeds: u32) -> Result<Arm, String> {
 /// grid's gather, and the ring's and the spiral's gather over the shared serial `coords`
 /// merge — and every other stage is already covered by the four base arms. The list itself
 /// lives in `super::tiered::threaded_bytes`'s match, so the two cannot disagree.
+///
+/// Sharded like [`scalar_arm`]: `workers` is the arm's own inner width, and the seeds are
+/// split across `std::thread::scope` threads around it, so an arm is `per_arm() * workers`
+/// threads deep at most — a width the gate already compares at.
 pub fn threads_arm(seeds: u32, workers: u32) -> Result<Arm, String> {
     let setting = super::env_setting()?;
     Ok((
         Tier::Threads(workers).arm_name(),
-        super::threads_lines(seeds, &setting, workers)?,
+        super::sharded_child(seeds, |shard| {
+            super::threads_lines(seeds, shard, &setting, workers)
+        })?,
     ))
 }
 
