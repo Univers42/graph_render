@@ -13,12 +13,58 @@ pub(super) struct Field<'a> {
     pub half_width: f64,
 }
 
+/// One node's move probe: the field, plus the crossings its *current* position already
+/// makes, computed once per position instead of once per candidate move.
+///
+/// The crossings term is the whole cost of this layout — `O(deg(v) * m)` segment tests
+/// per candidate, 30 candidates per node per round, 10 rounds — and half of each test is
+/// the same segment intersection answered again for the position the node is already at.
+/// Only `pos[v]` moves while `v` is being probed, and every edge incident to `v` is
+/// skipped, so that half is constant across the 30 candidates and is recomputed only
+/// after a move is accepted. Same flags in the same order, so the energy is the same
+/// number: this is a cache, not an approximation.
+pub(super) struct Probe<'a> {
+    field: Field<'a>,
+    /// One flag per non-skipped `(neighbour, edge)` pair, in the order [`crossings`] reads
+    /// them, so the reductions run in the order they did before.
+    old: Vec<u8>,
+}
+
+impl<'a> Probe<'a> {
+    /// `field`, with the crossings `v` already makes from `at` read once.
+    pub(super) fn new(field: Field<'a>, v: u32, at: [f64; 2]) -> Self {
+        let mut old = Vec::new();
+        for_each_pair(&field, v, |u, a, b| {
+            old.push(u8::from(cross(at, field.pos[u as usize], field.pos[a as usize], field.pos[b as usize])));
+        });
+        Probe { field, old }
+    }
+}
+
+/// The `(neighbour, edge)` pairs of `v`'s crossings term, in the fixed order every pass
+/// over them must use: `v`'s neighbours in adjacency order, the edge list in its own, and
+/// an edge skipped when either end is `v` or the neighbour.
+fn for_each_pair(field: &Field, v: u32, mut each: impl FnMut(u32, u32, u32)) {
+    for &u in &field.adj[v as usize] {
+        if u == v {
+            continue;
+        }
+        for &(a, b) in field.edges {
+            if a == v || b == v || a == u || b == u {
+                continue;
+            }
+            each(u, a, b);
+        }
+    }
+}
+
 fn d2(a: [f64; 2], b: [f64; 2]) -> f64 {
     ((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1])).max(MIN_D2)
 }
 
-/// Total energy change for node `v` going from `p` to `q`.
-pub(super) fn delta(field: &Field, w: &Weights, v: u32, moves: ([f64; 2], [f64; 2])) -> f64 {
+/// Total energy change for node `v` going from its probed position `p` to `q`.
+pub(super) fn delta(probe: &Probe, w: &Weights, v: u32, moves: ([f64; 2], [f64; 2])) -> f64 {
+    let field = &probe.field;
     let (p, q) = moves;
     let mut e = 0.0;
     if w.node_dist != 0.0 {
@@ -31,7 +77,7 @@ pub(super) fn delta(field: &Field, w: &Weights, v: u32, moves: ([f64; 2], [f64; 
         e += w.edge_lengths * edge_lengths(field, v, p, q);
     }
     if w.edge_crossings != 0.0 {
-        e += w.edge_crossings * crossings(field, v, p, q);
+        e += w.edge_crossings * crossings(probe, v, p, q);
     }
     if w.node_edge_dist != 0.0 {
         e += w.node_edge_dist * node_edge(field, v, p, q);
@@ -71,22 +117,18 @@ fn edge_lengths(field: &Field, v: u32, p: [f64; 2], q: [f64; 2]) -> f64 {
     sum
 }
 
-fn crossings(field: &Field, v: u32, p: [f64; 2], q: [f64; 2]) -> f64 {
+/// Crossings gained minus lost by moving `v` from `p` to `q`: the two reductions run over
+/// the same pairs in the same order as before, the `p` one reading [`Probe::old`] rather
+/// than answering each intersection again.
+fn crossings(probe: &Probe, v: u32, p: [f64; 2], q: [f64; 2]) -> f64 {
+    let field = &probe.field;
     let mut count = 0.0;
-    for &u in &field.adj[v as usize] {
-        if u == v {
-            continue;
-        }
-        let pu = field.pos[u as usize];
-        for &(a, b) in field.edges {
-            if [a, b].contains(&v) || [a, b].contains(&u) {
-                continue;
-            }
-            let (pa, pb) = (field.pos[a as usize], field.pos[b as usize]);
-            count += f64::from(u8::from(cross(q, pu, pa, pb)));
-            count -= f64::from(u8::from(cross(p, pu, pa, pb)));
-        }
-    }
+    let mut old = probe.old.iter();
+    for_each_pair(field, v, |u, a, b| {
+        let (pu, pa, pb) = (field.pos[u as usize], field.pos[a as usize], field.pos[b as usize]);
+        count += f64::from(u8::from(cross(q, pu, pa, pb)));
+        count -= f64::from(*old.next().expect("one flag per pair")));
+    });
     count
 }
 
