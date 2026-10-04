@@ -12,6 +12,22 @@ import { type LiveForce } from "../src/motor/live.ts";
 import { createForceHost } from "../src/motor/liveLoop.ts";
 import type { GraphBatch, Result } from "../src/motor/protocol.ts";
 
+/** The nodes a `deltas-applied` answer carries, or a failure naming what came back instead. */
+function appliedOf(result: Result | undefined): number {
+  if (result === undefined || result.type !== "deltas-applied") {
+    throw new Error(`expected deltas-applied, got ${result?.type ?? "nothing"}`);
+  }
+  return result.applied;
+}
+
+/** The title of a `failed` answer, or a failure naming what came back instead. */
+function failedOf(result: Result | undefined): string {
+  if (result === undefined || result.type !== "failed") {
+    throw new Error(`expected failed, got ${result?.type ?? "nothing"}`);
+  }
+  return result.error.title;
+}
+
 function batch(count: number, tag: string): GraphBatch {
   return {
     nodes: Array.from({ length: count }, (_, at) => ({
@@ -62,9 +78,16 @@ function rig(port: LiveForce, clock = { now: 0 }): Rig {
     schedule: (run) => { next = run; return () => { next = null; }; },
     now: () => clock.now,
     emit: (result) => { emitted.push(result); },
-    structure: async () => null,
+    structure: () => Promise.resolve(null),
   });
   return { host, emitted, tick: () => { const run = next; next = null; run?.(); } };
+}
+
+/** The detail of a refusal, or a failure naming what came back instead. */
+async function failedDetail(host: ReturnType<typeof createForceHost>, one: GraphBatch): Promise<string> {
+  const answer = await host.deltas(one);
+  if (answer.type !== "failed") throw new Error(`expected failed, got ${answer.type}`);
+  return answer.error.detail;
 }
 
 /** Three calls before one tick: three extends, one grow, one reheat, three answers. */
@@ -79,8 +102,7 @@ test("three batches queued before one tick cost three extends, one grow and one 
   tick();
   const settled = await Promise.all(answers);
   assert.deepEqual(fake.calls, ["extend 2", "extend 3", "extend 4", "grow", "reheat 0.3"]);
-  assert.deepEqual(settled.map((one) => one.type), ["deltas-applied", "deltas-applied", "deltas-applied"]);
-  assert.deepEqual(answers.length, 3);
+  assert.deepEqual(settled.map(appliedOf), [2, 3, 4]);
 });
 
 test("every answer carries the nodes of its own batch and the graph's size after the grow", async () => {
@@ -89,12 +111,8 @@ test("every answer carries the nodes of its own batch and the graph's size after
   const answers = [host.deltas(batch(2, "a")), host.deltas(batch(3, "b"))];
   tick();
   const settled = await Promise.all(answers);
-  for (const one of settled) {
-    assert.equal(one.type, "deltas-applied");
-    if (one.type !== "deltas-applied") continue;
-    assert.equal(one.nodeCount, 15);
-  }
-  assert.deepEqual(settled.map((one) => (one.type === "deltas-applied" ? one.applied : -1)), [2, 3]);
+  assert.deepEqual(settled.map(appliedOf), [2, 3]);
+  assert.deepEqual(settled.map((one) => (one as { nodeCount: number }).nodeCount), [15, 15]);
 });
 
 /** The negative control: a refused middle batch answers `failed` and the other two apply. */
@@ -106,10 +124,8 @@ test("a refused middle batch answers failed, and the other two still go in", asy
   const settled = await Promise.all(answers);
   assert.deepEqual(fake.calls, ["extend 2", "extend 3", "extend 4", "grow", "reheat 0.3"]);
   assert.equal(fake.nodes, 16);
-  const refused = settled[1];
-  assert.equal(refused?.type, "failed");
-  if (refused?.type === "failed") assert.equal(refused.error.title, "BuildRefusedError");
-  assert.deepEqual(settled.map((one) => one.type), ["deltas-applied", "failed", "deltas-applied"]);
+  assert.equal(failedOf(settled[1]), "BuildRefusedError");
+  assert.deepEqual(settled.map(appliedOf), [2, 4]);
 });
 
 test("every batch in a burst of refusals is refused, and no grow runs", async () => {
@@ -129,9 +145,7 @@ test("no live session refuses the batch and the graph is untouched", async () =>
     now: () => 0,
     emit: (result) => { emitted.push(result); },
   });
-  const answer = await host.deltas(batch(2, "a"));
-  assert.equal(answer.type, "failed");
-  if (answer.type === "failed") assert.match(answer.error.detail, /live forces need the motor session/);
+  assert.match(failedDetail(host, batch(2, "a")), /live forces need the motor session/);
   assert.deepEqual(emitted, []);
 });
 
@@ -146,7 +160,7 @@ test("the grow ring keeps only the last 1024 entries", async () => {
     now: () => 0,
   });
   for (let tick = 1; tick <= RING_LIMIT + 5; tick += 1) {
-    queue.push(batch(1, `n${tick}`));
+    void queue.push(batch(1, `n${tick}`));
     await queue.drain(tick);
   }
   const marks = queue.grows();

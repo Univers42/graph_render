@@ -203,14 +203,9 @@ export function createRegistry<State, Context>(actions: readonly Action<State, C
 /** The verb a host feature-tests with (`"applyDeltas" in el`, host-api condition 8). */
 export const APPLY_DELTAS = "applyDeltas";
 
-/** An object of named members, which is what a batch of nodes and edges arrives as. */
+/** An object of named members — what a batch of nodes and edges arrives as. */
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function recordOf(value: unknown, at: string): Readonly<Record<string, unknown>> {
-  if (!isRecord(value)) throw bad(at, "must be objects");
-  return value;
 }
 
 function text(record: Readonly<Record<string, unknown>>, name: string, at: string): string {
@@ -239,7 +234,8 @@ function flag(record: Readonly<Record<string, unknown>>, name: string, at: strin
 }
 
 function nodeOf(value: unknown, at: string): DeltaNode {
-  const record = recordOf(value, at);
+  if (!isRecord(value)) throw bad(at, "must be objects");
+  const record = value;
   return {
     id: text(record, "id", at), kind: text(record, "kind", at), database_id: maybeText(record, "database_id", at),
     source: text(record, "source", at), label: text(record, "label", at), group: maybeText(record, "group", at),
@@ -249,7 +245,8 @@ function nodeOf(value: unknown, at: string): DeltaNode {
 }
 
 function edgeOf(value: unknown, at: string): DeltaEdge {
-  const record = recordOf(value, at);
+  if (!isRecord(value)) throw bad(at, "must be objects");
+  const record = value;
   return {
     id: text(record, "id", at), source: text(record, "source", at), target: text(record, "target", at),
     kind: text(record, "kind", at), label: text(record, "label", at), strength: count(record, "strength", at),
@@ -266,7 +263,7 @@ function entriesOf<T extends DeltaNode | DeltaEdge>(value: unknown, name: string
 /**
  * The batch `applyDeltas` takes, checked here where every other value is, and rebuilt member by
  * member: the motor's reader refuses an unknown member, so a host's batch is normalised to the
- * shape it reads rather than passed through and found wanting.
+ * shape it reads.
  */
 export function deltaBatch(raw: unknown): GraphBatch {
   if (!isRecord(raw)) throw bad("batch", "must be an object with a nodes array and an edges array");

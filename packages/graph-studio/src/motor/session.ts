@@ -11,7 +11,7 @@ import { type GraphMeta, metaOf } from "../source/meta.ts";
 import { type Assembler, type Document, documentFor } from "./documents.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
-import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
+import type { ForceEngine, ForceParams, ForcePort, Growable, LiveForce } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphBatch, GraphSummary, RunReport } from "./protocol.ts";
 import { planRun } from "./settle.ts";
@@ -49,7 +49,7 @@ export interface MotorLike<Handle> {
    */
   extend?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
-  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForcePort | null;
+  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): (ForcePort & Growable<Handle>) | null;
 }
 
 export interface SessionDeps<Handle> {
@@ -91,7 +91,7 @@ interface Built<Handle> {
   /** The id table the description was last built against; `null` before the first run. */
   described: Uint8Array | null;
   /** The motor's live session over this graph, made when one is first asked for. */
-  forced: ForcePort | null;
+  forced: (ForcePort & Growable<Handle>) | null;
   /** The port over it, cached so the loop sees one object for one session. */
   port: LiveForce | null;
   /** Node ids in the force session's dense row order; `null` until a layout has run. */
@@ -171,12 +171,11 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 }
 
 /**
- * The live force port over the graph as it is now drawn, or null when there is none.
- *
- * Null rather than a refusal: a force request that arrives before a graph is loaded is "no
- * session yet", which is the same answer as a motor that has none.
+ * The live force port over the graph as it is now drawn, or null when there is none. Null
+ * rather than a refusal: a force request before a graph is loaded is "no session yet", which
+ * is the same answer as a motor that has none.
  */
-function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null): LiveForce | null {
+function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null, deps: SessionDeps<Handle>): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
   built.forced ??= motor.forceSession(built.handle, undefined, built.engine);
@@ -203,7 +202,7 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     grow: () => {
       if (deps.breakDeltas?.() === true) return;
       if (session.grow === undefined) throw new SessionRefusal("this motor's live session cannot grow");
-      session.grow();
+      session.grow(built.handle);
     },
   });
   return built.port;
@@ -296,6 +295,6 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     },
     layout: async (layoutId, postId) => runLayout(ready(), deps, layoutId, postId),
     analysis: (analysisId) => runAnalysis(ready(), deps, analysisId),
-    forces: () => forcesOf(motor, built),
+    forces: () => forcesOf(motor, built, deps),
   };
 }

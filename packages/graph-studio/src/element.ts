@@ -269,7 +269,7 @@ export function defineGraphStudio(options: StudioElementOptions = {}, tag = "gra
       if (send === undefined) throw new Error("this motor client cannot add to a built graph");
       const deltas: Deltas = createDeltas(
         () => (this.#mounted === null ? "the element is not in a document" : null),
-        send,
+        async (batch) => (await send(batch)).applied,
       );
       try {
         return { applied: await deltas.apply(batch) };

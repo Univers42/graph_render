@@ -44,7 +44,7 @@ function cadence(): Cadence {
     reheat: () => undefined,
     alpha: () => 0.1,
     nodeCount: () => 1,
-    structure: async () => report(1),
+    structure: () => Promise.resolve(report(1)),
     emit: (result) => { emitted.push(result); },
     now: () => clock.now,
   });
@@ -89,7 +89,7 @@ test("a burst that ends is drawn at once, without waiting out the cadence", asyn
   await idle(32);
   await at(48);
   assert.equal(queue.rebuilds(), 2);
-  assert.ok(48 < STRUCTURE_MS, "the cadence had not come round");
+  assert.equal(STRUCTURE_MS, 500);
 });
 
 test("a refused rebuild leaves the queue answering and counts nothing extra", async () => {
@@ -100,14 +100,13 @@ test("a refused rebuild leaves the queue answering and counts nothing extra", as
     reheat: () => undefined,
     alpha: () => 0.1,
     nodeCount: () => 1,
-    structure: async () => { throw new Error("RunRefusedError"); },
+    structure: () => Promise.reject(new Error("RunRefusedError")),
     emit: (result) => { emitted.push(result); },
     now: () => 0,
   });
   const answer = queue.push(batch("one"));
   await queue.drain(1);
-  const settled = await answer;
-  assert.equal(settled.type, "deltas-applied");
+  assert.equal((await answer).type, "deltas-applied");
   assert.deepEqual(emitted, []);
   assert.equal(queue.rebuilds(), 1);
 });
@@ -125,6 +124,7 @@ test("a queue whose port has no extend path refuses every batch without queueing
   const answer = await queue.push(batch("one"));
   assert.equal(answer.type, "failed");
   if (answer.type === "failed") assert.match(answer.error.detail, /cannot add to a built graph/);
+  assert.equal(queue.rebuilds(), 0);
   await queue.drain(1);
   assert.deepEqual(queue.grows(), []);
   assert.deepEqual(emitted, []);

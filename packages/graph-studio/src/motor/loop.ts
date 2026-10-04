@@ -56,8 +56,8 @@ export class ForceLoop {
     this.live = live;
     this.deps = deps;
     this.queued = createDeltaQueue({
-      ...(live.extend === undefined ? {} : { extend: live.extend }),
-      ...(live.grow === undefined ? {} : { grow: live.grow }),
+      ...(live.extend === undefined ? {} : { extend: (batch: GraphBatch) => live.extend?.(batch) }),
+      ...(live.grow === undefined ? {} : { grow: () => live.grow?.() }),
       reheat: (alpha) => this.live.reheat(alpha),
       alpha: () => this.alpha,
       nodeCount: () => this.live.positions().xs.length,

@@ -82,14 +82,48 @@ interface Refused {
   readonly error: ShownError;
 }
 
+/**
+ * The structure snapshot's cadence: at most twice a second, and at once when the tick before
+ * this one found nothing queued — that is the burst being over, and there is nothing to wait for.
+ */
+interface Cadence {
+  /** Runs the rebuild if one is due after a burst that landed `landed` batches. */
+  readonly run: (landed: number, wasIdle: boolean) => Promise<void>;
+  readonly count: () => number;
+}
+
+function cadence(deps: QueueDeps): Cadence {
+  let done = 0;
+  let last = Number.NEGATIVE_INFINITY;
+  let building = false;
+  const push = (run: RunReport): void => deps.emit({ type: "deltas-structure", run }, [run.bytes.buffer]);
+  const due = (landed: number, wasIdle: boolean): boolean => landed > 0
+    && (deps.now() - last >= STRUCTURE_MS || wasIdle);
+  return {
+    run: async (landed, wasIdle) => {
+      if (deps.structure === undefined || building || !due(landed, wasIdle)) return;
+      building = true;
+      last = deps.now();
+      done += 1;
+      try {
+        const run = await deps.structure();
+        if (run !== null) push(run);
+      } catch {
+        // A refused rebuild leaves the snapshot the page already has; the next batch tries again.
+      } finally {
+        building = false;
+      }
+    },
+    count: () => done,
+  };
+}
+
 export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
   const pending: Queued[] = [];
   const ring: GrowMark[] = [];
-  let rebuilds = 0;
-  let lastStructure = Number.NEGATIVE_INFINITY;
   /** Whether the tick before this one found nothing queued: the burst that just landed is over. */
   let drainedLast = true;
-  let building = false;
+  const snapshots = cadence(deps);
 
   const extendAll = (burst: readonly Queued[]): (Applied | Refused)[] => burst.map((queued) => {
     try {
@@ -105,29 +139,6 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
       ? { type: "failed", error: one.error }
       : { type: "deltas-applied", applied: one.applied, nodeCount });
   };
-
-  /**
-   * Why a rebuild is due now: the cadence has come round, or the burst that just landed is the
-   * last one — nothing was queued for the tick before, so nothing more is on its way and the
-   * nodes can be drawn at once instead of waiting out the cadence.
-   */
-  const due = (landed: number, wasIdle: boolean): boolean => landed > 0
-    && (deps.now() - lastStructure >= STRUCTURE_MS || wasIdle);
-
-  async function rebuild(): Promise<void> {
-    if (deps.structure === undefined || building) return;
-    building = true;
-    lastStructure = deps.now();
-    rebuilds += 1;
-    try {
-      const run = await deps.structure();
-      if (run !== null) deps.emit({ type: "deltas-structure", run }, [run.bytes.buffer]);
-    } catch {
-      // A refused rebuild leaves the snapshot the page already has; the next batch tries again.
-    } finally {
-      building = false;
-    }
-  }
 
   /**
    * One grow and one reheat for the whole burst, then one answer per batch.
@@ -164,7 +175,7 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
     }
     const count = deps.nodeCount();
     for (const one of applied) answer(one, count);
-    if (any && due(landed, wasIdle)) await rebuild();
+    if (any) await snapshots.run(landed, wasIdle);
   }
 
   return {
@@ -179,6 +190,6 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
       for (const one of stopped) one.answer({ type: "failed", error: describeError(new Error(message)) });
     },
     grows: () => ring.slice(),
-    rebuilds: () => rebuilds,
+    rebuilds: () => snapshots.count(),
   };
 }

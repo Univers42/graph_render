@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { APPLY_DELTAS, ActionRefusal, createDeltas, deltaBatch } from "../src/actions/registry.ts";
 import { type DeltasView, createDeltasPage } from "../src/motor/deltasPage.ts";
-import type { StudioState } from "../src/state/model.ts";
+import type { GraphMeta, NodeKind } from "../src/source/meta.ts";
 
 function node(id: string): Record<string, unknown> {
   return {
@@ -71,9 +71,9 @@ test("a batch the verb accepted is the batch that is sent, and the count comes b
 });
 
 interface Drawn {
-  readonly xs: number[];
-  readonly ys: number[];
-  readonly frames: number;
+  xs: number[];
+  ys: number[];
+  frames: number;
 }
 
 function view(drawn: Drawn): DeltasView {
@@ -89,10 +89,20 @@ function view(drawn: Drawn): DeltasView {
 
 function page(nodeCount: number | null): { readonly deltas: ReturnType<typeof createDeltasPage>; readonly drawn: Drawn } {
   const drawn: Drawn = { xs: [], ys: [], frames: 0 };
-  const state = (): StudioState | null => nodeCount === null
-    ? null
-    : ({ meta: { nodeCount, ids: [], labels: [], kinds: [], groups: [], group: new Uint16Array(0), weight: new Float32Array(0), degree: new Uint32Array(0), maxDegree: 0, tags: [] } } as unknown as StudioState);
-  return { deltas: createDeltasPage(view(drawn), state, () => undefined), drawn };
+  const described = (): GraphMeta | null => nodeCount === null ? null : metaOf(nodeCount);
+  return { deltas: createDeltasPage(view(drawn), described, () => undefined), drawn };
+}
+
+/** The description of a graph of `nodeCount` nodes, with every column the size it says. */
+function metaOf(nodeCount: number): GraphMeta {
+  return {
+    nodeCount, ids: Array.from({ length: nodeCount }, (_, at) => `n${at}`),
+    labels: Array.from({ length: nodeCount }, (_, at) => `n${at}`),
+    kinds: Array.from({ length: nodeCount }, (): NodeKind => "record"),
+    groups: [], group: new Uint16Array(nodeCount), weight: new Float32Array(nodeCount),
+    degree: new Uint32Array(nodeCount), maxDegree: 0,
+    tags: Array.from({ length: nodeCount }, () => []), dbs: [], paths: [],
+  };
 }
 
 test("a frame is drawn up to the node count the last snapshot described", () => {

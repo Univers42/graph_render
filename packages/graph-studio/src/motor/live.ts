@@ -119,13 +119,21 @@ export interface ForcePort {
   positions(): { readonly xs: Float64Array; readonly ys: Float64Array };
   /** Every parameter the motor holds, read back through the ABI rather than copied. */
   params(): ForceParams;
-  /**
-   * Covers the graph's new node count, after an extend. Optional because a session the studio
-   * made before P4b — and every test double — has no such member, and a delta batch is then
-   * refused instead of silently applied to a session that does not cover it.
-   */
-  grow?(): void;
   release(): void;
+}
+
+/**
+ * The motor's own grow, which the studio's port does not name: it takes the graph handle, and
+ * `ForcePort` addresses rows and ids rather than handles. Intersected with `ForcePort` where a
+ * graph is grown (`session.ts`), so the motor's session satisfies it as it stands.
+ *
+ * Ponytail: optional, because a port without it — every test double — has no grow and a delta
+ * batch is then refused rather than applied to a session that does not cover the new nodes.
+ * Failing input: a motor whose grow takes something other than the handle. Direction: the
+ * motor's own signature. Escape hatch: an adapter may widen it, as `MotorLike` is structural.
+ */
+export interface Growable<Handle> {
+  grow?(handle: Handle): void;
 }
 
 /**
