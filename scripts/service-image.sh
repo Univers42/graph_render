@@ -46,6 +46,11 @@ work=$(mktemp -d)
 HEALTH_CAP_S=60
 
 log() { printf '\033[1m[service-image]\033[0m %s\n' "$*" >&2; }
+# The image tag on a line of its own, unadorned: scripts/orch/gate.sh reads `^image ` out of the
+# row's log and copies it into summary.txt (docs/reviews/review-svc-r3.md new condition 3). The leak
+# negctl's second image is named `graph-motor:leak-<pid>`, which the pattern does not match, so the
+# tag here is always the one the rows ran.
+tag_line() { printf 'image %s\n' "$1"; }
 cleanup() {
   docker rm -f "$name" >/dev/null 2>&1 || true
   rm -rf "$work"
@@ -128,6 +133,7 @@ main() {
   # early must leave none from an earlier run behind.
   rm -rf "$out" && mkdir -p "$out"
   image=$(scripts/service.sh build) || exit 1
+  tag_line "$image"
   version=$(scripts/service.sh version)
   [[ $check == probe ]] && scan "$image"
   key=$(scripts/service.sh keygen svc-image-gate "$work/keys") || exit 2

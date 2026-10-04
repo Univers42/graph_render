@@ -35,7 +35,7 @@
 #                                  every row must answer 503, which proves the row reads the time.
 #
 # Bodies: cached under target/service-caps-time/bodies/n<n>.json and shared by every row at that n
-# (22 of the 50 rows of 2026-10-03 ask at one n), which is why the negative control is not a second 10 minutes of
+# (22 of the 55 rows of docs/measurements/service-caps.tsv ask at one n), which is why the negative control is not a second 10 minutes of
 # generation. The generator is deterministic, so a cached body is the body the row would have built;
 # an emit that is interrupted writes to a private name and is never renamed into the cache, so a
 # partial file is never reused. The cache is about 900 MB.
@@ -79,6 +79,9 @@ max_body=1073741824
 memory=8g
 
 log() { printf '\033[1m[svc-caps-time]\033[0m %s\n' "$*" >&2; }
+# The image tag on a line of its own, unadorned: scripts/orch/gate.sh reads `^image ` out of the
+# row's log and copies it into summary.txt (docs/reviews/review-svc-r3.md new condition 3).
+tag_line() { printf 'image %s\n' "$1"; }
 say() { printf '%s\n' "$*" >>"$report"; }
 die() {
   log "$*"
@@ -174,6 +177,7 @@ install -m 0640 /dev/null "$work/keys"
 key=$(scripts/service.sh keygen svc-caps-time-gate "$work/keys") || die "keygen refused"
 load_start=$(cut -d' ' -f1 /proc/loadavg)
 log "image $image, mark ${mark}ms, memory $memory, load1 $load_start"
+tag_line "$image"
 
 scripts/orch/drun -d --name "$name" --memory "$memory" --memory-swap "$memory" \
   --read-only --cap-drop ALL --security-opt no-new-privileges \

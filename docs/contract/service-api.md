@@ -112,7 +112,7 @@ naming the variable and never its value, and the start line prints each name wit
 | `GRAPH_API_KEYS_FILE` | unset | a path | the `<name> <sha256-hex>` file; required while `GRAPH_AUTH` is on |
 | `GRAPH_AUTH` | `on` | `on` or `off` | `off` serves every request without a key, on a loopback bind only |
 | `GRAPH_MAX_BODY` | `67108864` (64 MiB) | 1–`1073741824` (1 GiB) | the largest body, chunked included; the ceiling is the motor's own ingest limit |
-| `GRAPH_WORKERS` | `min(cores, memory.max / PER_SLOT_BYTES)` | 1–1024 | the compute slots. `0` slots derived from `memory.max` refuses the start |
+| `GRAPH_WORKERS` | `min(cores, (memory.max − BASE_BYTES) / per_slot_bytes(GRAPH_MAX_BODY))` | 1–1024 | the compute slots. `0` slots derived from `memory.max` refuses the start. `per_slot_bytes` is the body plus the contract ingest peak plus the run peak, so the default figure is `PER_SLOT_BYTES` = 4_635_677_069 and **8 GiB is the floor** at the default body (`docs/deploy/service.md`); a body past the default asks more per slot, and at the 1 GiB ceiling 8 GiB holds none. An explicit `GRAPH_WORKERS` overrides the budget |
 | `GRAPH_QUEUE` | `2 × GRAPH_WORKERS` | 0–65536 | requests allowed to wait for a slot; past that, 429 |
 | `GRAPH_TIMEOUT_MS` | `30000` | 1–600000 | the wait plus the run, and the shutdown drain |
 | `GRAPH_BODY_TIMEOUT_MS` | `10000` | 1–600000 | reading the whole body; past it, 408 |
@@ -146,6 +146,10 @@ Every row below exists in `scripts/orch/rows/`. A row with no negative control s
 exists it names the break (`GM_SVC_BREAK`, under the `negctl` feature) or the `SERVICE_IMAGE_BREAK`
 it sets, and the test function it has to turn red.
 
+Two rows files carry the line `#gate:image`, so every one of their rows records the image tag it ran
+as ` image=<16 hex>` at the end of its summary line, or ` image=?` when the row's script printed no
+`image graph-motor:<16 hex>` line (`scripts/orch/gate.sh`).
+
 | Row (rows file) | Passes when | Negative control |
 |---|---|---|
 | `svc-fmt`, `svc-clippy`, `root-fmt` (`svc-floor.rows`) | `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` and the root fmt are clean | — |
@@ -154,7 +158,7 @@ it sets, and the test function it has to turn red.
 | `svc-digest-wasm` (`service-supply.rows`) | the same bytes out of the wasm build of the same tree, and the JSON face round-trips | `negctl-svc-digest-wasm` |
 | `svc-features` (`service-supply.rows`) | `cargo tree -e features` in `server/` shows neither `probe` nor `threads` | `negctl-svc-features` |
 | `lock-parity` (`service-supply.rows`) | `graph-wasm`'s whole normal closure is one version with the same features in both lockfiles | `negctl-lock-parity-version`, `negctl-lock-parity-feature`, in a scratch copy |
-| `svc-preauth` (`service.rows`) | a keyless body is refused before a byte of it is buffered; a head sent at 1 byte/s is cut at `GRAPH_HEADER_TIMEOUT_MS` | `negctl-preauth` (`body-before-auth`), `negctl-slow-headers` (`no-header-timeout`) |
+| `svc-preauth` (`service.rows`) | a keyless body is refused before a byte of it is buffered; a head sent at 1 byte/s is cut at `GRAPH_HEADER_TIMEOUT_MS`; a connection past `GRAPH_MAX_CONNECTIONS` is not accepted until a slot is free; a head over `GRAPH_MAX_HEADER_BYTES` is 431 | `negctl-preauth` (`body-before-auth`), `negctl-slow-headers` (`no-header-timeout`). The connection-limit half has no `GM_SVC_BREAK`; it was shown red by dropping `src/serve.rs` `Acceptor::next`'s pre-accept acquire and `spawn`'s `max_buf_size` in turn |
 | `svc-auth` (`service.rows`) | no key, a wrong key and a truncated key are all 401 with `WWW-Authenticate: Bearer`; a good key is 200; a second `Authorization` header and a key in the query are 400 | `negctl-svc-auth` (`any-key`), red on `a_missing_wrong_or_truncated_key_is_401_with_a_challenge` |
 | `svc-log` (`service.rows`) | one JSON line per request carrying id, key name, route, status, ms, layout, post, n and m; no line holds the key, its hash, or the `Authorization` | `negctl-svc-log` (`log-header`), red on `no_line_holds_the_key_or_its_hash` |
 | `svc-slots` (`service.rows`) | a run answered 503 at its deadline keeps its slot until it ends (workers + queue are 429 until then); a panic is a 500 and the next run a 200 | `negctl-svc-slots` (`drop-permit`), red on `a_timed_out_run_keeps_its_slot_until_it_ends` |
@@ -166,7 +170,9 @@ it sets, and the test function it has to turn red.
 | `svc-healthcheck` (`service.rows`) | `graph-server healthcheck` exits 0 only on a 200 from `/healthz` inside its 2 s budget | `negctl-healthcheck` (`always-healthy`) |
 | `svc-memory` (`service.rows`) | 8 GiB holds one slot: the container starts and logs `listening` | `negctl-memory` (1 GiB: exit 2, `GRAPH_WORKERS: unset, and memory.max holds no slot`) |
 | `svc-caps-time` (`service-limits.rows`) | every time-bound id at its cap answers 200 within `GRAPH_TIMEOUT_MS` on the image's reference CPU | `negctl-svc-caps-time` (one cap's rung halved) |
-| `svc-limits` (`service-limits.rows`) | a body over `GRAPH_MAX_BODY` is 413 and a flood past the queue is 429, and one slot at the largest cap fits `PER_SLOT_BYTES` under `docker --memory` at that limit, with no exit 137 | `negctl-svc-limits` (one cap doubled in a scratch copy of the tsv) |
+| `svc-limits` (`service-limits.rows`) | a body over `GRAPH_MAX_BODY` is 413 and a flood past the queue is 429, and one slot at the largest cap fits `PER_SLOT_BYTES` under `docker --memory` at that limit, with no exit 137 | `negctl-svc-limits` (`SERVICE_LIMITS_MEM=1g`, the kernel OOM-kill) |
+| `svc-max-body` (`service-limits.rows`) | with `GRAPH_WORKERS` unset, `GRAPH_MAX_BODY` at its 1 GiB ceiling and `--memory 8g`, the derived budget holds no slot and the server exits 2 with `GRAPH_WORKERS: unset, and memory.max holds no slot` | `negctl-svc-max-body` (`SVC_MAX_BODY=67108864`: the same container starts and serves, and the report must say `FAIL started`) |
+| `hooks-gated` (`svc-floor.rows`) | the release binary is compiled without `test-hooks`, and the `limits` test target with it | `negctl-hooks-gated` (the same `cargo rustc -- --print cfg` with `--features test-hooks` forced on must print it) |
 | `svc-image` (`service-image.rows`) | the image builds, runs as a numeric non-root user, `/healthz` is 200, the wasm carries COEP/CORP and `application/wasm`, and the image report row `svc-no-leak` (in `scripts/service-image.sh`) finds no key file, `.env`, `.git` or scratch path | `negctl-svc-image` (`headers`, stripped), `negctl-svc-image-leak` (`leak`, a planted `.env` and `.git`) |
 | `svc-sdk-live` (`service-image.rows`) | `./remote`'s `meta()` and `layout()` against the image, the typed 401 and 400, and parity with the local wasm build | `negctl-svc-sdk-live` (`SERVICE_IMAGE_BREAK=key`, a well-formed key the file does not hold) |
 
@@ -315,18 +321,26 @@ Where each condition now holds in `server/`, and the row in `scripts/orch/rows/s
 it. Every source reference is by **symbol**, not by line: the line numbers drifted twice, and a reference
 that can drift is not evidence. Rows that were not run here are named as such.
 
-**3. Memory budget.** The worker count is `min(cores, floor(memory.max / PER_SLOT_BYTES))` at
-`server/graph-server/src/config/slots.rs` `default_workers`, with `PER_SLOT_BYTES` = 4_635_677_069: the
-`source=contract` ingest term binds (`docs/measurements/service-caps.md` "Memory per slot"), so a 4 GiB
-container holds no slot and 8 GiB holds one; an unset `GRAPH_WORKERS` with a `memory.max` holding no slot
-is refused by `src/config.rs` `read_workers`, exit 2 through `src/main.rs` `refuse`. The slots are the
+**3. Memory budget.** The worker count is
+`min(cores, (memory.max − BASE_BYTES) / per_slot_bytes(GRAPH_MAX_BODY))` at
+`server/graph-server/src/config/slots.rs` `default_workers`: `per_slot_bytes` is the effective body plus
+the contract ingest peak scaled to it plus the run peak, and at the default 64 MiB body that is
+`PER_SLOT_BYTES` = 4_635_677_069, unchanged by the scaling. The `source=contract` ingest term binds
+(`docs/measurements/service-caps.md` "Memory per slot"), so a 4 GiB container holds no slot and **8 GiB
+is the floor** at the default body (`docs/deploy/service.md`); past the default body the figure grows and
+at the 1 GiB range ceiling one slot is 24,012,200,144 B, so the same 8 GiB holds none. An unset
+`GRAPH_WORKERS` with a `memory.max` holding no slot is refused by `src/config.rs` `read_workers`, exit 2
+through `src/main.rs` `refuse`. The slots are the
 gate's semaphore (`src/gate.rs` `Gate::new`). Rows `svc-memory` and `negctl-memory` both PASS: 8 GiB starts
 and logs `listening`, 1 GiB exits 2 with `GRAPH_WORKERS: unset, and memory.max holds no slot`. The
 derivation itself is proved by `src/config/tests.rs`
 `default_workers_is_the_smaller_of_cores_and_memory_slots`. No log line carries the worker count:
 `src/config.rs` `start_line` logs `set`/`unset` per variable and no value, by the rule in condition 9.
 What these two rows do **not** prove is the fit — that a slot at the largest cap stays inside
-`PER_SLOT_BYTES`. That is `svc-limits`, in `scripts/orch/rows/service-limits.rows`.
+`PER_SLOT_BYTES`. That is `svc-limits`, in `scripts/orch/rows/service-limits.rows`. Nor do they prove
+that a raised `GRAPH_MAX_BODY` is inside the budget: that is `svc-max-body` in the same rows file, which
+at the 1 GiB ceiling with `GRAPH_WORKERS` unset and 8 GiB of memory saw exit 2 with the `GRAPH_WORKERS`
+line above, and whose negctl at the default body saw the same container start and serve.
 
 **4. Request order and connection limits.** In `src/layout.rs` `serve` the order is the pre-auth query-pair
 scan, then `auth::check`, then `query::layout` and `query::face`, then `gate::admit`, and only then

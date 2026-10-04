@@ -8,6 +8,9 @@
 # - negctl-svc-image-leak: an .env and a .git in the scanned image; svc-no-leak fails.
 # - negctl-svc-sdk-live: a well-formed key the key file does not hold; meta fails, and the
 #   wrong-key check still passes, which proves the service answered.
+#gate:image
+# The directive above asks gate.sh for the image tag on every row below, as `image=<16 hex>` or
+# `image=?` when the row's script printed no `image graph-motor:<16 hex>` line.
 svc-image|0|timeout 2400 scripts/service-image.sh
 negctl-svc-image|0|SERVICE_IMAGE_BREAK=headers timeout 2400 scripts/service-image.sh; rc=$?; t=target/service-image/negctl-headers/table.md; test $rc -eq 1 && grep -q 'svc-healthy` .*| PASS |$' $t && grep -q 'svc-embed-graph-studio.js` .*| FAIL |$' $t && grep -q 'isolated-isolation` .*| FAIL |$' $t
 negctl-svc-image-leak|0|SERVICE_IMAGE_BREAK=leak timeout 2400 scripts/service-image.sh; rc=$?; t=target/service-image/negctl-leak/table.md; test $rc -eq 1 && grep -q 'svc-healthy` .*| PASS |$' $t && grep -q 'svc-no-leak` .*| FAIL |$' $t && grep -q '/\.env$' target/service-image/negctl-leak/leaks.txt && grep -q '/\.git/' target/service-image/negctl-leak/leaks.txt

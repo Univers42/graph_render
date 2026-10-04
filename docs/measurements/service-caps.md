@@ -181,6 +181,15 @@ per_slot = body + ingest peak + run peak at cap.
   - memory.max 16 GiB gives 3.
   - memory.max 32 GiB gives 7.
   - memory.max 64 GiB gives 14.
+- The figure above is the default body's, and it is unchanged by review condition 1
+  (`docs/reviews/review-svc-r3.md`): `svc-limits` and `negctl-svc-limits` above measured it at
+  `GRAPH_MAX_BODY` = 64 MiB and the numbers stand. `per_slot_bytes(GRAPH_MAX_BODY)`
+  (`server/graph-server/src/config/slots.rs`) now scales the body term and the ingest term with
+  `GRAPH_MAX_BODY` instead of holding the 64 MiB figure, so only a body other than the default
+  changes the budget: at the 1 GiB range ceiling one slot is 24,012,200,144 B and 8 GiB holds none,
+  which is what row `svc-max-body` (`scripts/service-max-body.sh`) observes. The ingest term is a
+  ratio read off the single 64 MiB body measured here, so a scaled figure is an estimate and not a
+  measurement; an explicit `GRAPH_WORKERS` overrides the whole budget.
 
 ### Base
 
@@ -252,11 +261,12 @@ the same test on the unfixed reader:
 
 ## Measured on the image (2026-10-04)
 
-The two rows of `scripts/orch/rows/service-limits.rows`, against the image `graph-motor:4412ecaad92ed124`
-(`scripts/service.sh build`, 86,958,004 B). Each script starts the image detached under a unique container
-name through `scripts/orch/drun`, mints its own key, and removes the container on every exit path.
-`scripts/service-limits.sh` reads `PER_SLOT_BYTES` and `BASE_BYTES` from
-`server/graph-server/src/config/slots.rs` with `grep`; neither script writes a number of the budget down.
+The four rows of `scripts/orch/rows/service-limits.rows` below the `svc-max-body` pair, against the image
+`graph-motor:4412ecaad92ed124` (`scripts/service.sh build`, 86,958,004 B). Each script starts the image
+detached under a unique container name through `scripts/orch/drun`, mints its own key, and removes the
+container on every exit path. `scripts/service-limits.sh` reads `PER_SLOT_BYTES` and `BASE_BYTES` from
+`server/graph-server/src/config/slots.rs` with `grep`; none of the three scripts writes a number of the
+budget down.
 
 | row | command | exit |
 |---|---|---:|
@@ -264,6 +274,24 @@ name through `scripts/orch/drun`, mints its own key, and removes the container o
 | `negctl-svc-limits` | `SERVICE_LIMITS_MEM=1g …`, then `test $? -eq 1 && grep -q '^FAIL oom' …` | 0 |
 | `svc-caps-time` | `timeout 5400 scripts/service-caps-time.sh` | 0 |
 | `negctl-svc-caps-time` | `SERVICE_CAPS_TIME_TIMEOUT_MS=1 …`, then the `grep -c '^FAIL' …` equal to the tsv's row count | 0 |
+
+### svc-max-body: GRAPH_MAX_BODY is inside the budget
+
+Run 2026-10-04 on the image `graph-motor:a63165dbaacf9556` (87,092,840 B), row
+`svc-max-body` of `scripts/orch/rows/service-limits.rows`. `GRAPH_WORKERS` unset,
+`--memory 8g --memory-swap 8g` (the documented floor), and the body at the two ends of the range.
+`scripts/service-max-body.sh` reads `BODY_BYTES`, `RUN_PEAK_BYTES` and `INGEST_PEAK_BYTES` from
+`server/graph-server/src/config/slots.rs` with `grep` and does the same arithmetic as
+`per_slot_bytes`, so it reports the figure it asked about rather than its own copy of it.
+
+| `GRAPH_MAX_BODY` | `per_slot_bytes` | container | expected | container did | row |
+|---:|---:|---|---|---|---|
+| 1,073,741,824 (range ceiling) | 24,012,200,144 | 8 GiB | 0 slots, refuse | exit 2, `GRAPH_WORKERS: unset, and memory.max holds no slot` | PASS |
+| 67,108,864 (default) | 4,635,677,069 | 8 GiB | 1 slot, serve | exit 124 at the 60 s bound, `listening` in the log | negctl PASS |
+
+The negctl row passes only because the report holds `FAIL started`: at the default body the same
+container serves, which is the whole point — the refusal above is a reading of the body, not of the
+memory limit.
 
 ### svc-limits: one slot inside M
 
@@ -302,10 +330,11 @@ maximum 1,073,741,824 B, `GRAPH_TIMEOUT_MS` at its 30,000 default. The graph of 
 ladder used, `graph-cli bench --n <cap_n> --seed 1 --emit-scale-fixture`, whose m came out 1.5474 n.
 `reduced:n>1000000` marks a row asked at 1,000,000 nodes because `graph-cli`'s own ceiling
 (`graph_core::registry::MAX_BENCH_NODES`) is below the row's cap_n; `reduced:m>cap_m` would mark a graph
-whose edges are past the cap, and no row hit it. All 50 rows answered 200; load1 went 5.67 → 17.73 over the
-run, so the tail of the table ran under load and still passed. The five rows after `layout.mds.pivot3d` were
-added on 2026-10-04 with their caps and come from a second run over all 55 rows (image
-`graph-motor:5145db1479a10e68`, load1 9.79 → 10.19): 55 answered 200, none failed.
+whose edges are past the cap, and no row hit it. The table is 55 rows and all 55 answered 200. The
+first run covered the 50 rows before `layout.mds.pivot3d`, load1 5.67 → 17.73, so the tail of that table
+ran under load and still passed; the five rows after `layout.mds.pivot3d` were added on 2026-10-04 with
+their caps and the second run covered all 55 (image `graph-motor:5145db1479a10e68`, load1
+9.79 → 10.19), none failed. The table below is the 55-row run.
 
 | id | cap_n | cap_m | layout asked | n | status | ms | reduced |
 |---|---:|---:|---|---:|---:|---:|---|
@@ -367,7 +396,7 @@ added on 2026-10-04 with their caps and come from a second run over all 55 rows 
 
 No cap was lowered: every row came in under `GRAPH_TIMEOUT_MS`, the slowest being
 `layout.force.yifan_hu` at 19,514 ms, 65% of the mark. The negative control,
-`SERVICE_CAPS_TIME_TIMEOUT_MS=1`, answers 503 on all 50 rows (load1 6.49 → 6.37), and on all 55 in the second run, so the PASS above is a
+`SERVICE_CAPS_TIME_TIMEOUT_MS=1`, answers 503 on every row of the table — all 55 in the second run (load1 6.49 → 6.37) — so the PASS above is a
 reading of the status and of the elapsed time and not of anything else.
 
 ### Caveat of this section

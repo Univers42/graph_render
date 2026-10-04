@@ -55,6 +55,9 @@ work=target/service-limits/$tag
 trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
 
 log() { printf '\033[1m[service-limits]\033[0m %s\n' "$*" >&2; }
+# The image tag on a line of its own, unadorned: scripts/orch/gate.sh reads `^image ` out of the
+# row's log and copies it into summary.txt (docs/reviews/review-svc-r3.md new condition 3).
+tag_line() { printf 'image %s\n' "$1"; }
 say() { printf '%s\n' "$*" >>"$report"; }
 note() { say "# $*"; }
 die() {
@@ -183,6 +186,7 @@ key=$(scripts/service.sh keygen svc-limits-gate "$work/keys") || die "keygen ref
 load_start=$(cut -d' ' -f1 /proc/loadavg)
 log "image $image, M $budget B (per slot $per_slot + base $base, rounded up), limit $limit"
 
+tag_line "$image"
 note "image $image"
 note "M $budget bytes = per_slot $per_slot + base $base, rounded up to a whole MiB"
 note "container limit $limit"

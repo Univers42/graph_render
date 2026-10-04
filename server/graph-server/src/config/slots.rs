@@ -22,9 +22,10 @@ pub const RUN_PEAK_BYTES: u64 = 3_343_908_864;
 pub const INGEST_PEAK_BYTES: u64 = 1_224_659_341;
 
 /// The memory one slot is budgeted at the default [`BODY_BYTES`] body: that body, plus the contract
-/// ingest peak, plus the run peak. [`per_slot_bytes`] is the figure for any other body; this is the
-/// 64 MiB value it must reproduce.
-pub const PER_SLOT_BYTES: u64 = RUN_PEAK_BYTES + BODY_BYTES + INGEST_PEAK_BYTES;
+/// ingest peak, plus the run peak. Written out, because `scripts/service-limits.sh` and
+/// `scripts/service-max-body.sh` read this constant and the three terms above it with `grep`, and the
+/// test below holds the two in step. [`per_slot_bytes`] is the figure for any other body.
+pub const PER_SLOT_BYTES: u64 = 4_635_677_069;
 
 /// The server's idle footprint, kept out of the slots: 11 MiB, the largest of three readings of
 /// the image's `memory.current` taken right after `listening` (11,534,336 / 10,940,416 /
@@ -78,8 +79,13 @@ mod tests {
 
     #[test]
     fn the_default_body_reproduces_the_measured_slot() {
+        // PER_SLOT_BYTES is written out so the gate scripts can grep it; this holds it to the three
+        // terms it is made of, so a term that moves cannot leave the figure behind.
+        assert_eq!(
+            RUN_PEAK_BYTES + BODY_BYTES + INGEST_PEAK_BYTES,
+            PER_SLOT_BYTES
+        );
         assert_eq!(per_slot_bytes(BODY_BYTES), PER_SLOT_BYTES);
-        assert_eq!(PER_SLOT_BYTES, 4_635_677_069);
     }
 
     #[test]

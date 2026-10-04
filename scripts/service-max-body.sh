@@ -26,7 +26,9 @@
 #
 # Caveat: a start refusal, not a budget measurement. This row says the derived slot count is 0 at
 # this shape and nothing about what a slot would cost; `scripts/service-limits.sh` measures that,
-# at the default body, where the per-slot figure is unchanged by condition 1.
+# at the default body, where the per-slot figure is unchanged by condition 1. A build older than
+# the change makes this row red, not green: without the derived budget the container starts, which
+# is the `FAIL started` line the negative control expects.
 set -euo pipefail
 
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -50,6 +52,9 @@ CAP_S=60
 trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
 
 log() { printf '\033[1m[svc-max-body]\033[0m %s\n' "$*" >&2; }
+# The image tag on a line of its own, unadorned: scripts/orch/gate.sh reads `^image ` out of the
+# row's log and copies it into summary.txt (docs/reviews/review-svc-r3.md new condition 3).
+tag_line() { printf 'image %s\n' "$1"; }
 say() { printf '%s\n' "$*" >>"$report"; }
 note() { say "# $*"; }
 die() {
@@ -93,6 +98,7 @@ limit=$((8 * 1024 * 1024 * 1024))
 image=$(scripts/service.sh image 2>/dev/null) || image=$(scripts/service.sh build) ||
   die "no image: scripts/service.sh build"
 log "image $image"
+tag_line "$image"
 note "image $image"
 
 # One key in the file the server refuses to start without. Only its file line is kept: this row
