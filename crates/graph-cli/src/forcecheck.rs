@@ -39,7 +39,6 @@ use crate::evidence;
 use crate::hashgate::knob::Setting;
 use crate::hashgate::{self, Knob, compare, report};
 use crate::runner::{build_wasm, file_sha256, run_lines, sha256_hex};
-use compare::Arm;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -90,22 +89,6 @@ pub fn run(seeds: u32) -> ExitCode {
     }
 }
 
-/// Both stages' arms, and the stream stage's verdict on them.
-///
-/// One struct rather than two arguments because `report` is at the house's four-parameter
-/// limit already and the stream result belongs beside the arms it was computed from.
-struct Collected {
-    /// The seed stage: one line per seed, for [`compare::diverged`]'s rectangular matrix.
-    seed: Vec<Arm>,
-    /// The stream stage: one line per fixture batch, ragged, compared by
-    /// [`stream::first_divergence`].
-    stream: Vec<Arm>,
-    /// The first stream batch any arm disagreed on, or `None`. Filled by `compare_stream`.
-    diverged: Option<String>,
-    /// How many batch lines the arms printed, for the report's own count.
-    batches: u32,
-}
-
 /// Body of the hidden `force-gate-arm` subcommand: one native run, printing
 /// `stage seed sha256` lines in the same order `hashgate`'s own arm does — stage-major,
 /// seed-minor, which is what [`compare::diverged`] reads.
@@ -135,7 +118,7 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
 /// Native ×2 and wasm32 ×2, each arm its own process. Two runs per target, exactly as the hash
 /// gate does it: run-to-run equality is half of what D7 claims, and a single run per target
 /// would compare the two targets while saying nothing about reproducibility within one.
-fn collect_arms(seeds: u32) -> Result<Collected, String> {
+fn collect_arms(seeds: u32) -> Result<stream::arm::Collected, String> {
     let exe = std::env::current_exe().map_err(|e| format!("locating graph-cli: {e}"))?;
     let wasm = build_wasm(&[])?;
     let count = seeds.to_string();
@@ -153,51 +136,9 @@ fn collect_arms(seeds: u32) -> Result<Collected, String> {
         wasm.display(),
         file_sha256(&wasm)?
     );
-    let mut collected = compare_stream(collect_stream_arms(&exe, &wasm)?);
+    let mut collected = stream::arm::collect(&exe, &wasm)?;
     collected.seed = seed;
     Ok(collected)
-}
-
-/// Native ×2 and wasm32 ×2 over the stream fixtures, each arm its own process — the same four
-/// arms as the seed stage and for the same reason (D7: run-to-run equality is half the claim).
-///
-/// The wasm arm is a *different* script: it drives `gm_graph_extend` and
-/// `gm_force_session_grow`, which the seed stage's script never calls, so one script covering
-/// both stages would be a script with two modes and one set of failure messages.
-fn collect_stream_arms(exe: &Path, wasm: &Path) -> Result<Vec<Arm>, String> {
-    let native = || run_lines(Command::new(exe).arg("force-gate-stream-arm"));
-    let wasm32 = || {
-        let mut args = vec![TICKS.to_string()];
-        args.extend(
-            stream::FIXTURES
-                .iter()
-                .map(|name| stream::fixture_path(name).display().to_string()),
-        );
-        run_lines(wasm_stream_arm(wasm).args(&args))
-    };
-    Ok(vec![
-        ("native run 1", native()?),
-        ("native run 2", native()?),
-        ("wasm32 run 1", wasm32()?),
-        ("wasm32 run 2", wasm32()?),
-    ])
-}
-
-/// The stream stage's verdict, and the batch count it was over: `Ok(None)` is equality and is
-/// what makes the report say "stream equal" rather than stay silent.
-fn compare_stream(stream: Vec<Arm>) -> Collected {
-    let (diverged, batches) = match stream::first_divergence(&stream) {
-        Ok(diverged) => (diverged, stream::batch_count(&stream)),
-        // An incomparable arm is a stage that could not run, not a stage that passed: it is
-        // held as a *divergence* here and `report` turns it into exit 2 by name.
-        Err(err) => (Some(format!("arms not comparable: {err}")), 0),
-    };
-    Collected {
-        seed: Vec::new(),
-        stream,
-        diverged,
-        batches,
-    }
 }
 
 /// `node <this crate's arm.mjs> <wasm>`, ready for the seed count and the tick count.
@@ -209,16 +150,6 @@ fn compare_stream(stream: Vec<Arm>) -> Collected {
 fn wasm_arm(wasm: &Path) -> Command {
     let mut command = Command::new("node");
     command.arg(arm_script());
-    command.arg(wasm);
-    command
-}
-
-/// `node <this crate's stream-arm.mjs> <wasm>`, ready for the tick count and the fixture
-/// paths. The tick count goes first so the two scripts take the same arguments in the same
-/// order, and a reader comparing them is not misled by the shape.
-fn wasm_stream_arm(wasm: &Path) -> Command {
-    let mut command = Command::new("node");
-    command.arg(stream::stream_script());
     command.arg(wasm);
     command
 }
@@ -263,7 +194,7 @@ fn report(
     stamp: &evidence::Stamp,
     control: Option<Knob>,
     seeds: u32,
-    arms: &Collected,
+    arms: &stream::arm::Collected,
 ) -> ExitCode {
     let mutation = control.map_or("none", Knob::env);
     println!(
@@ -285,7 +216,7 @@ fn report(
         "  {STAGE}: {ways}-way equal on {}/{} seeds",
         tally.equal[0], seeds
     );
-    let stream = report_stream(arms);
+    let stream = stream::arm::report(arms);
     if let Err(err) = record(stamp, control, seeds, &tally, arms) {
         eprintln!("force-gate: not recorded: {err}");
         return ExitCode::from(2);
@@ -304,41 +235,6 @@ fn report(
     ExitCode::SUCCESS
 }
 
-/// What the stream stage reported, and the refusal that stops the gate being read as a pass.
-struct StreamReport {
-    diverged: bool,
-    refusal: Option<String>,
-}
-
-/// Prints the stream stage's own line and says whether it diverged.
-///
-/// The wording is what the negative control is read against, so it names the batch and the
-/// arm: `force-gate: stream diverged at stream-small batch 2 (wasm32 run 1 differs from
-/// native run 1)`.
-fn report_stream(arms: &Collected) -> StreamReport {
-    let Some(text) = &arms.diverged else {
-        println!(
-            "force-gate: stream equal, {} batches x {} arms",
-            arms.batches,
-            arms.stream.len()
-        );
-        return StreamReport {
-            diverged: false,
-            refusal: None,
-        };
-    };
-    let refusal = text
-        .starts_with("arms not comparable: ")
-        .then(|| text.trim_start_matches("arms not comparable: ").to_owned());
-    if refusal.is_none() {
-        println!("force-gate: stream diverged at {text}");
-    }
-    StreamReport {
-        diverged: true,
-        refusal,
-    }
-}
-
 /// The record for the ledger: the same keys `hashgate` writes, so
 /// `capabilities::verdict`'s control reader can read this one too (it looks a control up by
 /// its own name and asks whether it went red on a stage — a stage of *this* gate, so it says
@@ -348,7 +244,7 @@ fn record(
     control: Option<Knob>,
     seeds: u32,
     tally: &compare::Tally,
-    arms: &Collected,
+    arms: &stream::arm::Collected,
 ) -> Result<(), String> {
     let name = control.map_or("force-gate", Knob::record);
     let stages: serde_json::Map<_, _> = stages()

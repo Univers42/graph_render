@@ -213,6 +213,8 @@ pub fn stream_script() -> PathBuf {
         .join("stream-arm.mjs")
 }
 
+pub mod arm;
+
 #[cfg(test)]
 #[path = "stream/tests.rs"]
 mod tests;
