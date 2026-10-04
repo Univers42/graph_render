@@ -68,10 +68,13 @@
 mod force;
 mod matching;
 mod multilevel;
+mod prolongation;
 mod quadtree;
 mod solve;
 mod start;
 
+#[cfg(test)]
+mod contract;
 #[cfg(test)]
 mod tests;
 
@@ -173,22 +176,41 @@ fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
     // The random start covers the coarsest level only (`xc` in `spring_electrical.c:1108`). On
     // 2026-10-01 it covered every fine node, so the coarsest solve carried the surplus as
     // phantom nodes with no edges.
-    let (x, y) = solve::random_start(coarse_count, seed);
+    let mut rng = start::Glibc::seeded(seed);
+    let (x, y) = coarsest(&mut rng, coarse_count);
     let mut solve = solve::Solve::new(x, y, &coarse);
     solve.relax(solve::FIRST_STEP, MAX_ITER);
     // Walk back down, relaxing each level against its own edges. `K` shrinks by 0.75 at each
     // step down (`spring_electrical.c:1159`), which is what keeps a fine level's attraction in
-    // scale with the coarse solution it was prolonged from.
+    // scale with the coarse solution it was prolonged from. The reference's driver reads the
+    // level up first and decays `K` after (`:1155`, `:1159`), so the prolongation's jitter
+    // scale is the `K` **before** the decay.
     let mut k = solve.k();
     for step in levels.iter().rev() {
         let count = step.level.pair.len() as u32;
-        let (nx, ny) = multilevel::prolongate(&solve.x, &solve.y, &step.level, count, seed);
+        let lay = prolongation::Lay {
+            level: &step.level,
+            edges: &step.edges,
+            count,
+            delta: k * prolongation::DELTA_SCALE,
+        };
+        let (nx, ny) = prolongation::prolongate(&solve.x, &solve.y, &lay, &mut rng);
         k = multilevel::decay_k(k);
         let mut next = solve::Solve::with_k(nx, ny, &step.edges, k);
         next.relax(solve::FIRST_STEP, MAX_ITER);
         solve = next;
     }
     (solve.x, solve.y)
+}
+
+/// The coarsest level's random start: `dim·n` draws from the one `srand`-seeded stream, x and y
+/// interleaved per node (`spring_electrical.c:556-558`, `:282-284`).
+///
+/// The stream is returned to the caller rather than dropped, because the reference draws the
+/// prolongation jitter from **this** generator: `prolongate` at `:1155` calls `drand()` and
+/// nothing re-seeds in between.
+fn coarsest(rng: &mut start::Glibc, count: u32) -> (Vec<f64>, Vec<f64>) {
+    solve::random_start_from(rng, count)
 }
 
 /// One level of the hierarchy, with the edge list of its **finer** side: the graph its prolonged

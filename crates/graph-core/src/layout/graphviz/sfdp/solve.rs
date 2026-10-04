@@ -29,7 +29,14 @@ pub(super) const FIRST_STEP: f64 = STEP;
 /// `2i+1` of the stream — gather form (D10), and the reason a permutation of the node order
 /// would give a different drawing.
 pub(super) fn random_start(count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    let positions = start::start_positions(count, seed);
+    random_start_from(&mut start::Glibc::seeded(seed), count)
+}
+
+/// [`random_start`] from a generator the caller keeps, so that a later step can draw from the
+/// same stream. The reference's `prolongate` does exactly that (`:1155`), and the jitter it adds
+/// is the same `drand()` the start came from.
+pub(super) fn random_start_from(rng: &mut start::Glibc, count: u32) -> (Vec<f64>, Vec<f64>) {
+    let positions: Vec<[f64; 2]> = (0..count).map(|_| [rng.unit(), rng.unit()]).collect();
     let x = positions.iter().map(|p| p[0]).collect();
     let y = positions.iter().map(|p| p[1]).collect();
     (x, y)

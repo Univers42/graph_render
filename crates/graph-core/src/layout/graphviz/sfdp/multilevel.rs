@@ -48,38 +48,6 @@ pub(super) fn coarsen(count: u32, edges: &[(u32, u32)]) -> Level {
     level
 }
 
-/// Lay a coarse solution down onto `count` fine nodes, adding the reference's jitter.
-///
-/// `prolongate` (`post_process.c`) gives each fine node its coarse partner's position and then
-/// breaks ties among coincident points, because without that a matched pair lands exactly on
-/// top of each other and the two spring apart from a zero-length edge. The jitter here is
-/// derived from `(i, level)` through the quadtree's own counter-based generator
-/// (`crate::rng::jiggle`), so it is order-independent and bit-identical everywhere.
-pub(super) fn prolongate(
-    coarse_x: &[f64],
-    coarse_y: &[f64],
-    level: &Level,
-    count: u32,
-    seed: u32,
-) -> (Vec<f64>, Vec<f64>) {
-    let mut x = vec![0.0; count as usize];
-    let mut y = vec![0.0; count as usize];
-    for i in 0..count as usize {
-        let c = level.pair[i] as usize;
-        x[i] = coarse_x.get(c).copied().unwrap_or(0.0);
-        y[i] = coarse_y.get(c).copied().unwrap_or(0.0);
-    }
-    // One pass of separation over coincident pairs, in dense index order.
-    for i in 0..count {
-        let (j, oi) = (i as usize, i);
-        let dx = crate::rng::jiggle(seed, oi, 0, (i, i));
-        let dy = crate::rng::jiggle(seed, oi, 1, (i, i));
-        x[j] += dx;
-        y[j] += dy;
-    }
-    (x, y)
-}
-
 /// The coarsened edge list at one level up, with each edge mapped through `level` and
 /// duplicates dropped so the level above is a simple graph.
 pub(super) fn coarse_edges(level: &Level, edges: &[(u32, u32)]) -> Vec<(u32, u32)> {
@@ -187,51 +155,6 @@ mod tests {
         };
         let out = coarse_edges(&level, &[(0u32, 1u32), (1, 0), (0, 1), (2, 3)]);
         assert_eq!(out, vec![(0, 1), (2, 3)]);
-    }
-
-    /// Prolongation gives every fine node its coarse partner's position, up to the jitter that
-    /// breaks matched pairs apart. The bound is the point: a jitter that were not tiny would
-    /// displace the drawing, and one that were zero would leave every matched pair stacked.
-    #[test]
-    fn prolongation_places_fine_nodes_at_their_coarse_partners() {
-        let level = Level {
-            pair: vec![0, 0, 1, 1],
-            coarse: 2,
-        };
-        let coarse_x = [10.0, 20.0];
-        let coarse_y = [30.0, 40.0];
-        let (x, y) = prolongate(&coarse_x, &coarse_y, &level, 4, 7);
-        assert_eq!(x.len(), 4);
-        // `pair = [0, 0, 1, 1]`: nodes 0 and 1 take coarse 0's position, nodes 2 and 3 coarse 1's.
-        for i in 0..4 {
-            let c = level.pair[i] as usize;
-            assert!(
-                (x[i] - coarse_x[c]).abs() < 1e-5 && (y[i] - coarse_y[c]).abs() < 1e-5,
-                "node {i} at ({}, {}), want ({}, {}) up to the jitter",
-                x[i],
-                y[i],
-                coarse_x[c],
-                coarse_y[c]
-            );
-        }
-    }
-
-    /// The two nodes of a matched pair must actually separate: the jitter is what stops them
-    /// landing exactly on top of each other, and zero jitter would leave the spring at length
-    /// zero forever.
-    #[test]
-    fn a_matched_pair_ends_up_apart() {
-        let level = Level {
-            pair: vec![0, 0],
-            coarse: 1,
-        };
-        let (x, y) = prolongate(&[10.0], &[30.0], &level, 2, 7);
-        assert!(
-            (x[0] - x[1]).abs() > 0.0 || (y[0] - y[1]).abs() > 0.0,
-            "a matched pair was prolonged onto one point: ({}, {})",
-            x[0],
-            y[0]
-        );
     }
 
     #[test]
