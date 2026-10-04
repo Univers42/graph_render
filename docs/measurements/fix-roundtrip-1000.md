@@ -64,6 +64,10 @@ position — the crossing flags in the exact order the reduction read them, the 
 distances indexed by node — and `Probe` carries the record into `delta`. The record is
 rebuilt only after a move is accepted.
 
+`roundtrip` is the caller that made this expensive rather than the only one: `snapshot`,
+`hashgate` and `bench` all reach the same `energy::delta`, so the fix is in the shared
+function and every caller gets it.
+
 This is a cache, not an approximation: same values, same order, same sums. Verified as
 bit-identical output, not argued:
 
@@ -103,7 +107,42 @@ sweep loop was split so `sweep` keeps its test-only signature.
 | 32 | 2.21 | 2.62 | 30.27 | 0 |
 | 128 | 42.82 | 31.05 | 333.12 | 0 |
 | 256 | 292.34 | 252.41 | — | 0 |
-| 1000 | (2 h, killed, debug) | see below | — | — |
+| 1000 | (2 h, killed, debug) | **2822.51** | — | **0** |
+
+The 1000-seed row, measured exactly as `scripts/orch/rows/develop-full.rows:42` now runs
+it (`/usr/bin/time -f %e`, under `scripts/orch/timed`, no concurrent build or edit in the
+tree — the first attempt at this measurement exited 2 because a `cargo fmt` mid-run moved
+the tree fingerprint out from under the evidence stamp, which is the stamp working):
+
+```
+scripts/orch/timed bash -c "scripts/orch/gr cargo build -q --release -p graph-cli && \
+  /usr/bin/time -f %e scripts/orch/gr ./target/release/graph-cli roundtrip --seeds 1000 \
+  > target/rt1000.out 2> target/rt1000.err"
+-> 2822.51 s, exit 0, PASS
+```
+
+`target/rt1000.out`:
+
+```
+roundtrip: seeds=1000 snapshots=41000 (every registered layout + contract exercise)
+  binary <-> JSON byte-exact on 41000/41000 snapshots
+  layout.grid on its stated conventions on 1000/1000 seeds
+  layout.circular.radial on its stated conventions on 1000/1000 seeds
+  layout.packing.circle on its stated conventions on 1000/1000 seeds
+  layout.dag.sugiyama on its structural invariants on 1000/1000 seeds
+  3D exercise snapshots (dim 1, z column) round-tripped: 333
+  notes cases drawn (exercise, each needed): 0.2-labelled 133, 0.3 k=0 324, code 1 342, code 2 343, code 3 200
+PASS
+```
+
+`target/rt1000.err` holds 1000 progress lines plus the `/usr/bin/time` figure, one per
+seed from `seed 0/1000 nodes 2` to `seed 999/1000 nodes 401`. That is the shape the log
+should have had all along: had the old code printed them, the killed 2 h run would have
+said which seed it was sitting in rather than nothing at all.
+
+2822.51 s is still 47 minutes, and it is still the slow row — `hashgate-1000` next to it
+under `# slow:` is recorded at 3052 s (`docs/reports/phase-03.md:104`), so this is now the
+same order as the gate's other slow arm rather than an outlier that gets killed.
 
 N=8 and N=32 are inside process-startup noise (~0.2 s of it) and the layout work at those
 sizes is sub-second, so those two rows are not a measurement of the fix. The rows that
@@ -116,10 +155,10 @@ accounts for the rest.
 Growth is not linear in N: with per-seed node count capped at 601 the sweep cannot keep
 scaling past 600 seeds, and the 128 → 256 step (nodes 2…129 vs 2…257) is the steepest in
 the table. Extrapolating the `O(n^2)`-ish layout terms over 1000 seeds lands where the
-600-seed measurement below puts it.
+1000-seed measurement is at.
 
-**`roundtrip --seeds 1000` (release), the row as committed:** see the return block for the
-measured wall time and exit code.
+**`roundtrip --seeds 1000` (release), the row as committed: 2822.51 s, exit 0.** The full
+measurement and its output are in the table above.
 
 ## Commands
 
@@ -129,18 +168,39 @@ scripts/orch/gr cargo run -q --release -p graph-cli -- roundtrip --seeds 32   # 
 scripts/orch/gr cargo run -q --release -p graph-cli -- roundtrip --seeds 128  # before: 42.82 s
 scripts/orch/gr cargo run -q --release -p graph-cli -- roundtrip --seeds 256  # before: 292.3 s
 scripts/orch/gr ./target/release/graph-cli snapshot --seed 0 --nodes 601 --layout force.davidson_harel --out-bin /w/target/dh.bin
+scripts/orch/timed bash -c "scripts/orch/gr cargo build -q --release -p graph-cli && \
+  /usr/bin/time -f %e scripts/orch/gr ./target/release/graph-cli roundtrip --seeds 1000 \
+  > target/rt1000.out 2> target/rt1000.err"                                    # 2822.51 s, exit 0
+scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8   # expect non-zero
+scripts/orch/gr cargo fmt --all --check
+scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
 scripts/orch/gr cargo test -q -p graph-core davidson
 scripts/orch/gr cargo test -q -p graph-cli --bin graph-cli roundtrip::
-scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8   # expect non-zero
 ```
+
+## The negative control
+
+`GM_MUTATE_NODE_Z=1` puts one value too many in the 3D z column, so the reader must refuse
+it and the row must go non-zero. It does, and the progress lines say exactly where:
+
+```
+roundtrip: seed 0/8 nodes 2
+roundtrip: seed 1/8 nodes 3
+roundtrip: seed 2/8 nodes 4
+roundtrip: could not run: perturbed exercise seed 2: node.z: 4 values, need 3
+-> exit 2
+```
+
+Seed 2 is the first 3D one (`seed % 3 == 2`), so the control bites on the first seed it
+can and the log names it.
 
 ## Files
 
 | file:line | what |
 | --- | --- |
-| `crates/graph-core/src/layout/force/davidson_harel/energy.rs:56` | `resting`: records the position's own crossings and reciprocal distances once |
-| `crates/graph-core/src/layout/force/davidson_harel/energy.rs:78` | `node_dist` reads the record instead of recomputing the `p` half |
-| `crates/graph-core/src/layout/force/davidson_harel/energy.rs:151` | `crossings` reads the recorded flags instead of recomputing them |
-| `crates/graph-core/src/layout/force/davidson_harel.rs:215` | `try_node` builds one record per position, not per candidate |
-| `crates/graph-cli/src/snapshot_cmd/roundtrip.rs:160` | `sweep_with`: one progress line per seed, before the seed is worked |
+| `crates/graph-core/src/layout/force/davidson_harel/energy.rs:52` | `resting`: records the position's own crossings and reciprocal distances once |
+| `crates/graph-core/src/layout/force/davidson_harel/energy.rs:108` | `node_dist` reads the record instead of recomputing the `p` half |
+| `crates/graph-core/src/layout/force/davidson_harel/energy.rs:144` | `crossings` reads the recorded flags instead of recomputing them |
+| `crates/graph-core/src/layout/force/davidson_harel.rs:209` | `try_node` builds one record per position, not per candidate |
+| `crates/graph-cli/src/snapshot_cmd/roundtrip.rs:159` | `sweep_with`: one progress line per seed, before the seed is worked |
 | `scripts/orch/rows/develop-full.rows:42` | the row builds `--release` |
