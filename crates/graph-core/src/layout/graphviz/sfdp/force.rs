@@ -19,8 +19,17 @@ pub(super) const C: f64 = 0.2;
 /// distance to it is below `bh` is treated as one supernode.
 pub(super) const BH: f64 = 0.6;
 
-/// Convergence floor (`spring_electrical.c:47`): the loop stops once `step <= tol / K`.
+/// Convergence floor (`spring_electrical.c:47`): the loop stops once `step <= tol`. The
+/// reference's comment above the constant says `tol ÷ K`; its loop test (`:360`, `:650`) says
+/// `step > tol`, and the loop test is what runs.
 pub(super) const TOL: f64 = 0.001;
+
+/// Below this many nodes the repulsion is summed over every pair instead of the quadtree
+/// (`spring_electrical.c:39`, `:543`).
+pub(super) const QUADTREE_SIZE: usize = 45;
+
+/// The smallest distance a repulsion divides by (`spring_electrical.c:599`, `MAX(dist, MINDIST)`).
+const MINDIST: f64 = 1e-15;
 
 /// The cooling factor (`spring_electrical.c:49`), used by both arms of `update_step`.
 pub(super) const COOL: f64 = 0.90;
@@ -53,14 +62,16 @@ pub(super) fn average_edge_length(edges: &[(u32, u32)], x: &[f64], y: &[f64]) ->
     total / edges.len() as f64
 }
 
-/// `update_step` (`spring_electrical.c:171-185`), adaptive arm.
+/// `update_step` (`spring_electrical.c:171-185`).
 ///
-/// The reference holds the step still while the force norm is within 5% of the previous one,
-/// cools by `cool` when the norm did not improve, and warms by `0.99/cool` when it improved
-/// clearly. Reproducing the *hold* branch matters: without it the step decays monotonically and
-/// the layout stops short of its own convergence test.
-pub(super) fn update_step(step: f64, norm: f64, previous: f64) -> f64 {
-    if norm >= previous {
+/// Without adaptive cooling, which the reference switches off below the coarsest level
+/// (`spring_electrical.c:1158`), the step just cools by `cool`. With it, the step holds still
+/// while the force norm is within 5% of the previous one, cools by `cool` when the norm did not
+/// improve, and warms by `0.99/cool` when it improved clearly. Reproducing the *hold* branch
+/// matters: without it the step decays monotonically and the layout stops short of its own
+/// convergence test.
+pub(super) fn update_step(adaptive: bool, step: f64, norm: f64, previous: f64) -> f64 {
+    if !adaptive || norm >= previous {
         COOL * step
     } else if norm > 0.95 * previous {
         step
@@ -77,6 +88,19 @@ pub(super) fn crk(k: f64) -> f64 {
 /// The repulsive prefactor `KP = K^(1-p)` (`spring_electrical.c:290`).
 pub(super) fn kp(k: f64) -> f64 {
     libm::pow(k, 1.0 - P)
+}
+
+/// The repulsion of one node or supernode, `charge` being its weight times `KP`, accumulated
+/// into `out`; `delta` points from it to the node being pushed.
+///
+/// `KP · delta / dist^(1-p)` (`spring_electrical.c:598-602`). With `p = -1` the exponent is 2,
+/// so the force falls off as `1/dist`: written as `dist * dist` rather than `pow` because the
+/// pair loop is the layout's hot path. A coincident pair has `delta = 0` and adds nothing.
+pub(super) fn repel(out: &mut [f64; 2], delta: [f64; 2], charge: f64) {
+    let dist = libm::sqrt(delta[0] * delta[0] + delta[1] * delta[1]).max(MINDIST);
+    let scale = charge / (dist * dist);
+    out[0] += scale * delta[0];
+    out[1] += scale * delta[1];
 }
 
 /// The edge attraction on node `i` from one edge `(i, j)`, gathered into `out`.
@@ -131,14 +155,32 @@ mod tests {
     #[test]
     fn update_step_cools_holds_and_warms() {
         assert!(
-            (update_step(1.0, 2.0, 1.0) - COOL).abs() < 1e-12,
+            (update_step(true, 1.0, 2.0, 1.0) - COOL).abs() < 1e-12,
             "worse cools"
         );
         assert!(
-            (update_step(1.0, 0.98, 1.0) - 1.0).abs() < 1e-12,
+            (update_step(true, 1.0, 0.98, 1.0) - 1.0).abs() < 1e-12,
             "within 5% holds"
         );
-        assert!(update_step(1.0, 0.5, 1.0) > 1.0, "clearly better warms");
+        assert!(
+            update_step(true, 1.0, 0.5, 1.0) > 1.0,
+            "clearly better warms"
+        );
+        assert!(
+            (update_step(false, 1.0, 0.5, 1.0) - COOL).abs() < 1e-12,
+            "without adaptive cooling the step only cools"
+        );
+    }
+
+    /// The repulsion falls off as `1/d`, the reference's `p = -1`. On 2026-10-01 it fell off as
+    /// `1/d²`, which let distant clusters drift into each other.
+    #[test]
+    fn repulsion_falls_off_as_one_over_distance() {
+        let mut near = [0.0, 0.0];
+        let mut far = [0.0, 0.0];
+        repel(&mut near, [1.0, 0.0], 1.0);
+        repel(&mut far, [2.0, 0.0], 1.0);
+        assert_eq!((near, far), ([1.0, 0.0], [0.5, 0.0]));
     }
 
     /// Attraction points from `j` back toward `i` and is antisymmetric under swapping the

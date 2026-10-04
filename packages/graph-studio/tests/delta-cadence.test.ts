@@ -27,7 +27,7 @@ function failedOf(result: Result): string {
 
 function report(nodeCount: number): RunReport {
   return {
-    layoutId: "layout.random", postId: null, postError: null,
+    layoutId: "layout.random", postId: null, postError: null, params: {},
     bytes: new Uint8Array(nodeCount), digest: null, layoutMs: 1, postMs: 0, meta: null,
   };
 }
