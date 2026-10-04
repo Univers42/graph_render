@@ -19,8 +19,8 @@
  * "relation", `label` the kind, `strength` the document's own value (`source/ingest.ts:190-254`).
  * `u32::MAX` is an absent optional column (`ingest-columns.md:51-53`).
  */
-import { EDGE_COLUMNS, NODE_COLUMNS } from "../../packages/graph-studio/src/source/synthetic-columns.ts";
-import type { ColumnRowsLike } from "../../packages/graph-studio/src/source/synthetic-columns.ts";
+import { EDGE_COLUMNS, NODE_COLUMNS } from "../../packages/graph-studio/src/element.ts";
+import type { ColumnRowsLike } from "../../packages/graph-studio/src/element.ts";
 
 /** `u32::MAX` in an optional column: the field is absent, exactly as the JSON reader's `null`. */
 const ABSENT = 0xffff_ffff;

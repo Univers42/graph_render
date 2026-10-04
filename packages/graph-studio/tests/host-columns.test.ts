@@ -84,7 +84,7 @@ async function started(client: MotorClient = scriptedClient()): Promise<{
   }
   watchHost({ host, store: made.studio.store, view: { on: () => () => undefined }, previews: createPreviews({ resolver: () => null }) });
   const verbs = hostVerbs(host, made.studio, Promise.resolve());
-  return { heard, columns: (rows) => verbs.loadColumns(rows as ColumnRowsLike), store: made.studio.store };
+  return { heard, columns: (rows) => verbs.loadColumns(rows), store: made.studio.store };
 }
 
 test("loadColumns resolves with the counts and no notes, and graph-load says the same once", async () => {
@@ -107,9 +107,9 @@ test("the worker builds Document.nodes from the rows, in row order, and assemble
   assert.deepEqual(nodes.map((node) => node.kind), ["record", "record", "record"]);
   assert.deepEqual(nodes.map((node) => node.source), ["file", "file", "file"]);
   assert.deepEqual(nodes.map((node) => node.weight), [0.5, 0.5, 0.5]);
-  assert.equal(nodes[0]?.database_id, null);
-  assert.equal(nodes[0]?.group, null);
-  assert.equal(nodes[0]?.has_note, false);
+  assert.equal(nodes[0].database_id, null);
+  assert.equal(nodes[0].group, null);
+  assert.equal(nodes[0].has_note, false);
   assert.equal(document.edgeCount, 2);
   assert.deepEqual(document.notes, []);
   assert.equal(document.payload.kind, "columns");

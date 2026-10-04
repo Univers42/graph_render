@@ -27,7 +27,10 @@ export { HOST_API, OPEN_VIAS } from "./host/contract.ts";
 export type {
   GraphStudioElement, GraphStudioHost, HostEvents, LoadResult, NodePreview, OpenVia, Resolve,
 } from "./host/contract.ts";
-/** What `loadColumns` takes: the host names its own columns with this, so it is named here. */
+/** What `loadColumns` takes and the two strides a host fills it at, from the one file a host may
+ *  import (`app/eslint.config.js`). The strides are the contract's
+ *  (`docs/contract/ingest-columns.md:22-37`): eight `u32` columns per node and per edge. */
+export { EDGE_COLUMNS, NODE_COLUMNS } from "./source/synthetic-columns.ts";
 export type { ColumnRowsLike } from "./source/synthetic-columns.ts";
 
 const NONE: readonly string[] = Object.freeze([]);
