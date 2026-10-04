@@ -29,9 +29,9 @@ export const RING_LIMIT = 1024;
 
 export interface QueueDeps {
   /** One batch into the built graph; throws and the graph is as it was. */
-  readonly extend: (batch: GraphBatch) => void;
+  readonly extend?: (batch: GraphBatch) => void;
   /** Covers the graph's new node count in the live session. Throws when it cannot. */
-  readonly grow: () => void;
+  readonly grow?: () => void;
   readonly reheat: (alpha: number) => void;
   /** The session's alpha now, so the reheat is the larger of it and `GROW_ALPHA`. */
   readonly alpha: () => number;
@@ -69,6 +69,9 @@ export class DeltaRefusal extends Error {
   }
 }
 
+/** Why a batch cannot be applied at all, or null when it can. */
+const NO_PATH = "this motor cannot add to a built graph, or its live session cannot grow";
+
 interface Applied {
   readonly queued: Queued;
   readonly applied: number;
@@ -90,7 +93,7 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
 
   const extendAll = (burst: readonly Queued[]): (Applied | Refused)[] => burst.map((queued) => {
     try {
-      deps.extend(queued.batch);
+      deps.extend?.(queued.batch);
       return { queued, applied: queued.batch.nodes.length };
     } catch (error) {
       return { queued, error: describeError(error) };
@@ -153,7 +156,7 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
       ring.push({ tick, batch: applied.indexOf(one) });
     }
     if (any) {
-      deps.grow();
+      deps.grow?.();
       deps.reheat(Math.max(GROW_ALPHA, deps.alpha()));
     }
     const count = deps.nodeCount();
@@ -162,7 +165,11 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
   }
 
   return {
-    push: (batch) => new Promise<Result>((resolve) => { pending.push({ batch, answer: resolve }); }),
+    // Refused here rather than at the drain: a port with no extend path has nothing to apply a
+    // batch to, and queueing it would answer a tick later with a grow that cannot happen.
+    push: (batch) => deps.extend === undefined || deps.grow === undefined
+      ? Promise.resolve({ type: "failed", error: describeError(new DeltaRefusal(NO_PATH)) })
+      : new Promise<Result>((resolve) => { pending.push({ batch, answer: resolve }); }),
     drain,
     refuse: (message) => {
       const stopped = pending.splice(0, pending.length);

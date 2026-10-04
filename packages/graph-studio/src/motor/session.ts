@@ -193,21 +193,18 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
       if (built.forced === null) throw new SessionRefusal("the motor made no force session");
       return built.forced;
     },
-    // Both refusals are the loop's to answer: `force.deltas` turns a throw here into a
+    // Both refusals are the queue's to answer: `force.deltas` turns a throw here into a
     // `failed` result carrying the message, and the graph is untouched either way.
-    extend: (batch) => appendTo(motor, built.handle, batch),
+    extend: (batch) => {
+      if (motor.extend === undefined) throw new SessionRefusal("this motor cannot add to a built graph");
+      motor.extend(built.handle, batch);
+    },
     grow: () => {
       if (session.grow === undefined) throw new SessionRefusal("this motor's live session cannot grow");
       session.grow();
     },
   });
   return built.port;
-}
-
-/** One batch into the built graph, or a refusal naming a motor that has no extend path. */
-function appendTo<Handle>(motor: MotorLike<Handle>, handle: Handle, batch: GraphBatch): void {
-  if (motor.extend === undefined) throw new SessionRefusal("this motor cannot add to a built graph");
-  motor.extend(handle, batch);
 }
 
 /**
