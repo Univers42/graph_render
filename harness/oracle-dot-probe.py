@@ -16,11 +16,16 @@ are *derived* from the printed coordinates, in this order:
 
 The digest is one line per seed:
 
-    seed n  t,h t,h ...  <n ranks>  <n order>
+    seed n  t,h t,h ...  <n ranks>  <n order>  <n xs>  <n ys>
 
 where `order` is the per-rank left-to-right node lists concatenated, rank 0 first, so a
-reader splits the line into `2 * n` trailing fields after the edges. `dot/oracle_probe.rs`
-parses exactly this, and the 1000-seed order sweep asserts against it.
+reader splits the line into `4 * n` trailing fields after the edges: the ranks, the order,
+then the two coordinate columns, in that order and each `n` tokens wide. The last two are
+the **inch strings `-Tplain` printed** per node, in node-index order `n0, n1, ...`, carried
+verbatim: the consumer compares them byte for byte against the plain format's own precision,
+so re-printing a parsed float here would grade our arithmetic against the oracle's rounding
+rather than against its text. `dot/oracle_probe.rs` parses exactly this, and the 1000-seed
+order sweep asserts against it.
 
 Run in the ge-graphviz-oracle image, which carries both the engine and python3:
 
@@ -42,6 +47,7 @@ import json
 import os
 import sys
 import tempfile
+from collections import namedtuple
 
 sys.dont_write_bytecode = True
 
