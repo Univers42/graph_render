@@ -39,7 +39,7 @@ enum Gap {
 /// The layout ids `knobs::all()` does not tabulate, each with what it actually has.
 ///
 /// Sorted by id so a diff reads as a change to the set rather than a reshuffle.
-const NO_PER_STAGE_CONTROL: [(&str, Gap); 33] = [
+const NO_PER_STAGE_CONTROL: [(&str, Gap); 34] = [
     ("layout.bipartite", Gap::NoControl),
     ("layout.circular.circo", Gap::NoControl),
     ("layout.circular.hierarchy", Gap::HasOwnStageNodes),
@@ -47,6 +47,13 @@ const NO_PER_STAGE_CONTROL: [(&str, Gap); 33] = [
     // `GM_MUTATE_CIRCULAR_NODES` — spelled for the layout family, not the id.
     ("layout.circular.radial", Gap::HasOwnStageNodes),
     ("layout.circular.ring", Gap::NoControl),
+    // p13-gv3-dot-position: no `Knob` variant scopes `stage_nodes` to this id, and the job
+    // that registers it says so — a hashgate knob for `layout.dag.dot` is the next job along
+    // with the graph-cli differential. The gap is the same as every other row here and is
+    // recorded rather than papered over: the gate hashes this stage 4-way and nothing can move
+    // it on its own, which is what `Gap::NoControl` means. See
+    // `docs/measurements/p13-gv2-dot.md`'s "Position" section for what the layout does instead.
+    ("layout.dag.dot", Gap::NoControl),
     ("layout.dag.sugiyama", Gap::NoControl),
     ("layout.force.barnes_hut", Gap::NoControl),
     // The p12-t4b 3D arms. Their 2D siblings' knobs (`IGRAPH_LAYOUT_STAGES`) scope
