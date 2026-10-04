@@ -22,9 +22,9 @@ function spiedSession(seen: Seen): Session {
   return createSession({
     motorFrom: async () => {
       const motor = await createMotor(WASM ?? new Uint8Array(0));
-      const layout = motor.layout.bind(motor);
+      const run = motor.run.bind(motor);
       const forceSession = motor.forceSession.bind(motor);
-      motor.layout = (handle: Handle, id: string) => (seen.layouts.push(id), layout(handle, id));
+      motor.run = (handle: Handle, id: string) => (seen.layouts.push(id), run(handle, id));
       motor.forceSession = (handle, params, engine, seed) => {
         seen.engines.push(engine);
         seen.seeds.push(seed);

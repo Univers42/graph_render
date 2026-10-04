@@ -11,7 +11,7 @@
  * draws nothing until its host calls `loadGraph` (`docs/contract/host-api.md`).
  */
 import type { View } from "../../graph-render/src/view.ts";
-import { type Deltas, createDeltas } from "./actions/registry.ts";
+import { type Deltas, createDeltas } from "./actions/batch.ts";
 import { emit } from "./host/events.ts";
 import { HOST_API, type GraphStudioElement, type LoadResult, type Resolve } from "./host/contract.ts";
 import { SILENCE_MS } from "./motor/watchdog.ts";

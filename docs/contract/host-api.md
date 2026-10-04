@@ -5,6 +5,9 @@ override the draft text above them.
 Today a host reaches into `element.studio.store` (`packages/graph-studio/src/element.ts:43-64`); this
 contract replaces those reaches. Everything not listed here is internal and may change without notice.
 
+How a host ships the files behind this API — the ESM pack, both wasm artifacts, the CSP and the
+COOP/COEP it needs, and what the serial fallback costs — is [`packaging.md`](packaging.md).
+
 ## The rule: a node is a reference
 
 A node carries a stable string **id** plus light, fixed metadata: `label`, `kind`, `group`,
@@ -67,6 +70,16 @@ worker or a backend.
 - When `resolve` is `null`, the card shows `label`, `kind` and `path` from the node's own metadata, as
   today.
 
+## The embed example (`app/embed.html`)
+
+`app/src/embed.ts` is the host page the gate drives, and it streams: its Replay button reads
+`fixtures/embed/replay.jsonl` and hands each line to `applyDeltas` one batch at a time, awaiting
+every answer before the next call, because the verb is atomic per call and is not coalesced across
+calls (condition 8). A refused line pushes the motor's error `name` and the replay goes on; the page
+keeps the outcome on `window.__embed.replay` and the gate reads it there. Rows
+`embed-replay-applied`, `embed-replay-refused` and `embed-replay-drawn` (`deploy/nav/embedreplay.py`);
+`break-replay` serves the file a line short and both of the others must FAIL.
+
 ## Gates
 
 As built. The first four run inside `scripts/studio.sh check`.
@@ -77,7 +90,7 @@ As built. The first four run inside `scripts/studio.sh check`.
 | `host-api-types` | `tests/host-types.test.ts`: the element is an `HTMLElement`, and `focus({preventScroll:true})` still works | `tests/breaks/focus-name.ts` puts the name `focus` back; `tsc` must fail with TS2430 only |
 | `host-api-escape` | `renderToStaticMarkup` over hostile labels, paths and previews: no raw tag, no `on*`, no `href` | `HOST_API_ESCAPE_BREAK=1` renders through `dangerouslySetInnerHTML` |
 | `lint` | ESLint bans the five markup sinks in `packages/` | `tests/ui/raw-html.tsx` must raise all five |
-| `studio-embed` | `scripts/studio-embed.sh` over `app/embed.html`, three runs: `plain` (no COOP/COEP), `isolated`, `csp` (verdict 13's CSP). Rows: the load as the smoke gate judges it, `loadGraph`, a pre-upgrade `resolve`, dblclick, Enter, Open, an overlapping load and one re-entered from its `graph-load` handler, a refused load, `composed` events and storage (row `host-api-storage` is `embed-storage` here) | `STUDIO_EMBED_BREAK=1`: fifteen runs, one fault each, injected over CDP or in the bytes served; every targeted row must FAIL for its own reason, and a targeted row that could not be measured at all (`NOT-RUN`) counts as a control that did not bite |
+| `studio-embed` | `scripts/studio-embed.sh` over `app/embed.html`, three runs: `plain` (no COOP/COEP), `isolated`, `csp` (verdict 13's CSP). Rows: the load as the smoke gate judges it, `loadGraph`, a pre-upgrade `resolve`, dblclick, Enter, Open, an overlapping load and one re-entered from its `graph-load` handler, a refused load, `composed` events and storage (row `host-api-storage` is `embed-storage` here), and the Replay button streaming a JSONL of batches through `applyDeltas` | `STUDIO_EMBED_BREAK=1`: sixteen runs, one fault each, injected over CDP or in the bytes served; every targeted row must FAIL for its own reason, and a targeted row that could not be measured at all (`NOT-RUN`) counts as a control that did not bite |
 
 ## Verdict
 
@@ -128,11 +141,16 @@ disagree, the condition wins.
    - The rejection's `name` equals `graph-error.detail.error`, which equals `ShownError.code`.
    - The byte cap is the motor's `IngestTooLarge` at 1 GiB (`crates/graph-wasm/src/ingest.rs:76`).
    - Row `studio-embed`: two overlapping loads give one `graph-load` and one `CancelledError`.
-8. **`applyDeltas` is out of v1.** Hosts feature-test with `"applyDeltas" in el`, and a declared method
-   that always rejects defeats that test. When it lands, it is atomic per call, with no coalescing across
-   calls, and `DeltaResult` drops the per-id `refused[]`. `delta.md` is cited only once it is on develop.
+8. **`applyDeltas` is outside the v1 promise.** It landed with P4c (`packages/graph-studio/src/element.ts:104`,
+   `host/contract.ts:88`); the batch, its refusals and the ABI under it are `docs/contract/delta.md`, and
+   the measurement is `docs/measurements/perf-p4c-studio.md`. Hosts feature-test with `"applyDeltas" in el`.
+   It is atomic per call, with no coalescing across calls, and resolves with `{ applied }` only: no per-id
+   `refused[]`.
 9. **The interface is complete.** `invalidate(id)` is declared in it. `studio`, `view` and `stopMotor` are
    `@internal` and outside the v1 promise, because they expose dense indices. Row `host-api-types`.
+   The four `@internal` members (`studio`, `view`, `stopMotor`, `watchdogBoundMs`) are present on the
+   element at run time, are not part of the promised contract, and a call made after `stopMotor()`
+   rejects with `CancelledError`.
 10. **Events.**
     - Every event has `bubbles:true` and `composed:true`.
     - `detail` is a fresh, frozen object of string ids, never a dense index.

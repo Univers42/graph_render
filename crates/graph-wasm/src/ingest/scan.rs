@@ -11,16 +11,18 @@
 //! Two walks, and the order between them is the point:
 //!
 //! 1. [`Document::new`] walks the whole text and refuses exactly what `parse` refuses, at
-//!    the same byte offsets with the same messages. Past the cursor it holds the root's
-//!    member list and nothing else.
+//!    the same byte offsets with the same messages. It locates the root's member list on
+//!    the same pass — the whole text is read once for this, and the second pass that used
+//!    to follow found nothing the first had not already validated.
 //! 2. [`Scan::elements`] walks one array again, handing each element's text straight to the
 //!    record reader. No index, no offsets kept, nothing to pre-size.
 //!
 //! Split in two because the reader this replaces parses the *entire* text before it looks at
 //! the root, so a syntax fault in `edges[4000000]` is reported ahead of a missing `version`.
-//! One walk that located as it validated would report them the other way round, which the
-//! differential test in `super::differential` would rightly call a change of refusal
-//! order.
+//! Locating the root inside the first walk does not disturb that: the shape refusals are
+//! still raised by the caller, after this has had its say on the whole text. Folding the
+//! *record* pass into the first walk would, which is why it is not done
+//! (`docs/measurements/perf-p4d-extend.md`).
 //!
 //! The container methods are a deliberate line-for-line mirror of `canonical_json::parse`,
 //! down to the order a member's value is read before its key is checked for repetition and
@@ -40,7 +42,6 @@ mod walk;
 
 use graph_contract::canonical_json::JsonError;
 
-use super::IngestError;
 /// Deepest nesting read, as `graph_contract::canonical_json::parse` reads it.
 pub(super) const MAX_DEPTH: u32 = 32;
 
@@ -49,12 +50,6 @@ pub(super) const MAX_DEPTH: u32 = 32;
 /// reader this replaces: a quadratic over a hostile object is a worse trade than a clone per
 /// member.
 pub(super) const WIDE_OBJECT: usize = 32;
-
-/// The depth of a root member's value: the root object is depth 0, so what it holds is
-/// depth 1, and [`Scan::array`] is entered there. Fixed rather than stored because the only
-/// arrays this walks are root members' — an element's own arrays are read as part of its
-/// text, never re-walked.
-pub(super) const ROOT_MEMBER_DEPTH: u32 = 1;
 
 /// One string's unescaped text: borrowed from the document when it carries no escape, built
 /// when it does. The escape path is the rare one, so the common one allocates nothing.
@@ -120,6 +115,19 @@ pub(super) struct Member {
     pub(super) elements: Option<usize>,
 }
 
+/// One object member as the walk reads it: its unescaped key, where its value is, and —
+/// for a value that is a string — that string's own text.
+///
+/// The text is the point. A record reader needs every string field's bytes unescaped, and
+/// this walk has just read them; handing them over is what saves the reader from lexing
+/// the same bytes a second time (`docs/measurements/perf-p4d-extend.md`). `None` for a
+/// value that is not a string, which is every other kind of value there is.
+pub(in crate::ingest) struct Field<'a> {
+    pub(in crate::ingest) key: Text<'a>,
+    pub(in crate::ingest) value: Span,
+    pub(in crate::ingest) text: Option<Text<'a>>,
+}
+
 /// A validated ingest document: the root's members, and nothing per element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Document<'a> {
@@ -139,13 +147,7 @@ impl<'a> Document<'a> {
     /// refuses that with a shape error of its own, after this has had its say on the syntax.
     pub(super) fn new(text: &'a str) -> Result<Self, JsonError> {
         let mut scan = Scan::new(text);
-        scan.value(0)?;
-        scan.space();
-        if scan.at != text.len() {
-            return Err(scan.fault("text after the value"));
-        }
-        scan.at = 0;
-        let (object, members) = scan.root_members()?;
+        let (object, members) = scan.root()?;
         Ok(Self {
             text,
             object,
@@ -198,24 +200,6 @@ impl<'a> Scan<'a> {
             at: 0,
             keys: Vec::new(),
         }
-    }
-
-    /// The root object's members in document order, each with its array element count, and
-    /// whether the root was an object at all. Empty for a root that is not one.
-    fn root_members(&mut self) -> Result<(bool, Vec<Member>), JsonError> {
-        self.space();
-        if self.byte(self.at) != Some(b'{') {
-            return Ok((false, Vec::new()));
-        }
-        let mut members = Vec::new();
-        self.object(0, &mut |key: Text<'_>, value, elements| {
-            members.push(Member {
-                key: key.into_string(),
-                value,
-                elements,
-            });
-        })?;
-        Ok((true, members))
     }
 }
 

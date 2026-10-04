@@ -10,10 +10,11 @@
  * that trapped or failed an allocation is retired instead of asked again.
  */
 import type { ShownError } from "../state/errors.ts";
-import type { Source } from "../state/settings.ts";
+import type { ParamValues, Source } from "../state/settings.ts";
 import { NO_ADAPTER_REASON } from "./live.ts";
 import type {
-  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphBatch, GraphSummary, Port, Request, Result, RunReport, Spawn,
+  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphBatch, GraphSummary, LayoutParamSpec, Port, Request, Result,
+  RunReport, Spawn,
 } from "./protocol.ts";
 
 export class CancelledError extends Error {
@@ -43,7 +44,10 @@ export interface DeltasApplied {
 export interface MotorClient {
   catalog(): Promise<Catalog>;
   load(source: Source): Promise<GraphSummary>;
-  layout(layoutId: string, postId: string | null): Promise<RunReport>;
+  /** `params` is what to run the layout at; absent means the motor's own defaults. */
+  layout(layoutId: string, postId: string | null, params?: ParamValues): Promise<RunReport>;
+  /** The schema the motor publishes for `layoutId`; `[]` when it publishes none. */
+  params(layoutId: string): Promise<readonly LayoutParamSpec[]>;
   analysis(analysisId: string): Promise<AnalysisReport>;
   /**
    * One batch of nodes and edges into the graph, answered by the tick that applied it. Refused
@@ -195,6 +199,13 @@ function loaded(result: Result): GraphSummary {
   return result.graph;
 }
 
+/** The schema of the layout asked about; a motor that names another layout is not the answer. */
+function published(result: Result, layoutId: string): readonly LayoutParamSpec[] {
+  if (result.type !== "params") throw mismatch("params", result);
+  if (result.layoutId !== layoutId) throw new Error(`the motor answered the schema of ${result.layoutId} to a request for ${layoutId}`);
+  return result.specs;
+}
+
 function laidOut(result: Result): RunReport {
   if (result.type !== "laid-out") throw mismatch("layout", result);
   return result.run;
@@ -203,6 +214,20 @@ function laidOut(result: Result): RunReport {
 function analysed(result: Result): AnalysisReport {
   if (result.type !== "analysed") throw mismatch("analysis", result);
   return result.analysis;
+}
+
+/**
+ * A run's values, as the request carries them: nothing at all where there are none, so a run
+ * with no values of its own sends no `params` member and the motor takes its own defaults.
+ */
+function asked(params: ParamValues | undefined): { readonly params?: ParamValues } {
+  return params === undefined || Object.keys(params).length === 0 ? {} : { params };
+}
+
+/** A handler on a set of them, and the call that takes it off again. */
+function watch<Payload>(set: Set<(payload: Payload) => void>, handler: (payload: Payload) => void): () => void {
+  set.add(handler);
+  return () => void set.delete(handler);
 }
 
 /**
@@ -235,7 +260,9 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
     link: null, seq: 0, loaded: null, loads: 0, closed: false, waiting: new Map(), pushed: new Set(), failures: new Set(),
   };
   const linked = async (): Promise<Link> => {
-    if (state.closed) throw new Error("the motor client is closed");
+    // WHY: a call made after `stopMotor()` can never complete, so it carries the cancellation
+    // name the contract promises, not a generic failure name.
+    if (state.closed) throw new CancelledError();
     const link = state.link ?? connect(state, spawn, assets);
     await link.ready;
     if (state.link !== link) throw new CancelledError();
@@ -245,7 +272,8 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
   return {
     catalog: async () => (await linked()).ready,
     load: async (source) => loadFresh(state, source, () => call({ type: "load", source, fixturesUrl: assets.fixturesUrl })),
-    layout: async (layoutId, postId) => laidOut(await call({ type: "layout", layoutId, postId })),
+    layout: async (layoutId, postId, params) => laidOut(await call({ type: "layout", layoutId, postId, ...asked(params) })),
+    params: async (layoutId) => published(await call({ type: "params", layoutId }), layoutId),
     analysis: async (analysisId) => analysed(await call({ type: "analysis", analysisId })),
     deltas: async (batch) => {
       const applied = await call({ type: "force.deltas", batch });
@@ -255,14 +283,8 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
     cancel: () => cancelWaiting(state),
     busy: () => state.waiting.size > 0,
     force: (body) => fireAndForget(state, body),
-    onForce: (handler) => {
-      state.pushed.add(handler);
-      return () => void state.pushed.delete(handler);
-    },
-    onFail: (handler) => {
-      state.failures.add(handler);
-      return () => void state.failures.delete(handler);
-    },
+    onForce: (handler) => watch(state.pushed, handler),
+    onFail: (handler) => watch(state.failures, handler),
     close: () => {
       state.closed = true;
       drop(state);

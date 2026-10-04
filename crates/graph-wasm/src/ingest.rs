@@ -38,7 +38,6 @@ pub mod phases;
 mod refusal;
 mod scan;
 use at::At;
-use element::{edge, node};
 pub use ids::index;
 #[cfg(any(test, feature = "probe"))]
 use phases::mark;
@@ -133,9 +132,9 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
         });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| IngestError::Utf8)?;
-    // One validating walk of the whole text, and one locating walk for the root's members.
-    // No `Value` tree: that tree measured 3.2x the text at 1M nodes and is what stopped a
-    // document under 1 GiB from building inside wasm32's 4 GiB
+    // One validating walk of the whole text, which locates the root's members on the same
+    // pass. No `Value` tree: that tree measured 3.2x the text at 1M nodes and is what stopped
+    // a document under 1 GiB from building inside wasm32's 4 GiB
     // (`docs/measurements/fix-ingest-scale.md`).
     let document = scan::Document::new(text).map_err(IngestError::Json)?;
     #[cfg(any(test, feature = "probe"))]
@@ -158,8 +157,8 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
     require_only(document.members(), &["version", "nodes", "edges"])?;
     // Every node before any edge, exactly as the reader this replaced read them, and both
     // lists at the length the first walk counted — so neither `Vec` grows by doubling.
-    let nodes = read_all(&document, "nodes", node, At::list("nodes"))?;
-    let edges = read_all(&document, "edges", edge, At::list("edges"))?;
+    let nodes = read_all::<NodeRecord>(&document, "nodes", At::list("nodes"))?;
+    let edges = read_all::<EdgeRecord>(&document, "edges", At::list("edges"))?;
     #[cfg(any(test, feature = "probe"))]
     mark(phases::RECORDS, None);
     Ok((nodes, edges))
@@ -181,21 +180,23 @@ fn take_array<'a>(
     Ok(member)
 }
 
-/// Every element of the root member `key`, in order, through `one`, at the length the
-/// validating walk counted — so the `Vec` is allocated once and never grown.
-fn read_all<T>(
+/// Every element of the root member `key`, in order, at the length the validating walk
+/// counted — so the `Vec` is allocated once and never grown.
+///
+/// The walk locates each element's members as it reads them, so a record costs one pass
+/// over its own text and none over the document after it (`table::Element`).
+fn read_all<T: element::Shape>(
     document: &scan::Document<'_>,
     key: &str,
-    one: fn(&str, At) -> Result<T, IngestError>,
     at: At,
 ) -> Result<Vec<T>, IngestError> {
     let member = take_array(document, key, at)?;
     let mut out = Vec::with_capacity(member.elements.unwrap_or(0));
-    let mut index = 0usize;
     let mut scan = scan::Scan::new(document.text());
-    scan.elements(member.value, &mut |item| {
-        out.push(one(item, at.item(index))?);
-        index += 1;
+    let mut element = element::Element::new(document.text(), T::FIELDS, at);
+    scan.records(member.value, &mut element, &mut |element| {
+        let at = element.at();
+        out.push(T::read(element, at)?);
         Ok(())
     })?;
     Ok(out)
