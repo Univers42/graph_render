@@ -145,6 +145,11 @@ impl<'a> Scan<'a> {
     /// One object at `depth`, handing each member to `keep` as a [`Field`] — its
     /// unescaped key, its value's span, and that value's own text if it is a string —
     /// plus the element count if the value is an array.
+    ///
+    /// A member is read as the two steps it is, [`Self::member_key`] then
+    /// [`Self::member_value`], with the duplicate-key check between them and after the
+    /// value — the order `canonical_json::parse` reads a member in, and the order a
+    /// repeated key is reported at depends on.
     pub(in crate::ingest) fn object(
         &mut self,
         depth: u32,
@@ -159,27 +164,9 @@ impl<'a> Scan<'a> {
         }
         loop {
             self.space();
-            if self.byte(self.at) != Some(b'"') {
-                return Err(self.fault("expected a key"));
-            }
-            let key_at = self.at;
-            let (key, at) = self.string(self.at)?;
-            self.at = at;
-            self.space();
-            if !self.eat(b':') {
-                return Err(self.fault("expected : after a key"));
-            }
-            self.space();
+            let (key_at, key) = self.member_key()?;
             let start = self.at;
-            let mut elements = None;
-            let mut text = None;
-            if self.byte(self.at) == Some(b'[') {
-                let mut count = 0usize;
-                self.array(depth + 1, &mut |_| count += 1)?;
-                elements = Some(count);
-            } else {
-                text = self.value_text(depth + 1)?.1;
-            }
+            let (elements, text) = self.member_value(depth)?;
             if self.key_seen(base, &mut wide, &key) {
                 self.at = key_at;
                 return Err(self.fault("a key repeated in one object"));
@@ -202,6 +189,43 @@ impl<'a> Scan<'a> {
                 return Err(self.fault("expected , or } in an object"));
             }
         }
+    }
+
+    /// One member's key, read at the cursor: the offset its quote was at, and its
+    /// unescaped text. The cursor is left on the value's first byte, spaces and all.
+    ///
+    /// The opening quote, the `:` and the spaces either side of it live here so that
+    /// `object`'s loop reads a member as the two steps it is. Each refusal is raised from
+    /// the byte `parse` stands on when it refuses, which is why the cursor is not moved
+    /// past the key before the `:` is checked.
+    fn member_key(&mut self) -> Result<(usize, Text<'a>), JsonError> {
+        if self.byte(self.at) != Some(b'"') {
+            return Err(self.fault("expected a key"));
+        }
+        let key_at = self.at;
+        let (key, at) = self.string(self.at)?;
+        self.at = at;
+        self.space();
+        if !self.eat(b':') {
+            return Err(self.fault("expected : after a key"));
+        }
+        self.space();
+        Ok((key_at, key))
+    }
+
+    /// One member's value, read at the cursor: how many elements it holds if it is an
+    /// array, and its own text if it is a string. The cursor is left just past it.
+    ///
+    /// An array is counted by walking it, because walking it is the only way to know where
+    /// it ends; every other value goes through `value_text`, which reads one value and
+    /// hands a string's text to the caller instead of making it read the bytes again.
+    fn member_value(&mut self, depth: u32) -> Result<(Option<usize>, Option<Text<'a>>), JsonError> {
+        if self.byte(self.at) != Some(b'[') {
+            return Ok((None, self.value_text(depth + 1)?.1));
+        }
+        let mut count = 0usize;
+        self.array(depth + 1, &mut |_| count += 1)?;
+        Ok((Some(count), None))
     }
 
     /// Whether `key` is already one of this object's members. Narrow objects compare
