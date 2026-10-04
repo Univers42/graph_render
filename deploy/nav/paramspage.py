@@ -49,6 +49,10 @@ INSTALL = """
       if (label === undefined) return null;
       const input = label.parentElement.querySelector('input.gs-range');
       if (input === null) return null;
+      // The dock scrolls, and a hand scrolls it to the control first. Without this the press
+      // lands below the fold: the open Layout section put the threshold track at y = 963 in a
+      // 720 px viewport (2026-10-04), and every drag row measured nothing.
+      input.scrollIntoView({ block: 'center' });
       const box = input.getBoundingClientRect();
       const low = Number(input.min), high = Number(input.max), at = Number(input.value);
       const span = high - low;
@@ -147,6 +151,7 @@ def head_box(studio):
     (() => {
       const head = window.__p.head();
       if (head === null) return null;
+      head.scrollIntoView({ block: 'center' });
       const box = head.getBoundingClientRect();
       return [box.left + box.width / 2, box.top + box.height / 2];
     })()
