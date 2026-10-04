@@ -279,6 +279,17 @@ Written before the code, so they can fail it.
 - **P4e-sdk** (after P4e-motor lands): `encodeBatch`, `Motor.extendColumns`, `sdk:test`, the wasm
   `--path columns` arm, the studio switch, the 1M measurement and its report.
 
+## Result (P4e-sdk)
+
+Conditions 13–17 green: the export is named (`ABI_VERSION` still 2), `extendColumns` goes through
+`buildStaged` and bumps, its refusals are `ColumnsRefusedError`, `encodeBatch` shares `Table` and
+the assembler, and the studio prefers it with both guards. Condition 18's eight-arm run is in
+[`perf-p4e-extend.md`](../measurements/perf-p4e-extend.md): **native 23.92 / 19.34 ms — the budget
+is met on both engines' native side; wasm 55.12 / 56.74 ms — still missed**, and the JSON arms are
+unchanged in behaviour and stay. **A2 confirmed; A1 refuted in its strong form** — the wasm arm
+gave up less than the native arm did, so the walk-plus-serialize is not most of the wasm premium;
+timing `encodeBatch` alone is the next measurement and this run does not have it.
+
 ## Early read (P4e-motor)
 
 One round, native Barnes-Hut, 1M nodes, 10 × 10 000-node batches, `--from target/bench/p4e-1m.jsonl`, `GR_MEM=12g`; not P4e-sdk's 3-round median, no wasm arm, and A1/A2 answered in the columns path's favour on this round only. The two `extend` columns measure different spans: `json` reads *and* appends, `columns` decodes and appends with its read and encode untimed.
