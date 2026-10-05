@@ -50,7 +50,6 @@ pub(crate) async fn lookup(
     if crate::breaks::on("no-idem") {
         return Ok(None);
     }
-    check_key(&key.key)?;
     let row = client
         .query_opt(
             "SELECT body_sha256, response, seq FROM idempotency \

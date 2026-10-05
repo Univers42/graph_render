@@ -104,13 +104,22 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
         .expect("the manual session keeps a long one");
     cycle.batch_execute("BEGIN").await.expect("the manual session begins");
     let blocker = tokio::spawn(async move {
+        // The reverse of §5.1's order, in one transaction: the record row first, then the workspace
+        // row. Task 5's trigger does not itself want the workspace row — it moves `epoch_clock` —
+        // so the second half of the cycle is this explicit `FOR UPDATE`, which is the lock an
+        // operator's own bookkeeping takes. The batch holds the workspace row (step 1) and wants
+        // the record row, so the two wait on each other.
         cycle
             .execute(
                 "UPDATE records SET updated_at = 99 WHERE ws = 'ws' AND qcoll = 'tracker.task' \
                  AND id = '1'",
                 &[],
             )
-            .await
+            .await?;
+        cycle
+            .query_one("SELECT id FROM workspaces WHERE id = 'ws' FOR UPDATE", &[])
+            .await?;
+        Ok::<(), tokio_postgres::Error>(())
     });
     // Wait for the manual statement to be *waiting on a lock*, not merely to have had time: the
     // cycle exists only once both sides are blocked, and a fixed sleep would make the case a race
@@ -187,8 +196,8 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
             assert_answer(&answer, seeded as u64 + 1, 1);
             assert_eq!(
                 seqs(&mut client).await,
-                vec![1, seeded + 1],
-                "the retry committed exactly one more change: no gap and no duplicate"
+                vec![1, seeded, seeded + 1],
+                "the manifest's change, the seeding batch's and the retry's: no gap, no duplicate"
             );
         }
         Err(error) => {
