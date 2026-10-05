@@ -51,6 +51,7 @@ const MOVES_THE_DRAWING: &[(&str, &str, f64)] = &[
     ("layout.force.davidson_harel", "maxiter", 3.0),
     ("layout.force.lgl", "maxit", 3.0),
     ("layout.force.drl", "seed", 12_345.0),
+    ("layout.dag.lanes", "lane_spacing", 4.0),
 ];
 
 #[test]
@@ -127,7 +128,7 @@ fn a_value_out_of_range_is_refused_and_never_clamped() {
 }
 
 /// A layout that publishes nothing: an empty buffer draws it, a non-empty one is refused
-/// rather than silently dropped. This is the shape twenty-six of the thirty-nine rows have.
+/// rather than silently dropped. This is the shape thirty-seven of the fifty-one rows have.
 #[test]
 fn a_layout_that_publishes_nothing_draws_an_empty_buffer_and_refuses_the_rest() {
     let (nodes, edges) = model();

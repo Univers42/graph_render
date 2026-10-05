@@ -44,7 +44,7 @@ use std::process::{Command, Output};
 /// this list is what clears a knob out of a test run's environment, so a name it failed to
 /// carry would let a control leak in and turn an honest run red. Being an independent copy is
 /// the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 51] = [
+pub const KNOBS: [&str; 52] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -90,6 +90,7 @@ pub const KNOBS: [&str; 51] = [
     "GM_MUTATE_BIPARTITE_3D_NODES",
     "GM_MUTATE_PACKING_OSAGE_NODES",
     "GM_MUTATE_DAG_DOT_NODES",
+    "GM_MUTATE_DAG_LANES_NODES",
     "GM_MUTATE_SPLIT_SUM",
     "GM_MUTATE_SPLIT_RESCALE",
     "GM_MUTATE_OVERLAP_RELAXATION",

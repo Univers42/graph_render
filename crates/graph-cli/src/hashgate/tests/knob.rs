@@ -19,6 +19,7 @@ mod controls;
 mod coverage;
 mod dot;
 mod ids;
+mod lanes;
 mod neato;
 mod osage;
 mod p3;
