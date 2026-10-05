@@ -9,7 +9,12 @@ async fn pruned(name: &str) -> Twin {
     twin.register("other", OTHER).await;
     let tasks = batch_of(
         &[
-            ("task", "a", 1, r#""name":"A","blocks":["gone"],"up":"gone""#),
+            (
+                "task",
+                "a",
+                1,
+                r#""name":"A","blocks":["gone"],"up":"gone""#,
+            ),
             ("task", "b", 1, r#""name":"B""#),
         ],
         &[],

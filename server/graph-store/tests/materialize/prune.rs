@@ -33,7 +33,12 @@ async fn read_checked(twin: &Twin) -> Ingest {
 async fn unresolved_links_are_pruned_and_the_edge_returns_when_the_target_arrives() {
     let mut twin = registered("prune_returns").await;
     let task = batch_of(
-        &[("task", "a", 1, r#""name":"A","blocks":["z"],"up":"z","link":"t9""#)],
+        &[(
+            "task",
+            "a",
+            1,
+            r#""name":"A","blocks":["z"],"up":"z","link":"t9""#,
+        )],
         &[],
     );
     assert!(twin.apply("tracker", task).await);
@@ -43,8 +48,14 @@ async fn unresolved_links_are_pruned_and_the_edge_returns_when_the_target_arrive
         assert_eq!(a.value(field), None, "dangling `{field}` is pruned");
     }
     assert_eq!(a.value("name"), Some(&JsonValue::Text("A".to_owned())));
-    assert!(twin.apply("tracker", batch_of(&[("task", "z", 1, "")], &[])).await);
-    assert!(twin.apply("other", batch_of(&[("thing", "t9", 1, "")], &[])).await);
+    assert!(
+        twin.apply("tracker", batch_of(&[("task", "z", 1, "")], &[]))
+            .await
+    );
+    assert!(
+        twin.apply("other", batch_of(&[("thing", "t9", 1, "")], &[]))
+            .await
+    );
     let doc = read_checked(&twin).await;
     let a = record(&doc, "tracker.task", "a");
     let z = JsonValue::Text("z".to_owned());
@@ -63,7 +74,10 @@ async fn a_link_to_an_unregistered_collection_drops_the_field_and_its_cells() {
     let doc = read_checked(&twin).await;
     let task = doc.collection("tracker.task").expect("tracker.task");
     assert!(task.field("link").is_none(), "the field is not declared");
-    assert!(task.field("blocks").is_some(), "a link inside the plugin is");
+    assert!(
+        task.field("blocks").is_some(),
+        "a link inside the plugin is"
+    );
     assert_eq!(record(&doc, "tracker.task", "a").value("link"), None);
 }
 

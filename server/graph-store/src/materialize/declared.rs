@@ -38,8 +38,7 @@ impl Declared {
                 if c.fields.iter().any(refers) {
                     referencing.insert(qcoll.clone());
                 }
-                let mut kept =
-                    kept_collection(c, &|target| registered(manifests, plugin, target));
+                let mut kept = kept_collection(c, &|target| registered(manifests, plugin, target));
                 kept.id = qcoll;
                 collections.push(kept);
             }
@@ -89,10 +88,12 @@ impl Declared {
         }
         let record = super::record::parse(&text)?;
         let exists = |q: &str, id: &str| !dangling.contains(&(q.to_owned(), id.to_owned()));
-        Ok(match prune_record(&record, &self.collections[at], &exists) {
-            Some(pruned) => record_piece(&pruned),
-            None => text,
-        })
+        Ok(
+            match prune_record(&record, &self.collections[at], &exists) {
+                Some(pruned) => record_piece(&pruned),
+                None => text,
+            },
+        )
     }
 }
 
