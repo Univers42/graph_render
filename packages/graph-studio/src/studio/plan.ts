@@ -55,6 +55,30 @@ export interface Plan {
   readonly load: boolean;
   readonly layout: boolean;
   readonly analysis: boolean;
+  /** The analysis is the one the settings already held, re-asked only because the graph changed. */
+  readonly carried: boolean;
+}
+
+/**
+ * The analyses a load does not re-run on its own past `ANALYSIS_CEILING` nodes, and the ceiling:
+ * betweenness's `scale_ceiling` in the motor's ledger (`graph-cli/src/capabilities/analysis.rs`).
+ * Left on, betweenness kept a million-node load waiting on ~1e12 steps with nothing on screen.
+ *
+ * Caveat: the set is copied from the ledger's complexity column by hand, so a super-linear
+ * analysis added to the motor and not here still hangs a large load; and a recipe that loads a
+ * new graph while naming the analysis it already held is held back like a carried one.
+ */
+const SUPERLINEAR: ReadonlySet<string> = new Set(["analysis.centrality.betweenness", "analysis.centrality.closeness"]);
+export const ANALYSIS_CEILING = 20_000;
+
+/** Whether a carried analysis waits for the user to pick it again on a graph of `nodes` nodes. */
+export function heldBack(analysisId: string, nodes: number): boolean {
+  return SUPERLINEAR.has(analysisId) && nodes > ANALYSIS_CEILING;
+}
+
+/** The note a held-back analysis leaves, so the empty colouring is explained. */
+export function heldNote(analysisId: string, nodes: number): string {
+  return `${analysisId} not re-run: ${nodes} nodes is past its ${ANALYSIS_CEILING}-node interactive ceiling; pick it again to wait for it`;
 }
 
 export function planOf(state: StudioState, next: Settings): Plan {
@@ -69,5 +93,6 @@ export function planOf(state: StudioState, next: Settings): Plan {
   const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges
     || relayout || params !== state.runParams;
   const asked = next.analysis !== null && (load || state.analysis?.id !== next.analysis);
-  return { load, layout, analysis: asked || (next.analysis === null && state.analysis !== null) };
+  const carried = load && next.analysis !== null && next.analysis === state.settings.analysis;
+  return { load, layout, analysis: asked || (next.analysis === null && state.analysis !== null), carried };
 }
