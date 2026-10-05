@@ -430,6 +430,39 @@ async fn one_record_of_another_plugin_is_403_not_404() {
 
 /// `GET .../plugins` answers every registered manifest, one per plugin, in plugin order.
 #[tokio::test]
+async fn a_qualified_collection_in_a_body_is_422() {
+    let hub = hub_db(&[]).await;
+    ready(&hub, "qualified", "task").await;
+    // §4's collection grammar inside a **body**: `other.coll` is a qualified id and a body may not
+    // qualify, because the plugin comes from the path. This is the case row `negctl-lax-reader`
+    // turns red: graph-contract's `lax-reader` is exactly the switch that drops that check.
+    let refused = hub
+        .post(
+            "/v1/workspaces/qualified/plugins/task/batches",
+            batch(&[("other.coll", "one", "n")], &[]),
+        )
+        .await;
+    assert_eq!(refused.code(), 422, "{}", refused.body());
+}
+
+#[tokio::test]
+async fn a_nul_anywhere_in_a_body_is_422() {
+    let hub = hub_db(&[]).await;
+    ready(&hub, "nul", "task").await;
+    // §4's body NUL rule is graph-contract's (`HubError::Nul`, `crates/graph-contract/src/hub/strict.rs:30`),
+    // and the walk is over the parsed tree, so a NUL in a cell value counts exactly as one in a key
+    // would. This is the case row `negctl-lax-reader` turns red.
+    let body = concat!(
+        r#"{"upserts":[{"collection":"task","id":"one","updatedAt":1,""#,
+        r#""values":{"name":"one","note":"a\u0000b"}}],"deletes":[]}"#
+    );
+    let refused = hub
+        .post("/v1/workspaces/nul/plugins/task/batches", body)
+        .await;
+    assert_eq!(refused.code(), 422, "{}", refused.body());
+}
+
+#[tokio::test]
 async fn get_plugins_returns_every_manifest() {
     let hub = hub_db(&[]).await;
     ready(&hub, "listed", "alpha").await;
