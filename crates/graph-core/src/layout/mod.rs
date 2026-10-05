@@ -6,7 +6,8 @@
 //! `basic_3d`, `bipartite`, `circle_packing`, `circular`, `force`, `forceatlas2`,
 //! `graphviz`, `grid`, `hierarchical_3d`, `hierarchy`, `pivot_mds`, `planarity`, `radial`,
 //! `random`, `spectral`, `spectral_stage`, `spiral`, `sugiyama`, `tidy_tree` and `treemap`;
-//! `hierarchy` is the one repaired tree the tree layouts share. `adjacency` and `coords` are
+//! `hierarchy` is the one repaired tree the tree layouts share, and `lanes` is the one row
+//! per vertex. `adjacency` and `coords` are
 //! private, and `tests` is `#[cfg(test)]`.
 
 mod adjacency;
@@ -21,6 +22,7 @@ pub mod graphviz;
 pub mod grid;
 pub mod hierarchical_3d;
 pub mod hierarchy;
+pub mod lanes;
 pub mod pivot_mds;
 pub mod planarity;
 pub mod radial;

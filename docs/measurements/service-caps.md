@@ -158,6 +158,8 @@ The two rows `layout.random.3d` and `layout.force.yifan_hu.3d` came from one mor
 
 The row `layout.dag.dot` came from one more ladder run (2026-10-05, 7 rungs, load1 9.84 on 20 cores), with the commands above and that id, after develop registered it; `tests/caps.rs` had been red on develop without it. It is bound by time: n 16384 was killed past 40 s, so its cap is the n 8192 rung (13308 ms, 38.6 MiB). Its dense rung at n 8192 failed with exit 137, so its cap_m is the sparse rung's 12692 edges.
 
+The row `layout.dag.lanes` came from one more ladder run (2026-10-06, 14 rungs, load1 3.39 to 3.67 on 20 cores), with the commands above and that id, before the layout landed, so `tests/caps.rs` never went red on develop for it. It is at its ceiling of 1000000: the n 1000000 rung took 979.3 ms (1473.5 MiB), and the dense rung at 4000000 edges took 2359.2 ms with a peak of 2775.7 MiB, under the run peak at cap below, so the per-slot budget is unchanged.
+
 The `post.separate.grid` kill comes from its input. `layout.packing.circle` runs untimed before the post
 and is slow at 6451 nodes. Over `layout.treemap.squarified` the post reached 6451 nodes in 1.58 s. Its cap
 of 4096 nodes and 10000 edges also satisfies either reading of `SEPARATE_CEILING`, which

@@ -8,7 +8,7 @@ use super::capability::Capability;
 use super::{
     arms_3d, closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo,
     graphviz_fdp, graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid,
-    hierarchy, igraph, radial, spectral, three_d,
+    hierarchy, igraph, lanes, radial, spectral, three_d,
 };
 use super::{params, run_default};
 use crate::layout::basic_3d;
@@ -46,7 +46,7 @@ use three_d::{
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 50] = [
+pub static LAYOUTS: [Capability; 51] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -305,4 +305,6 @@ pub static LAYOUTS: [Capability; 50] = [
         params: &params::LayoutParams::NONE,
         meta: DOT,
     },
+    // ---- dag-lanes: one row per vertex, reused lanes, appended last (append only).
+    lanes::LANES_LAYOUT,
 ];

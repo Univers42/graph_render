@@ -111,10 +111,12 @@ use crate::layout::force::spring::{Spring, Spring3D};
 use crate::layout::force::{DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl};
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use crate::layout::grid::Grid;
+use crate::layout::lanes::Lanes;
 use crate::layout::sugiyama::Sugiyama;
 
 published!(GRID, Grid);
 published!(SUGIYAMA, Sugiyama);
+published!(LANES, Lanes);
 published!(SPRING, Spring);
 published!(SPRING_3D, Spring3D);
 published!(FORCEATLAS2, ForceAtlas2);

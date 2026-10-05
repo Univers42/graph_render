@@ -112,6 +112,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "force.yifan_hu.3d",
             "layout.dag.dot",
             "dag.dot",
+            "layout.dag.lanes",
+            "dag.lanes",
         ]
     );
     let mut once = names.clone();

@@ -6,6 +6,7 @@
 //! packing can never be: exactly tangent, a thousandth off either way, radius zero.
 
 mod circular;
+mod lanes;
 mod packing;
 
 use super::*;
