@@ -243,6 +243,7 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
         "GM_MUTATE_BIPARTITE_3D_NODES",
         "GM_MUTATE_PACKING_OSAGE_NODES",
         "GM_MUTATE_DAG_DOT_NODES",
+        "GM_MUTATE_DAG_LANES_NODES",
         "GM_MUTATE_SPLIT_SUM",
         "GM_MUTATE_SPLIT_RESCALE",
         "GM_MUTATE_OVERLAP_RELAXATION",
