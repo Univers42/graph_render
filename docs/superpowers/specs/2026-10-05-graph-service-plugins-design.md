@@ -2,8 +2,10 @@
 
 Date 2026-10-05.
 
-**Status: revision 3, re-submitted to the `devil`.** Revision 1 drew a BLOCK with 15 conditions;
-§12 maps them. Revision 2 drew a BLOCK with 18 conditions and defects D1–D13; §13 maps them. The
+**Status: revision 4, re-submitted to the `devil`.** Revision 1 drew a BLOCK with 15 conditions;
+§12 maps them. Revision 2 drew a BLOCK with 18 conditions and defects D1–D13; §13 maps them.
+Revision 3 drew a BLOCK with defects N1–N16; §14 maps them, and
+`docs/measurements/hub-pg-epoch-probe.md` runs the PostgreSQL facts it listed as unknown. The
 decision record is `docs/decisions/graph-hub.md`.
 
 This is phase D1 of `docs/decisions/server-and-write-path.md`: the store and the write path. D2,
@@ -70,7 +72,7 @@ the recommended default, recorded here. Each is open to the verdict.
 | H12 | **Materialization drops what cannot resolve.** `/graph` and `/layout` leave out link and parent cells naming an absent record; a cell left with no target is removed. A link field naming an unregistered collection is left out of its collection's declaration, **and its cells are left out of every record**. The stored record keeps all of it, so the edge appears once the target arrives. | The reader refuses a dangling reference (`check_link_cells`, `crates/graph-contract/src/ingest/validate/cells.rs:28`) and a cell for an undeclared field (`check_references`, `validate.rs:200`), and independent plugins cannot order their pushes. Writes therefore never depend on another plugin's state, and a key learns nothing about other plugins from a refusal. | Refusing dangling writes and keeping tombstones: pushes would have to be ordered across plugins, and a 422 would reveal whether another plugin's record exists. |
 | H13 | Tags are workspace-wide. The hub tag `tag:<value>` joins records from every plugin that uses the value; a tag value containing `:` is refused at write time, as the motor's derivation refuses it (`check_tag`, `crates/graph-core/src/ingest/build/builder.rs:255`). | This is the point of one graph per workspace: a `prod` tag from a hosts plugin and from a tickets plugin meet on one node. A plugin that wants private tags prefixes its values. | Tags per plugin, which needs a change to the motor's derivation. |
 | H14 | **Materialization streams.** graph-contract's canonical writer is split into the pieces `to_json` is made of (document head, one collection, one record, document tail), and `to_json` becomes their concatenation, so it stays the single producer. The store keeps each record's qualified canonical text and writes the document from an ordered scan, a page at a time (§5.3). | A whole-document writer needs the document in memory: at the measured ingest peak of 18.25× the body (`server/graph-server/src/config/slots.rs:22`), a 64 MiB workspace is about 1.2 GB, over the 1 GiB container (D1). | Holding the document and paying the 18.25× term; a second writer in the hub (two producers of canonical bytes). |
-| H15 | Each workspace has an **epoch**, drawn from one global `SEQUENCE` at creation, and bumped by statement-level triggers whenever a statement outside the hub's writer touches its rows. ETags, event ids, cursors and `Graph-Seq` all read `<epoch>.<seq>`. | Deleting and recreating a workspace by hand, or editing its rows in SQL (§9), would otherwise reuse or invalidate seqs silently (D3). A new epoch tells every client to resync. | Forbidding SQL edits: §9 leaves them to operators, so they will happen. |
+| H15 | Each workspace has an **epoch**, drawn at creation from `hub_next_epoch()`: one row, `epoch_clock.last`, set to `greatest(last + 1, clock_timestamp() in ms)`. Per-event statement triggers and a `TRUNCATE` trigger, all `ENABLE ALWAYS`, draw a new epoch for every workspace a statement outside the hub's own write paths touched. A restore detector at start bumps every epoch when the database is not the one the hub last ran on (§5.3). ETags, event ids, cursors and `Graph-Seq` all read `<epoch>.<seq>`. | Deleting and recreating a workspace by hand, editing its rows in SQL (§9), or restoring a backup would otherwise reuse or invalidate seqs silently (D3, N1). A new epoch tells every client to resync. The clock floor keeps epochs growing after a restore rewinds `epoch_clock`. Each case is measured in `docs/measurements/hub-pg-epoch-probe.md`. | Forbidding SQL edits: §9 leaves them to operators, so they will happen. A global `SEQUENCE`: a point-in-time recovery rewinds it, so epochs repeat (N1). |
 
 ## 3. Architecture
 
@@ -85,7 +87,7 @@ plugin B ─┼──► graph-hub ──SQL──► PostgreSQL              �
 |---|---|---|---|
 | graph-contract `hub` module | wire types, strict readers, canonical writers, the in-memory materialization model, codegen | what graph-contract has | a new dependency |
 | graph-contract `ingest::write` | the stream pieces (H14); `to_json` built from them | unchanged | a second producer |
-| `server/graph-store` | SQL schema, migrations and epoch triggers; one transaction per batch; the streamed materializer; changes after a cursor; the plugin's own records; retention and the idempotency sweeper | `tokio-postgres`, graph-contract | HTTP |
+| `server/graph-store` | SQL schema, migrations, the epoch clock, triggers and restore detector; one transaction per batch; the streamed materializer; changes after a cursor; the plugin's own records; retention and the idempotency sweeper | `tokio-postgres`, graph-contract | HTTP |
 | `server/graph-hub` | routes, keys and grants, semaphores and limits, SSE notices, the streaming relay to graph-server | graph-store, graph-server's lib (`bearer`, `keys`; links graph-core and graph-wasm, H1, H8), graph-contract, axum, hyper (already pinned) | calling motor code; edits to graph-server beyond `pub fn bearer` |
 | SDK `hub.ts`, `plugin.ts` | reading, subscribing, laying out; registering, pushing, syncing | `fetch`, the existing snapshot reader | Node-only APIs in the browser path |
 
