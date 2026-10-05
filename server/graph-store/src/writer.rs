@@ -1,9 +1,11 @@
 //! The writer transaction: the one explicit transaction every hub write runs in (spec §5.1).
 //!
 //! §5.1's eight steps live in three places and nowhere else: [`space`] for a workspace create,
-//! [`manifest`] for a manifest PUT, [`apply`] for a batch. The four steps all three share — the
-//! writer guard, the workspace row lock, the seq bump and step 8's watermark — are [`step`]. No
-//! other module in this crate writes.
+//! [`manifest`] for a manifest PUT, [`apply`] for a batch, which writes its records through
+//! [`rows`]. The four steps all three share — the writer guard, the workspace row lock, the seq
+//! bump and step 8's watermark — are [`step`]. Two other modules write, and neither opens a write
+//! path of its own: [`crate::retention`] is step 6, called inside the batch's transaction, and
+//! [`crate::sweeper`] deletes expired idempotency rows in short transactions of its own.
 //!
 //! Every write path opens with `set_config('hub.writer', '1', true)`, which is what keeps Task 5's
 //! `ENABLE ALWAYS` triggers quiet for the hub's own writes and firing for everybody else's.
@@ -16,6 +18,7 @@ pub mod links;
 pub mod manifest;
 pub mod plan;
 pub mod retry;
+pub mod rows;
 pub mod space;
 pub mod step;
 

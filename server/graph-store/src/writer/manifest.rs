@@ -18,7 +18,7 @@ use crate::writer::change::{Change, insert};
 use crate::writer::retry::retried;
 use crate::writer::step;
 
-/// The two store-side caps a write checks, which are the store's and not the request's.
+/// The store-side caps a write checks, which are the store's and not the request's.
 ///
 /// `graph_contract::hub::Limits` carries the three *wire* caps; `GRAPH_HUB_MAX_DOC_BYTES` and
 /// `GRAPH_HUB_MAX_PLUGIN_BYTES` are §6's, they are per workspace and per plugin rather than per
@@ -29,6 +29,10 @@ pub(crate) struct Caps {
     pub doc_bytes: u64,
     /// `GRAPH_HUB_MAX_PLUGIN_BYTES`.
     pub plugin_bytes: u64,
+    /// `GRAPH_HUB_RETAIN`: the most changes the log keeps per workspace.
+    pub retain: u64,
+    /// `GRAPH_HUB_RETAIN_BYTES`: the most change bytes the log keeps per workspace.
+    pub retain_bytes: u64,
 }
 
 impl Caps {
@@ -37,6 +41,8 @@ impl Caps {
         Caps {
             doc_bytes: store.config().max_doc_bytes,
             plugin_bytes: store.config().max_plugin_bytes,
+            retain: store.config().retain,
+            retain_bytes: store.config().retain_bytes,
         }
     }
 }

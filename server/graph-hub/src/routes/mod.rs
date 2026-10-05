@@ -12,6 +12,7 @@
 
 pub mod batches;
 pub mod document;
+pub mod early_ack;
 pub mod graph;
 pub mod plugins;
 pub mod scan;

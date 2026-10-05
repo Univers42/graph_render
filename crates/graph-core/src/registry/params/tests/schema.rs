@@ -13,6 +13,7 @@ use crate::layout::force::lgl::LglParams;
 use crate::layout::force::spring::SpringParams;
 use crate::layout::forceatlas2::Fa2Params;
 use crate::layout::grid::GridParams;
+use crate::layout::lanes::LanesParams;
 use crate::layout::sugiyama::SugiyamaParams;
 use crate::registry::{LAYOUTS, Tunable};
 use graph_contract::params::{ParamKind, ParamSpec, ParamsView};
@@ -32,6 +33,7 @@ macro_rules! every_published {
         $each!(Fa2Params);
         $each!(GridParams);
         $each!(SugiyamaParams);
+        $each!(LanesParams);
         $each!(CirclePackingParams);
     };
 }
