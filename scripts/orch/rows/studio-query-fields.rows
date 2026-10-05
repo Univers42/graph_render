@@ -1,0 +1,10 @@
+# studio-query-fields: two generic query fields, `group:` and `version:` (prompts/jobs/studio-query-fields.md).
+# Only packages/graph-studio changes; the Rust floor is not re-run here.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+studio-only|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" -- crates src harness fixtures server app packages/graph-render Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json; git status --porcelain --untracked-files=all -- crates src harness fixtures server app packages/graph-render Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json)"
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
