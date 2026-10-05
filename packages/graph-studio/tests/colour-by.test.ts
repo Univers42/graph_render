@@ -21,7 +21,7 @@ function makeMeta(overrides: Partial<GraphMeta> = {}): GraphMeta {
     kinds: overrides.kinds ?? (["record", "note", "database", "tag", "record", "note"] as const).slice(0, nodeCount),
     groups: overrides.groups ?? ["G1", "G2"],
     group: overrides.group ?? new Uint16Array([0, 1, 0, 1, 0, 1]).slice(0, nodeCount),
-    weight: overrides.weight ?? new Float32Array(nodeCount).fill(0.5),
+    weight: overrides.weight ?? new Float32Array(nodeCount).fill(0.5), versions: overrides.versions ?? new Float64Array(nodeCount),
     degree: overrides.degree ?? new Uint32Array(nodeCount).fill(1),
     maxDegree: overrides.maxDegree ?? 1,
     tags: overrides.tags ?? Array.from({ length: nodeCount }, () => []),

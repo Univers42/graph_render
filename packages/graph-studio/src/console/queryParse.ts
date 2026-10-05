@@ -10,7 +10,7 @@
  */
 import { type QueryToken, type QueryWord, scanQuery } from "./queryLex.ts";
 
-export type QueryField = "id" | "tag" | "kind" | "db" | "path" | "degree";
+export type QueryField = "id" | "tag" | "kind" | "db" | "path" | "degree" | "group" | "version";
 
 export type Query =
   | { readonly kind: "all" }
@@ -38,13 +38,19 @@ const FIELDS: ReadonlyMap<string, QueryField> = new Map([
   ["db", "db"],
   ["path", "path"],
   ["degree", "degree"],
+  ["group", "group"],
+  ["version", "version"],
 ]);
 
 /** Longest first, so `degree:>=3` is not read as `>` followed by `=3`. */
 const OPERATORS: readonly string[] = [">=", "<=", "!=", ">", "<", "="];
-const DEGREE_OPS: ReadonlySet<string> = new Set([">", "<", ">=", "<=", "="]);
+/** The fields whose value is a number, so an operator is not optional and `!=` is unknown. */
+const NUMERIC: ReadonlySet<QueryField> = new Set(["degree", "version"]);
+const COMPARE_OPS: ReadonlySet<string> = new Set([">", "<", ">=", "<=", "="]);
 const OPENS = /^[><=!$^*~+]/;
 const WHOLE = /^[0-9]+$/;
+/** A version is a Unix second count, so a fraction is read but an exponent is not. */
+const NUMBER = /^-?[0-9]+(\.[0-9]+)?$/;
 
 interface Reader {
   readonly tokens: readonly QueryToken[];
@@ -94,24 +100,33 @@ function unknownOperator(field: QueryField, op: string): string {
   return `\`${field}:\` does not know the operator \`${op}\``;
 }
 
+function needsOperator(field: QueryField, at: number): QueryRefusal {
+  return new QueryRefusal(at, `\`${field}:\` needs an operator: one of > < >= <= =`);
+}
+
 function operator(field: QueryField, chunk: Chunk): string {
   if (chunk.quoted) {
-    if (field === "degree") throw new QueryRefusal(chunk.at, "`degree:` needs an operator: one of > < >= <= =");
+    if (NUMERIC.has(field)) throw needsOperator(field, chunk.at);
     return "";
   }
   const found = OPERATORS.find((candidate) => chunk.text.startsWith(candidate)) ?? "";
   if (found === "") {
-    if (field === "degree") throw new QueryRefusal(chunk.at, "`degree:` needs an operator: one of > < >= <= =");
+    if (NUMERIC.has(field)) throw needsOperator(field, chunk.at);
     if (OPENS.test(chunk.text[0] ?? "")) throw new QueryRefusal(chunk.at, unknownOperator(field, chunk.text[0] ?? ""));
     return found;
   }
-  if (field === "degree" && !DEGREE_OPS.has(found)) throw new QueryRefusal(chunk.at, unknownOperator(field, found));
+  if (NUMERIC.has(field) && !COMPARE_OPS.has(found)) throw new QueryRefusal(chunk.at, unknownOperator(field, found));
   return found;
 }
 
 /** A degree is a count: a non-integer is a slip worth naming, not a filter that finds nothing. */
 function whole(value: string, op: string, at: number): void {
   if (!WHOLE.test(value)) throw new QueryRefusal(at, `\`degree:\` needs a whole number after \`${op}\``);
+}
+
+/** A version is a number a source wrote, so a word where one belongs is named rather than compared. */
+function finite(value: string, op: string, at: number): void {
+  if (!NUMBER.test(value)) throw new QueryRefusal(at, `\`version:\` needs a number after \`${op}\``);
 }
 
 /** A field's value sits after the colon, and is the next word when the colon ended that one. */
@@ -151,6 +166,7 @@ function readField(reader: Reader, token: QueryWord, colon: number): Query {
   const op = operator(field, chunk);
   const value = valueOf(reader, name, chunk, op);
   if (field === "degree") whole(value, op, chunk.at + op.length);
+  if (field === "version") finite(value, op, chunk.at + op.length);
   return { kind: "field", field, op, value };
 }
 
