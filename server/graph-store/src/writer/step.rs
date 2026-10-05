@@ -171,7 +171,7 @@ async fn nextval_seq(client: &mut Client) -> Result<Stamp, StoreError> {
 /// comes from `nextval` not being transactional, and `hundred_writers_have_no_gap` sees that
 /// without the wait, because the refused batch it rolls back draws its seq first either way.
 pub(crate) async fn before_commit(seq: u64) {
-    if crate::breaks::on("sequence-seq") && seq % 2 == 0 {
+    if crate::breaks::on("sequence-seq") && seq.is_multiple_of(2) {
         return;
     }
     super::HOOKS.pause_before_commit(seq).await;

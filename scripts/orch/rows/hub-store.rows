@@ -17,3 +17,9 @@ hub-epoch-detector|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh star
 negctl-detector-at-start|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=detector-at-start scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
 negctl-lsn-only|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=lsn-only scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
 negctl-hw-after-lsn|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=hw-after-lsn scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
+hub-seq|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test writer
+negctl-sequence-seq|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=sequence-seq scripts/orch/hub-pg.sh run --test writer; test $? -ne 0
+hub-idem|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test writer idem
+negctl-no-idem|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=no-idem scripts/orch/hub-pg.sh run --test writer idem; test $? -ne 0
+hub-epoch-deadlock|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && for i in 1 2 3 4 5 6 7 8 9 10; do scripts/orch/hub-pg.sh run --test writer a_deadlock_ends_in_a_commit_or_a_503_never_a_500 || exit 1; done
+negctl-no-deadlock-retry|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && ok=0; for i in 1 2 3 4 5 6 7 8 9 10; do GM_HUB_BREAK=no-deadlock-retry scripts/orch/hub-pg.sh run --test writer a_deadlock_ends_in_a_commit_or_a_503_never_a_500 >/dev/null 2>&1 && ok=$((ok+1)); done; test $ok -eq 0

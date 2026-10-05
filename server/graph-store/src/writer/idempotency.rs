@@ -153,7 +153,11 @@ pub fn sha256(bytes: &[u8]) -> [u8; 32] {
 /// 422 is what the spec says for this refusal, and it is also the only class that fits: the key is
 /// a header the client chose, not a body that is too large, and a 413 would tell it to shorten its
 /// body.
-fn check_key(key: &str) -> Result<(), StoreError> {
+///
+/// It is `pub(crate)` and called from step 2 rather than from [`lookup`], because the cap is a
+/// property of the request and not of the stored row: a control that turns the row's lookup off
+/// (`no-idem`) must not turn the cap off with it.
+pub(crate) fn check_key(key: &str) -> Result<(), StoreError> {
     if key.len() > MAX_KEY {
         return Err(StoreError::Hub(graph_contract::hub::HubError::Invalid {
             path: "idempotency-key".to_owned(),

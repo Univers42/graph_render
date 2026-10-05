@@ -79,7 +79,7 @@ async fn plugin_bytes_and_doc_bytes_caps_are_413() {
 #[tokio::test]
 async fn change_over_max_change_is_413() {
     let (_, _, url) = support::db::fresh_pair("change_over_max_change_is_413").await;
-    let mut config = graph_store::StoreConfig::defaults();
+    let config = graph_store::StoreConfig::defaults();
     // A tiny `max_batch` is what shrinks `max_change`: it is `max_body + 96 × max_batch`, so the
     // cap moves without writing a body over the wire at all.
     let limits = graph_contract::hub::Limits {

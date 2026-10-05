@@ -56,10 +56,15 @@ async fn once(
 }
 
 /// §5.1 step 2: the stored response for this key, or `None` to carry on.
+///
+/// The key's length is checked here, before the lookup and not inside it, because it is a property
+/// of the *request*: §5.1 caps it at 128 bytes whatever the store does with keys afterwards, so
+/// `no-idem` — which turns the row's lookup and its insert off — must not turn the cap off with it.
 async fn replay(client: &mut Client, req: &BatchWrite) -> Result<Option<BatchOutcome>, StoreError> {
     let Some(key) = &req.idem else {
         return Ok(None);
     };
+    idempotency::check_key(&key.key)?;
     let Some(hit) = idempotency::lookup(client, key, &req.ws, &req.plugin).await? else {
         return Ok(None);
     };

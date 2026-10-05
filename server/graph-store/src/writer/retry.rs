@@ -18,11 +18,17 @@ use crate::error::StoreError;
 /// that is genuinely contended fails after two attempts rather than after a backoff. The hub answers
 /// 503 with `Retry-After: 1` and owns the retry budget from there: the store cannot sleep on a
 /// lock without pinning a connection out of a pool of eight.
+///
+/// `no-deadlock-retry` answers `false` for everything: the control for R8, which lets the `40P01`
+/// reach the caller as `Serialization { retried: false }` and leaves `Store::retry_count()` at zero.
 pub(crate) fn retryable(error: &StoreError) -> bool {
-    match error {
-        StoreError::Serialization { .. } | StoreError::Duplicate { .. } => true,
-        _ => false,
+    if crate::breaks::on("no-deadlock-retry") {
+        return false;
     }
+    matches!(
+        error,
+        StoreError::Serialization { .. } | StoreError::Duplicate { .. }
+    )
 }
 
 /// Run `$attempt` once, and once more after a refusal [`retryable`] allows.

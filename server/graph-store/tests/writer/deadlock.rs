@@ -97,12 +97,15 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
 
     // Now form the cycle: the manual session takes the record row lock and its trigger then wants
     // the workspace row the batch holds. The statement blocks there, so it runs in its own task.
-    let mut cycle = support::db::more(&url).await;
+    let cycle = support::db::more(&url).await;
     cycle
         .batch_execute("SET deadlock_timeout = '5s'")
         .await
         .expect("the manual session keeps a long one");
-    cycle.batch_execute("BEGIN").await.expect("the manual session begins");
+    cycle
+        .batch_execute("BEGIN")
+        .await
+        .expect("the manual session begins");
     let blocker = tokio::spawn(async move {
         // The reverse of §5.1's order, in one transaction: the record row first, then the workspace
         // row. Task 5's trigger does not itself want the workspace row — it moves `epoch_clock` —
@@ -206,7 +209,11 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
                 "a second deadlock is `retried: true` (the hub's 503 with `Retry-After: 1`), \
                  never a 500: {error}"
             );
-            assert_eq!(error.retry_after(), None, "the hub adds `Retry-After` itself");
+            assert_eq!(
+                error.retry_after(),
+                None,
+                "the hub adds `Retry-After` itself"
+            );
             assert_eq!(
                 seqs(&mut client).await,
                 vec![1, seeded],

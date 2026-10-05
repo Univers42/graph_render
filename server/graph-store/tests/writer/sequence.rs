@@ -56,7 +56,7 @@ async fn hundred_writers_have_no_gap() {
         handles.push(tokio::spawn(async move {
             let id = format!("r{i:03}");
             barrier.wait().await;
-            let permit = permits
+            let _permit = permits
                 .acquire()
                 .await
                 .expect("no writer is cancelled while it holds a permit");
