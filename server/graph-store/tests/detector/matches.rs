@@ -199,7 +199,7 @@ async fn detector_high_water_snapshotted_before_the_lsn_read() {
         if !wait_briefly_for("detector-before-snapshot.ready").await {
             return;
         }
-        let mut w = support::db::more(&url).await;
+        let w = support::db::more(&url).await;
         w.execute(
             "INSERT INTO links (ws, src_qcoll, src_id, field, target_qcoll, target_id) \
              VALUES ('ws','p.c','in-the-gap','f','p.c','t')",

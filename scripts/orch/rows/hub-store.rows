@@ -16,3 +16,4 @@ negctl-one-trigger-origin|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.
 hub-epoch-detector|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test detector
 negctl-detector-at-start|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=detector-at-start scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
 negctl-lsn-only|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=lsn-only scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
+negctl-hw-after-lsn|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=hw-after-lsn scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
