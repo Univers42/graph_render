@@ -131,24 +131,15 @@ fn a_manifest_carries_both_version_members_and_pins_only_the_wires_own() {
         manifest["properties"]["manifestVersion"]["type"] == "integer",
         "the client's counter is a plain integer, not a const"
     );
-}
-
-/// The caps are in the schema by name, so a generated client does not hard-code them a
-/// second time and get one of them wrong.
-#[test]
-fn the_caps_are_spelled_in_the_schema_rather_than_only_in_prose() {
-    let schema = schema();
-    let props = schema["$defs"]["ManifestWire"]["properties"]
-        .as_object()
-        .unwrap();
-    assert!(props.contains_key("collections"), "collections");
-    // The field-level caps live on the ingest types the manifest reuses, so the check is
-    // that the schema publishes *a* maximum for a collection count at all.
-    let manifest = schema["$defs"]["ManifestWire"]["properties"]["collections"]["items"]
-        .as_object()
-        .map(|_| ())
-        .unwrap_or_else(|| panic!("collections is an array of objects"));
-    assert_eq!(manifest, ());
+    // A manifest's collections are the ingest collection shape, reused rather than
+    // re-declared: the wire shape of a collection is the ingest contract's, and a second
+    // declaration of it here would be a second set of rules to keep in step.
+    let collections = &manifest["properties"]["collections"];
+    assert_eq!(collections["type"], "array");
+    assert!(
+        collections["items"]["$ref"].as_str().is_some(),
+        "a manifest's collections are the ingest collection shape: {collections}"
+    );
 }
 
 /// And the committed file is what `codegen` writes — the check that makes the rest of this
@@ -159,6 +150,32 @@ fn the_committed_hub_schema_is_what_codegen_generates() {
     let generated = format!("{:#}\n", schema());
     assert_eq!(
         committed, generated,
+        "stale: run `graph-cli codegen` and commit the result"
+    );
+}
+
+/// The generated TypeScript carries the root interface by name, and it is declarations
+/// only: a generated `.d.ts` that could be evaluated would ship runtime bytes into every
+/// consumer's bundle, which is the one thing this generator promises never to do.
+#[test]
+fn the_generated_typescript_declares_the_hub_and_evaluates_to_nothing() {
+    let ts = crate::codegen::hub_typescript();
+    assert!(ts.contains("export interface HubWire"), "{ts}");
+    for member in ["manifest", "batch", "change", "notice", "answer", "error"] {
+        assert!(
+            ts.contains(&format!("{member}:")),
+            "{member} is not declared"
+        );
+    }
+    for runtime in ["const ", "function", "enum ", "class ", "=>"] {
+        assert!(
+            !ts.contains(runtime),
+            "runtime construct {runtime:?} in generated TypeScript"
+        );
+    }
+    let committed = include_str!("../../../generated/hub.d.ts");
+    assert_eq!(
+        committed, ts,
         "stale: run `graph-cli codegen` and commit the result"
     );
 }

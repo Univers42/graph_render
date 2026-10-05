@@ -8,6 +8,7 @@
 //! `typescript.rs` and the tests are `tests.rs`; this file holds the schemas and the output
 //! list, which is the part every caller names.
 
+#[cfg(test)]
 mod tests;
 mod typescript;
 
