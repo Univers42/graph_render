@@ -98,7 +98,7 @@ git -C <repo> log --all --topo-order --format='%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%
 | `%an` | `author` (`group`) | `group`, so colour-by-group and `filter.group` work per author |
 | `%at` | the row's `updatedAt` (u32 seconds) | `version`, which `layout.dag.lanes` breaks ties on (newest first) |
 | `%P` | `parents` (`link`, `collection: commit`, `cardinality: many`, `symmetric: false`) | one directed `relation` edge per parent, child → parent, in `%P` order |
-| `%D` refs, `HEAD -> ` and `tag: ` stripped, plus `merge` (two or more parents) and `root` (none) | `refs` (`tags`) | tag hubs `tag:<value>` with their edges, so `tag:#develop` and `tag:#merge` queries work |
+| `%D` refs, `HEAD -> ` and `tag: ` stripped, plus `merge` (two or more parents) and `root` (none) | `refs` (`scalar`) | nothing in the motor; `decorate.mjs` copies it onto the node's `tags`, so `tag:#develop` and `tag:#merge` queries work |
 
 - **Missing parents.** A parent absent from the log (a shallow clone, a path-limited log) is
   dropped from `parents` before the adapter runs, because the contract refuses a dangling link
@@ -109,13 +109,28 @@ git -C <repo> log --all --topo-order --format='%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%
   - a hash that is not 40 or 64 hex digits;
   - a non-integer `%at`;
   - a duplicate commit.
-- **Tag values.** A tag containing `:` is refused by the motor (`check_tag`). git ref names
-  cannot contain `:`, so a refusal there is reported, not worked around.
+- **Why `refs` is not a `tags` column** (amended 2026-10-05, while writing the plan).
+  - A `tags` column derives one hub node per distinct value, with one edge per tagged record.
+  - In a history drawing every hub is a vertex too. `tag:merge` would join every merge (about
+    10k on git/git), and each distinct ref would hold a lane open down to its hub.
+  - The studio's `tag:#x` query reads the node's own `tags` member
+    (`packages/graph-studio/src/source/ingest.ts`). So the plugin keeps `refs` as a `scalar`
+    cell, which the contract carries and derives nothing from, and `decorate.mjs` copies it
+    onto each node.
 
 ### Opening it, and the layout
 
-- `examples/plugins/git/run.sh <repo> [<name>] > <name>.graph.json` chains the three steps. The
-  user opens the file with the studio's open-document action, or drops it on the window.
+- `examples/plugins/git/run.sh <repo> [<name>]` chains the steps:
+  - `git log`;
+  - `export.mjs` (rows → contract);
+  - `graph-cli ingest`;
+  - `decorate.mjs`.
+
+  It prints the path of `<name>.studio.json`, which the user opens with the studio's open-file
+  action.
+- The studio opens node/edge JSON, not a contract document. That is why `graph-cli ingest` and
+  `decorate.mjs` sit in the pipeline. A generic studio feature that opens a contract would remove
+  both, and it is a piece 3 candidate.
 - The plugin names no layout, and nor does the studio (`CLAUDE.md`). The picker lists
   `layout.dag.sugiyama` (and `layout.dag.lanes` after piece 2), and the settings persist the
   choice.
@@ -126,8 +141,7 @@ git -C <repo> log --all --topo-order --format='%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%
 |---|---|
 | colour commits by author | `appearance.colour by group` |
 | one author only | `filter.group <author>` |
-| one branch's tip, all tags, all merges | `filter.query tag:#develop`, `tag:#merge` |
-| hide the ref hubs, keep only commits | `filter.kind` |
+| one branch's tip, all tags, all merges | `filter.query tag:#develop`, `tag:#merge` (node `tags`, written by `decorate.mjs`) |
 | one repository among several | `filter.query db:...` where the derivation sets one, else `id:` prefix |
 | branches coloured | `groups.add` with `tag:#<branch>` |
 | click → open the commit | `node.open` hands the host the node id. The host, not the studio, maps it to a URL |

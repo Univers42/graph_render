@@ -120,10 +120,12 @@ lists them without a studio change.
 
 ## Hand oracle (`snapshot_cmd::hand_oracles::lanes`, gated on `roundtrip`)
 
-An independent restatement, compared bit for bit:
-- the ready set is a sorted `Vec` scanned linearly, not a heap;
-- the lowest free lane is found by a linear scan over a `Vec<bool>`, not a heap;
-- `reserved` is a `BTreeMap<u32, Vec<u32>>`.
+An independent restatement, compared bit for bit. It uses ordered sets where the layout uses
+heaps and intrusive lists, so the two share the convention and not the code:
+- the ready set is a `BTreeSet` keyed by the integer image of `f64::total_cmp`, reversed, then
+  the index;
+- the free lanes are a `BTreeSet<u32>`;
+- `reserved` is a `BTreeMap<u32, BTreeSet<u32>>`.
 
 The restatement must produce the motor's exact `x`, `y` and polyline columns per seed. Its
 invariant checks (unit tests with a perturbed snapshot each, as `snapshot_cmd/dag.rs` does)
