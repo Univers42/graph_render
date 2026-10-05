@@ -66,7 +66,8 @@ pub fn credential(pair: &Arc<Pair>, headers: &HeaderMap) -> Result<String, HubAp
     let text = first
         .to_str()
         .map_err(|_| HubApiError::Unauthorized("missing or unknown API key"))?;
-    let token = App::credential_of(text).ok_or(HubApiError::Unauthorized("missing or unknown API key"))?;
+    let token =
+        App::credential_of(text).ok_or(HubApiError::Unauthorized("missing or unknown API key"))?;
     pair.0
         .name_of(token)
         .map(str::to_owned)
@@ -83,7 +84,7 @@ pub fn authorize(
     app: &Arc<App>,
     headers: &HeaderMap,
     ids: &Ids,
-    need: Need<'_>,
+    need: &Need,
 ) -> Result<Credential, HubApiError> {
     let pair = app.keys.current();
     let key = credential(&pair, headers)?;
@@ -114,11 +115,16 @@ pub async fn authorize_middleware(
     mut request: Request,
     next: Next,
 ) -> Result<Response, HubApiError> {
-    let Some(need) = need::need_of(request.method(), request.uri()) else {
-        return Ok(next.run(request).await);
+    // The path ids first, and only a 404 among their refusals is passed through: an unknown path is
+    // the router's business, while a malformed id is §4's own 400 or 422 and must not be answered as
+    // though the route did not exist.
+    let ids = match path::ids_of(request.uri()) {
+        Ok(ids) => ids,
+        Err(HubApiError::NotFound(_)) => return Ok(next.run(request).await),
+        Err(refused) => return Err(refused),
     };
-    let ids = path::ids_of(request.uri())?;
-    let credential = authorize(&app, request.headers(), &ids, need)?;
+    let need = need::need_for(request.method(), &ids);
+    let credential = authorize(&app, request.headers(), &ids, &need)?;
     request.extensions_mut().insert(credential);
     crate::hooks::pause_after_admit(&app.hooks, "authorize").await;
     Ok(next.run(request).await)

@@ -17,7 +17,13 @@ use support::*;
 #[tokio::test]
 async fn no_authorization_header_is_the_same_401_as_an_unknown_key() {
     let hub = hub_with_env(&[]);
-    let anonymous = hub.send(hub.anonymous("GET", "/v1/workspaces").body(Body::empty()).unwrap()).await;
+    let anonymous = hub
+        .send(
+            hub.anonymous("GET", "/v1/workspaces")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
     let unknown = hub.get_as("gm_not_a_key_at_all", "/v1/workspaces").await;
     assert_eq!(anonymous.code(), 401, "{}", anonymous.body());
     assert_eq!(unknown.code(), 401, "{}", unknown.body());
@@ -76,7 +82,9 @@ async fn the_bearer_scheme_is_case_insensitive() {
 /// does not exist. This is the half that needs no database: authorization never asks.
 #[tokio::test]
 async fn refusal_bytes_are_identical_with_and_without_the_workspace() {
-    let hub = hub_with_grants(&format!("{KEY_NAME} * read\n"), &[]);
+    // The grant names `ops` and the two requests name two workspaces that are not `ops`: the key may
+    // not read either, and the bytes must be the same.
+    let hub = hub_with_grants(&format!("{KEY_NAME} ops read\n"), &[]);
     let elsewhere = hub.get_with("/v1/workspaces/does-not-exist/graph").await;
     let also_elsewhere = hub.get_with("/v1/workspaces/never-created/graph").await;
     assert_eq!(elsewhere.code(), 403, "{}", elsewhere.body());
@@ -90,7 +98,7 @@ async fn refusal_bytes_are_identical_with_and_without_the_workspace() {
 /// reaches the store, so a workspace that is not there cannot change the answer.
 #[tokio::test]
 async fn no_grant_is_403_before_any_404() {
-    let hub = hub_with_grants(&format!("{KEY_NAME} * read\n"), &[]);
+    let hub = hub_with_grants(&format!("{KEY_NAME} ops read\n"), &[]);
     for path in [
         "/v1/workspaces/nowhere/graph",
         "/v1/workspaces/nowhere/plugins/tracker/batches",
@@ -105,14 +113,16 @@ async fn no_grant_is_403_before_any_404() {
 /// A key granted `read` is refused a write with 403 and never 404, on every write route §5.2 names.
 #[tokio::test]
 async fn a_read_only_key_is_403_on_every_write_route() {
-    let hub = hub_with_grants(&format!("{KEY_NAME} * read\n"), &[]);
+    let hub = hub_with_grants(&format!("{KEY_NAME} ops read\n"), &[]);
     let writes = [
         ("PUT", "/v1/workspaces/ops"),
         ("PUT", "/v1/workspaces/ops/plugins/tracker"),
         ("POST", "/v1/workspaces/ops/plugins/tracker/batches"),
     ];
     for (method, path) in writes {
-        let reply = hub.send(hub.request(method, path).body(Body::from("{}")).unwrap()).await;
+        let reply = hub
+            .send(hub.request(method, path).body(Body::from("{}")).unwrap())
+            .await;
         assert_eq!(reply.code(), 403, "{method} {path}: {}", reply.body());
     }
 }
@@ -124,8 +134,18 @@ async fn a_key_learns_nothing_from_another_plugins_records() {
     let hub = hub_with_grants(&format!("{KEY_NAME} * write:b\n"), &[]);
     let mine = hub.get_with("/v1/workspaces/ops/plugins/b/records").await;
     let theirs = hub.get_with("/v1/workspaces/ops/plugins/a/records").await;
-    assert_ne!(mine.code(), 403, "its own plugin's records: {}", mine.body());
-    assert_eq!(theirs.code(), 403, "another plugin's records: {}", theirs.body());
+    assert_ne!(
+        mine.code(),
+        403,
+        "its own plugin's records: {}",
+        mine.body()
+    );
+    assert_eq!(
+        theirs.code(),
+        403,
+        "another plugin's records: {}",
+        theirs.body()
+    );
     assert_eq!(theirs.error(), "Forbidden");
 }
 
@@ -134,8 +154,20 @@ async fn a_key_learns_nothing_from_another_plugins_records() {
 #[tokio::test]
 async fn admin_is_a_workspace_grant_and_not_a_hub_one() {
     let hub = hub_with_grants(&format!("{KEY_NAME} ops admin\n"), &[]);
-    let mine = hub.send(hub.request("PUT", "/v1/workspaces/ops").body(Body::from("{}")).unwrap()).await;
-    let theirs = hub.send(hub.request("PUT", "/v1/workspaces/other").body(Body::from("{}")).unwrap()).await;
+    let mine = hub
+        .send(
+            hub.request("PUT", "/v1/workspaces/ops")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
+    let theirs = hub
+        .send(
+            hub.request("PUT", "/v1/workspaces/other")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
     assert_ne!(mine.code(), 403, "its own workspace: {}", mine.body());
     assert_eq!(theirs.code(), 403, "another workspace: {}", theirs.body());
 }
@@ -179,21 +211,21 @@ fn a_bare_seq_as_a_cursor_is_400() {
 #[test]
 fn a_write_grant_also_covers_the_workspace_reads() {
     let grants = graph_hub::grants::Grants::parse("tester * write:b\n").expect("a grants file");
-    assert!(grants.allows("tester", "ops", Need::Read));
-    assert!(grants.allows("tester", "ops", Need::Write("b")));
-    assert!(!grants.allows("tester", "ops", Need::Write("a")));
-    assert!(!grants.allows("tester", "ops", Need::Admin));
+    assert!(grants.allows("tester", "ops", &Need::Read));
+    assert!(grants.allows("tester", "ops", &Need::Write(String::from("b"))));
+    assert!(!grants.allows("tester", "ops", &Need::Write(String::from("a"))));
+    assert!(!grants.allows("tester", "ops", &Need::Admin));
 }
 
 /// `admin` covers everything on its workspace, and a key with no grant line is denied.
 #[test]
 fn admin_covers_everything_and_no_grant_denies() {
     let grants = graph_hub::grants::Grants::parse("tester ops admin\n").expect("a grants file");
-    for need in [Need::Read, Need::Write("a"), Need::Admin] {
-        assert!(grants.allows("tester", "ops", need), "{need:?}");
+    for need in [Need::Read, Need::Write(String::from("a")), Need::Admin] {
+        assert!(grants.allows("tester", "ops", &need), "{need:?}");
     }
-    assert!(!grants.allows("tester", "other", Need::Read));
-    assert!(!grants.allows("nobody", "ops", Need::Read));
+    assert!(!grants.allows("tester", "other", &Need::Read));
+    assert!(!grants.allows("nobody", "ops", &Need::Read));
 }
 
 /// A malformed line is a **load** failure and never a skip: a grants file that half-parses is a
@@ -213,19 +245,21 @@ fn a_malformed_grants_line_is_a_load_failure() {
         "",
     ] {
         let refused = graph_hub::grants::Grants::parse(text);
-        assert!(refused.is_err(), "{text:?} must be refused, got {refused:?}");
+        assert!(
+            refused.is_err(),
+            "{text:?} must be refused, got {refused:?}"
+        );
     }
 }
 
 /// Blank lines and `#` comments are skipped, and several lines for one key are all of them.
 #[test]
 fn comments_and_blank_lines_are_skipped() {
-    let grants = graph_hub::grants::Grants::parse(
-        "# a comment\n\ntester ops read\ntester * admin\n",
-    )
-    .expect("a grants file with comments");
+    let grants =
+        graph_hub::grants::Grants::parse("# a comment\n\ntester ops read\ntester * admin\n")
+            .expect("a grants file with comments");
     assert_eq!(grants.of("tester").len(), 2);
-    assert!(grants.allows("tester", "other", Need::Admin));
+    assert!(grants.allows("tester", "other", &Need::Admin));
 }
 
 /// The grants file gets the keys file's permission check: 0640 or stricter, nothing for group or
@@ -233,13 +267,17 @@ fn comments_and_blank_lines_are_skipped() {
 #[tokio::test]
 async fn a_group_writable_grants_file_is_refused() {
     let hub = hub_with_env(&[]);
-    for mode in [0o644, 0o620, 0o602, 0o666] {
-        let mode = std::os::unix::fs::PermissionsExt::from_mode(mode);
-        std::fs::set_permissions(&hub.grants_file, mode).expect("chmod the grants file");
+    use std::os::unix::fs::PermissionsExt;
+    for mode in [0o644u32, 0o620, 0o602, 0o666] {
+        std::fs::set_permissions(&hub.grants_file, PermissionsExt::from_mode(mode))
+            .expect("chmod the grants file");
         let refused = graph_hub::grants::Grants::load(&hub.grants_file);
-        assert!(refused.is_err(), "mode {mode:o} must be refused: {refused:?}");
+        assert!(
+            refused.is_err(),
+            "mode {mode:o} must be refused: {refused:?}"
+        );
     }
-    let readable = std::os::unix::fs::PermissionsExt::from_mode(0o640);
+    let readable = PermissionsExt::from_mode(0o640);
     std::fs::set_permissions(&hub.grants_file, readable).expect("chmod the grants file");
     assert!(graph_hub::grants::Grants::load(&hub.grants_file).is_ok());
 }
@@ -252,9 +290,14 @@ async fn credential_returns_the_name_and_never_the_key() {
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
         axum::http::header::AUTHORIZATION,
-        format!("Bearer {}", hub.key).parse().expect("the header value"),
+        format!("Bearer {}", hub.key)
+            .parse()
+            .expect("the header value"),
     );
     let name = auth::credential(&pair, &headers).expect("the fixture's key is in the file");
     assert_eq!(name, KEY_NAME);
-    assert!(!name.contains("gm_"), "a name never carries the key: {name}");
+    assert!(
+        !name.contains("gm_"),
+        "a name never carries the key: {name}"
+    );
 }

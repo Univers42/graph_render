@@ -69,10 +69,10 @@ pub async fn pause_after_admit(hooks: &Hooks, route: &'static str) {
     let _ = route;
 }
 
-/// Pause after a route admitted its permit. A no-op without `test-hooks`, and `const`, so the call
-/// site folds away in a shipped build.
+/// Pause after a route admitted its permit. A no-op without `test-hooks`, so the optimizer removes
+/// the state machine in a shipped build and the call site folds away.
 #[cfg(not(feature = "test-hooks"))]
-pub const fn pause_after_admit(_hooks: &Hooks, _route: &'static str) {}
+pub async fn pause_after_admit(_hooks: &Hooks, _route: &'static str) {}
 
 /// Run the acknowledgement seam for `seq`, before a write answers.
 #[cfg(feature = "test-hooks")]

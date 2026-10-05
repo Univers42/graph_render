@@ -16,14 +16,14 @@ pub use crate::grants::{Grants, Mode, Need};
 /// stored hash (`server/graph-server/src/keys.rs:118-128`). `KeySet` has no enumerable key list,
 /// which is the point: a key with no grant is denied without the hub ever learning that the key
 /// exists.
-pub fn allows(grants: &Grants, key: &str, ws: &str, need: Need<'_>) -> bool {
+pub fn allows(grants: &Grants, key: &str, ws: &str, need: &Need) -> bool {
     grants.allows(key, ws, need)
 }
 
 /// Does `mode` cover `need`, ignoring which workspace the line names?
 ///
 /// `Grants` checks the workspace first; this answers only the mode half.
-pub fn covers(mode: &Mode, need: Need<'_>) -> bool {
+pub fn covers(mode: &Mode, need: &Need) -> bool {
     match (mode, need) {
         (_, Need::Admin) => matches!(mode, Mode::Admin),
         (Mode::Admin, _) => true,

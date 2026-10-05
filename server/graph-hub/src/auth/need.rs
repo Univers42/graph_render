@@ -7,24 +7,18 @@
 
 use axum::http::{Method, Uri};
 
-use crate::auth::path::{Ids, ids_of};
+use crate::auth::path::Ids;
 use crate::grants::Need;
 
-/// What one request line needs of its key, or `None` for a path §5.2 does not name.
-pub fn need_of(method: &Method, uri: &Uri) -> Option<Need<'_>> {
-    let ids = ids_of(uri).ok()?;
-    Some(need_for(method, &ids))
-}
-
-/// The need of a known path, by the method §5.2's table gives it.
+/// The need of a path §5.2 names, by the method §5.2's table gives it.
 ///
 /// The `records` page is the one row whose grant reads "`write:<plugin>` or read", and that is what
 /// [`Need::Write`] already means: a write grant covers the workspace's reads
 /// ([`crate::auth::grant::covers`]), and a plain read grant is a [`Need::Read`]. So the two are one
 /// lookup and not two.
-fn need_for(method: &Method, ids: &Ids) -> Need<'_> {
+pub fn need_for(method: &Method, ids: &Ids) -> Need {
     let ws_is_empty = ids.ws().is_empty();
-    let plugin = ids.plugin_or_empty();
+    let plugin = ids.plugin().unwrap_or_default().to_owned();
     match (method, ws_is_empty) {
         // `/v1/meta` and `/v1/workspaces` name no workspace, so §5.2's "any key" is `Need::Read` on
         // the empty workspace: a key with no grant at all is refused, and the route itself decides
@@ -32,9 +26,12 @@ fn need_for(method: &Method, ids: &Ids) -> Need<'_> {
         (&Method::GET, true) => Need::Read,
         // `PUT /v1/workspaces/{ws}` is the only admin row: a workspace create.
         (&Method::PUT, _) if plugin.is_empty() => Need::Admin,
-        // Every other read is a workspace read, and `plugin.is_empty()` covers `/graph`,
-        // `/changes`, `/events`, `/layout` and `GET .../plugins`.
+        // Every other read is a workspace read, and an empty plugin covers `/graph`, `/changes`,
+        // `/events`, `/layout` and `GET .../plugins`.
         (&Method::GET, false) if plugin.is_empty() => Need::Read,
+        // The records pages are the one row whose grant reads "`write:<plugin>` or read", and
+        // `Need::Write` is that: a write grant covers the workspace's reads, so `read` and
+        // `write:<plugin>` are one lookup and not two.
         (&Method::GET, false) => Need::Write(plugin),
         // A manifest PUT and a batch POST both need `write:<plugin>`.
         (_, false) => Need::Write(plugin),
@@ -48,5 +45,5 @@ fn need_for(method: &Method, ids: &Ids) -> Need<'_> {
 /// The shape check is separate from the need because a *wrong method* on a real path is the router's
 /// 405, and the router knows the path; the need is only asked for a request the table gives a grant.
 pub fn is_known_path(uri: &Uri) -> bool {
-    ids_of(uri).is_ok()
+    crate::auth::path::ids_of(uri).is_ok()
 }

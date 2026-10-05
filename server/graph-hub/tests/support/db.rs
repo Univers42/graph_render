@@ -150,7 +150,10 @@ async fn create(name: &str, options: &str) -> String {
 /// there in one arm and not in the other.
 pub async fn with_workspace(url: &str, ws: &str) {
     let store = store_on(url).await;
-    let mut client = store.client().await.expect("a connection for the migration");
+    let mut client = store
+        .client()
+        .await
+        .expect("a connection for the migration");
     graph_store::migrate::apply(&mut client)
         .await
         .expect("the store's migrations");

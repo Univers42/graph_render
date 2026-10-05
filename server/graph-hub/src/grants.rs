@@ -24,12 +24,17 @@ pub const MAX_FILE_BYTES: u64 = 1 << 20;
 const GROUP_AND_OTHERS: u32 = 0o037;
 
 /// What one request needs of a key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Need<'a> {
+///
+/// `Write` owns its plugin id rather than borrowing one. The plan's shape borrows a `&'static str`,
+/// which a path segment is not: the plugin comes out of the request's own URI, so a borrowed need
+/// would pin every `Need` to the lifetime of the request that built it and `need_of` could not
+/// return one from a local `Ids`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Need {
     /// A read: any of §5.2's read routes.
     Read,
     /// A write of one plugin: `write:<plugin>` covers this plugin's writes and every read.
-    Write(&'a str),
+    Write(String),
     /// An administrative write: a workspace create.
     Admin,
 }
@@ -54,6 +59,17 @@ pub struct Grant {
     pub mode: Mode,
 }
 
+impl std::fmt::Display for Grant {
+    /// The line as it was written, so `Grants::lines` is the file's own text in map order.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.mode {
+            Mode::Read => write!(f, "{} read", self.ws),
+            Mode::Write(plugin) => write!(f, "{} write:{plugin}", self.ws),
+            Mode::Admin => write!(f, "{} admin", self.ws),
+        }
+    }
+}
+
 /// Every grant in the file, keyed by the key's **name** (never its hash: the hub never learns a key,
 /// only which name presented it).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -62,6 +78,18 @@ pub struct Grants {
 }
 
 impl Grants {
+    /// The grants as the text they came from, one line per grant, for the `reload` identity check.
+    ///
+    /// The store is a map, so two files that differ only in line order are the same grants; this
+    /// keeps the order, which is what makes the check "did the operator change anything" rather than
+    /// "did the map come out equal by accident".
+    pub fn lines(&self) -> Vec<String> {
+        self.map
+            .iter()
+            .flat_map(|(key, grants)| grants.iter().map(move |grant| format!("{key} {grant}")))
+            .collect()
+    }
+
     /// Every grant of one key, in file order. `BTreeMap` order, then insertion order inside a key,
     /// so a decision is never taken from a hash's iteration order.
     pub fn of(&self, key: &str) -> &[Grant] {
@@ -123,7 +151,7 @@ impl Grants {
     /// The `skip-grant` break returns `true` whatever it read, which is what row
     /// `negctl-skip-grant` forces: every 403 in the matrix goes green and
     /// `no_grant_is_403_before_any_404` fails.
-    pub fn allows(&self, key: &str, ws: &str, need: Need<'_>) -> bool {
+    pub fn allows(&self, key: &str, ws: &str, need: &Need) -> bool {
         if breaks::on("skip-grant") {
             return true;
         }
@@ -136,7 +164,7 @@ impl Grant {
     ///
     /// The workspace first, then the mode, and the mode half is `auth::grant::covers` so there is
     /// one copy of those rules and not two that can disagree.
-    fn covers(&self, ws: &str, need: Need<'_>) -> bool {
+    fn covers(&self, ws: &str, need: &Need) -> bool {
         (self.ws == "*" || self.ws == ws) && crate::auth::grant::covers(&self.mode, need)
     }
 }

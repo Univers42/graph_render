@@ -72,9 +72,38 @@ async fn start(settings: Settings, log: graph_hub::LogSink) -> Result<(), String
         .map_err(|refused| refused.to_string())?;
     let addr = SocketAddr::new(settings.bind, settings.port);
     let app = App::from_settings(&settings, log)?;
+    spawn_reload(&app).map_err(|error| error.to_string())?;
     serve::serve_forever(addr, &settings.connections, app)
         .await
         .map_err(|error| error.to_string())
+}
+
+/// `SIGHUP` re-reads both credential files and swaps them together.
+///
+/// The handler is installed whatever the settings say: `SIGHUP`'s default action ends the process,
+/// so a hub that did not install it would die on the first key rotation. One task, not a handler, so
+/// the swap happens off the accept path and the listener is never touched — no connection is dropped
+/// by a rotation.
+fn spawn_reload(app: &std::sync::Arc<App>) -> std::io::Result<()> {
+    let mut hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
+    let app = std::sync::Arc::clone(app);
+    tokio::spawn(async move {
+        while hangup.recv().await.is_some() {
+            match app.keys.reload() {
+                Ok(true) => {
+                    app.log(&serde_json::json!({ "event": "keys", "reloaded": app.keys.len() }))
+                }
+                Ok(false) => app.log(&serde_json::json!({ "event": "keys", "unchanged": true })),
+                Err(refused) => {
+                    let kept = app.keys.len();
+                    app.log(
+                        &serde_json::json!({ "event": "keys", "refused": refused, "kept": kept }),
+                    );
+                }
+            }
+        }
+    });
+    Ok(())
 }
 
 fn refuse_config(refused: &ConfigError) -> ExitCode {
