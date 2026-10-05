@@ -143,3 +143,4 @@ studio-query-fields|build|prompts/jobs/studio-query-fields.md|scripts/orch/rows/
 dag-lanes|build|prompts/jobs/dag-lanes.md|scripts/orch/rows/dag-lanes.rows|no
 legend-palette|build|prompts/jobs/legend-palette.md|scripts/orch/rows/legend-palette.rows|no
 studio-open-large|build|prompts/jobs/studio-open-large.md|scripts/orch/rows/studio-open-large.rows|no
+gpu-g1-plan|build|prompts/jobs/gpu-g1-plan.md|scripts/orch/rows/docs.rows|no
