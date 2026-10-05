@@ -20,7 +20,7 @@ http-body-util = "=0.1.5"
 # `client` + `client-legacy` are the relay's whole cost: eleven crates in graph-hub's closure,
 # none in the virtual root's (`default-members`).
 hyper = { version = "=1.11.1", default-features = false, features = ["http1", "client"] }
-hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio", "client-legacy", "http1"] }
+hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio", "client-legacy", "http1", "server-graceful"] }
 percent-encoding = "=2.3.2"
 serde_json = { version = "=1.0.151", default-features = false, features = ["std"] }
 sha2 = { version = "=0.10.9", default-features = false, features = ["std"] }

@@ -59,6 +59,12 @@ pub async fn post(
         if_match: if_match(&headers)?,
         limits: read_limits,
     };
+    if crate::breaks::on("ack-before-commit") {
+        drop((permit, per_key));
+        let (seq, response, epoch) =
+            crate::routes::early_ack::answer_first(Arc::clone(&app), write).await?;
+        return Ok(answer(seq, &response, epoch));
+    }
     let outcome = store
         .apply_batch(&write)
         .await
