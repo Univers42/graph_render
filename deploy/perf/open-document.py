@@ -13,11 +13,10 @@ with, and each document is then laid out once by the layout that was asked for.
 
 It prints, for each document: the dispatch's own milliseconds, the milliseconds to the first
 animation frame after it, `performance.memory.usedJSHeapSize` on the page and in the worker that
-built the graph, the resident memory of the browser, the studio's own message (it names the build
-and the layout's own milliseconds), and the profiles' top self and inclusive rows. Then, with a
-second document, it opens that one and prints the same. A page exception, a page error or a lost
-target is printed and the probe exits 1; exit 2 is the harness (a software rasteriser under
-GM_GPU=1, see deploy/nav/gpu.py).
+built the graph, the browser's resident memory, the studio's own message (which names the build and
+the layout's own milliseconds), and the profiles' top self and inclusive rows. Then, with a second
+document, it opens that one and prints the same. A page exception, a page error or a lost target is
+printed and the probe exits 1; exit 2 is the harness (a software rasteriser under GM_GPU=1).
 
 WHY the dispatch is not awaited: a new source starts in a NEW worker (graph-studio
 `motor/client.ts`, `loadFresh`), and this client reads CDP frames only inside `call`, so an awaited
@@ -28,18 +27,16 @@ millisecond or two of its start and then reports on it.
 
 Caveat: the open's own milliseconds are `performance.now()` around the dispatch, so they carry the
 document's fetch, its structured clone to the worker, the wasm module start of a worker that begins
-with it, and the profiler's own few percent — nothing here separates those. The wall clock beside
-them is this probe's own polling: a check on that number, not a second measurement. Caveat: a 0.5 ms
-sampling profiler. Self times under a few samples are noise, wasm names are mangled Rust symbols,
-and the page's JavaScript is minified, so a JavaScript row names a minified function: find it in
-app/dist/assets/<chunk>.js. A worker is sampled from a millisecond or two after it starts. Caveat:
-the heap is the page's `performance.memory`, which Chromium rounds, never collects to zero and does
-not have in a worker; it says nothing of the wasm heap inside either process, so the resident
-memory printed beside it is the only figure here that sees that heap — and it is the whole browser,
-processes this probe does not name. Caveat: the document server answers the listed paths with
-`Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy: cross-origin`, and a
-cross-origin fetch is one request a dropped file does not pay. Caveat: one run is one run — take
-medians over rounds, and compare only arms of this probe on the same host.
+with it, and the profiler's own few percent; nothing here separates those. The wall clock beside
+them is this probe's own polling — a check on that number, not a second measurement. Caveat: a 0.5 ms
+sampling profiler: self times under a few samples are noise, wasm names are mangled Rust symbols, the
+page's JavaScript is minified (find a row in app/dist/assets/<chunk>.js), and a worker is sampled
+from a millisecond or two after it starts. Caveat: the heap is the page's `performance.memory`, which
+Chromium rounds, never collects to zero and does not have in a worker; it says nothing of the wasm
+heap, so the resident memory printed beside it is the only figure here that sees that heap — and it is
+the whole browser, processes this probe does not name. Caveat: the cross-origin fetch of the document
+is one request a dropped file does not pay. Caveat: one run is one run — take medians over rounds and
+compare only arms of this probe on the same host.
 """
 import functools
 import json
@@ -99,7 +96,6 @@ class Documents(SimpleHTTPRequestHandler):
     second origin does not need; what it needs instead is CORS (the page is another origin) and a
     permissive CORP (the page is `Cross-Origin-Embedder-Policy: require-corp`).
     """
-
     def __init__(self, *args, allowed, **kwargs):
         self.allowed = allowed
         super().__init__(*args, **kwargs)
@@ -133,7 +129,7 @@ def harvest(page, done):
     A source change closes the worker it replaced (`loadFresh` retires it), so a session that has
     detached between two polls is reported and not profiled.
     """
-    fresh = []
+    fresh: list[str] = []
     for event in page.events:
         if event["method"] != "Target.attachedToTarget":
             continue
@@ -184,8 +180,8 @@ def first_frame(page):
     """The milliseconds to the first animation frame after the open returned.
 
     Headless produces no BeginFrames for a page nobody watches, so none would ever arrive and the
-    number would read -1 for every arm. One screencast frame asks the compositor for one frame;
-    the screencast is stopped again as soon as the frame has landed.
+    number would read -1 for every arm. One screencast frame asks the compositor for one frame,
+    and the screencast is stopped again as soon as the frame has landed.
     """
     page.call("Page.startScreencast", {"format": "jpeg", "quality": 1,
                                        "maxWidth": 2, "maxHeight": 2, "everyNthFrame": 1})
@@ -198,9 +194,8 @@ def first_frame(page):
 def rss_mb():
     """The resident memory of every Chromium process in this container, in MB: (sum, largest).
 
-    `performance.memory` is the page's JavaScript heap and nothing else, so the wasm heap inside
-    the worker and the renderer is only visible from outside — and this is the probe's own browser,
-    the only one the container runs.
+    `performance.memory` is the page's JavaScript heap and nothing else, so the wasm heap is only
+    visible from outside — and this is the probe's own browser, the only one the container runs.
     """
     total, largest = 0, 0
     for entry in Path("/proc").iterdir():
