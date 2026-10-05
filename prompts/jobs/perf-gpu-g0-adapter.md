@@ -4,7 +4,8 @@ Why: `docs/decisions/gpu-force-tier.md` accepts a WebGPU particle-mesh tier. Eve
 gated in `gm-chromium`; if that browser has no WebGPU adapter, the tier cannot be gated and stops.
 This job answers that one question with a probe and a measurement file. No product code.
 
-Facts (verified on develop c4c7c8c2):
+Facts (verified on develop c4c7c8c2, re-verified on ea66e5c7 2026-10-05; a first run on
+2026-10-03 did no work, stopped by provider quota):
 
 - `scripts/studio-probe.sh` runs `deploy/perf/<NAME>.py` in the `gm-chromium` image, with the
   worktree at `/w`. `GM_GPU=1` passes `/dev/dri` and the render/video gids (`scripts/orch/gpu.sh`);
@@ -19,6 +20,8 @@ Facts (verified on develop c4c7c8c2):
 - `deploy/perf/open.py:1-30` shows a probe's shape: a docstring that is its manual (with a
   `Caveat:`), `sys.path` onto `deploy/nav`, then `nav`, `gpu`. `deploy/perf/run.py:64` `serve(dist)`
   serves `app/dist` on localhost and `:71` `launch_browser(profile, backend)` launches Chromium.
+  The newer probes use `deploy/nav/nav.py:40` `serve(dist)` and `:47` `launch_browser(profile, extra=...)`
+  instead (`deploy/perf/open.py` `main`); either pair is fine.
   WebGPU needs a secure context, which `http://127.0.0.1` is.
 - The host's GPU is an AMD RX 6600; under `GM_GPU=1` the WebGL2 renderer string names it
   (`deploy/nav/gpu.py:28-36`). WebGPU has never been asked for.
