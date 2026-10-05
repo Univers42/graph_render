@@ -31,12 +31,18 @@ tokio = { version = "=1.53.2", features = ["rt-multi-thread", "net", "signal", "
 # Test-only: the real motor's router in process for `hub-roundtrip`, and the hub's own router
 # through `oneshot`. Resolver 2 keeps both out of the lib and the binary.
 graph-server = { path = "../graph-server" }
+# graph-contract's own break name `lax-reader` is behind ITS `negctl` feature. A dev-dependency
+# turns it on for test targets only, the trick `server/graph-store/Cargo.toml:20-22` uses, so row
+# `negctl-lax-reader` exercises the contract's reader and not a copy of it in this crate.
+graph-contract = { path = "../../crates/graph-contract", features = ["negctl"] }
 tower = { version = "=0.5.3", default-features = false, features = ["util"] }
 futures-util = { version = "=0.3.34", default-features = false }
 
 [features]
-# The negative controls' hub-side breaks (`src/breaks.rs`). Off in every shipped build.
-negctl = []
+# The negative controls' hub-side breaks (`src/breaks.rs`), plus the store's, because two of this
+# slice's controls turn a store break on (`no-idem` in Task 5, `drop-record` and `sequence-seq` in
+# Tasks 7 and 8) and both crates read the one `GM_HUB_BREAK`. Off in every shipped build.
+negctl = ["graph-store/negctl"]
 # The test-only seams (`src/hooks.rs`); graph-server reaches its own through a self
 # dev-dependency (server/graph-server/Cargo.toml:41), the hub reaches these through its rows.
 test-hooks = []

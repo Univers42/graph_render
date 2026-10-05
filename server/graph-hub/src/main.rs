@@ -72,6 +72,10 @@ async fn start(settings: Settings, log: graph_hub::LogSink) -> Result<(), String
         .map_err(|refused| refused.to_string())?;
     let addr = SocketAddr::new(settings.bind, settings.port);
     let app = App::from_settings(&settings, log)?;
+    // The store the start checks already used is the one every handler reads, so a shipped hub never
+    // opens two and the restore detector's high-water is one detector's.
+    app.set_store(db)
+        .map_err(|_| String::from("the store was already set"))?;
     spawn_reload(&app).map_err(|error| error.to_string())?;
     serve::serve_forever(addr, &settings.connections, app)
         .await

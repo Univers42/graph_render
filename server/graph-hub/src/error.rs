@@ -38,8 +38,9 @@ pub enum HubApiError {
     Unauthorized(&'static str),
     /// 403: a key with no grant covering this workspace and plugin. Never reveals existence.
     Forbidden(&'static str),
-    /// 404: reached only after authorization said yes.
-    NotFound(&'static str),
+    /// 404: reached only after authorization said yes. The store's own `what` when the store
+    /// is what said no, so the message names what was not found.
+    NotFound(String),
     /// 406: relayed from the motor; the message is graph-server's own.
     NotAcceptable(String),
     /// 408: the request body did not arrive within `GRAPH_HUB_BODY_TIMEOUT_MS`.
@@ -48,6 +49,9 @@ pub enum HubApiError {
     Conflict(String),
     /// 410: a cursor outside what is kept, or from another epoch.
     Gone(String),
+    /// 412: an `If-Match` that does not equal the plugin's `plugin_seq`. The store's own refusal,
+    /// kept as its own variant so a 412 is never re-derived from a 409.
+    PreconditionFailed,
     /// 413: over one of §6's caps, or a relayed 413 with the motor's message.
     TooLarge {
         /// What was over the limit, named in the message.
@@ -97,6 +101,7 @@ impl HubApiError {
             Self::BodyTimeout => Cow::Borrowed("Timeout"),
             Self::Conflict(_) => Cow::Borrowed("conflict"),
             Self::Gone(_) => Cow::Borrowed("cursor"),
+            Self::PreconditionFailed => Cow::Borrowed("PreconditionFailed"),
             Self::TooLarge { .. } => Cow::Borrowed("too_large"),
             Self::Invalid { .. } => Cow::Borrowed("invalid"),
             Self::Busy { .. } => Cow::Borrowed("Busy"),
@@ -117,6 +122,7 @@ impl HubApiError {
             Self::BodyTimeout => 408,
             Self::Conflict(_) => 409,
             Self::Gone(_) => 410,
+            Self::PreconditionFailed => 412,
             Self::TooLarge { .. } => 413,
             Self::Invalid { .. } => 422,
             Self::Busy { retry_after } => {
@@ -174,6 +180,9 @@ impl IntoResponse for HubApiError {
             }
             Self::Motor(fault) => fault.message().to_owned(),
             Self::Internal(why) => why.clone(),
+            Self::PreconditionFailed => {
+                String::from("If-Match does not equal this plugin's plugin_seq")
+            }
             Self::NotImplemented => String::from(
                 "this route is registered and authorized, and its handler lands in a later task",
             ),
@@ -215,7 +224,7 @@ fn reason(error: &HubApiError) -> &str {
         HubApiError::BadRequest(why) => why,
         HubApiError::Unauthorized(_) => "missing or unknown API key",
         HubApiError::Forbidden(_) => "the key has no grant for this workspace and plugin",
-        HubApiError::NotFound(_) => "no such route",
+        HubApiError::NotFound(why) => why,
         HubApiError::BodyTimeout => "the body did not arrive within GRAPH_HUB_BODY_TIMEOUT_MS",
         _ => "",
     }

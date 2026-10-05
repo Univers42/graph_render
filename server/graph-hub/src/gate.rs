@@ -13,11 +13,14 @@
 pub mod permit;
 pub mod subscribers;
 
+use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::OwnedSemaphorePermit;
 use tokio::time::Instant;
 
 use crate::config::Gates;
+use crate::error::HubApiError;
 use crate::gate::subscribers::Subscribers;
 
 pub use permit::{Gate, KeyGate, NO_CAP_PERMITS};
@@ -58,4 +61,31 @@ impl GateSet {
 /// has waited and a clock change must not turn a 503 into an unbounded wait.
 pub fn deadline(timeout: Duration) -> Instant {
     Instant::now() + timeout
+}
+
+/// One permit from `gate`, waiting at most `GRAPH_HUB_TIMEOUT_MS`.
+///
+/// This is the one place a route's "admit the permit (or 503)" step is written down, so every route
+/// bounds its wait by the same setting and none of them invents its own deadline.
+pub async fn admit(
+    app: &Arc<crate::app::App>,
+    gate: &Gate,
+) -> Result<OwnedSemaphorePermit, HubApiError> {
+    gate.admit(deadline(app.settings.timeout)).await
+}
+
+/// The per-key writer permit, waiting at most `GRAPH_HUB_TIMEOUT_MS`.
+///
+/// Caveat: the deadline is computed here rather than reused from the route's first admit, so a
+/// batch that waited on `WRITERS` before waiting on `WRITERS_PER_KEY` gets the full budget twice
+/// over. §6 bounds each wait and not the pair, which is what makes the sum of the two waits the
+/// number a caller actually waits.
+pub async fn admit_key(
+    app: &Arc<crate::app::App>,
+    key: &str,
+) -> Result<OwnedSemaphorePermit, HubApiError> {
+    app.gates
+        .writers_per_key
+        .admit(key, deadline(app.settings.timeout))
+        .await
 }
