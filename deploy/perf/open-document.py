@@ -57,7 +57,7 @@ import smokecdp
 # `open` stays the builtin: one implementation of the sampling arithmetic for both probes.
 from open import FIRST_FRAME, WATCH_FRAMES, report, start
 
-ROWS = 20
+ROWS = 70
 LAYOUT = "layout.dag.sugiyama"
 POLLS = 4000
 
