@@ -259,7 +259,10 @@ function armSettle(state: LoopState): void {
 }
 
 /** One full frame once the view has stopped, when a moving frame drew less than the whole set. */
-export function drewAWay(counts: Pick<PaintCounts, "mixedEdges" | "gradientStrokes">): boolean {
+export function drewAWay(counts: Pick<PaintCounts, "mixedEdges" | "gradientStrokes" | "bulk">): boolean {
+  // A GPU moving frame is a paced sample or a glide (webgl2/hook.ts): at 5000 nodes, under the 2D
+  // edge budget, its 2048-node sample stayed on screen for good.
+  if (counts.bulk > 0) return true;
   // The mixed edges gave the gradient up while the view moved: one settled frame puts it back.
   return counts.mixedEdges > 0 && counts.gradientStrokes === 0;
 }
