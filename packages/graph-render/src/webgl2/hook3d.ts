@@ -15,7 +15,8 @@
  */
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { MIN_SCREEN_RADIUS } from "../canvas2d/nodes.ts";
-import { type Locate, paintRings, strokeWidth } from "../three/paint3d.ts";
+import { type Locate, paintRings } from "../three/paint3d.ts";
+import { strokeWidth } from "../three/edges3d.ts";
 import { paintGround } from "../canvas2d/ground.ts";
 import { type Projection, setupOf } from "../three/projection.ts";
 import { project, radiusOnScreen } from "../three/orbit.ts";

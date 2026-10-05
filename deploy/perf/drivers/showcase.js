@@ -60,8 +60,9 @@
       await frame();
       await (await settled()).dispatch("view.fit", {});
     },
-    // Turn a 3D drawing about its vertical axis by `turns` over `ms`, eased, one step per frame.
-    orbit: async ({ turns = 1, tilt = 0, ms = 6000 }) => {
+    // Turn a 3D drawing about its vertical axis by `turns` over `ms`, eased, one step per frame,
+    // pushing the eye in by `dolly` (2 = half the distance) on the way.
+    orbit: async ({ turns = 1, tilt = 0, dolly = 1, ms = 6000 }) => {
       const view = document.querySelector("graph-studio").view;
       const start = performance.now();
       const from = view.orbit();
@@ -72,7 +73,8 @@
         done = Math.min(1, (performance.now() - start) / ms);
         const eased = done < 0.5 ? 2 * done * done : 1 - (-2 * done + 2) ** 2 / 2;
         view.setOrbit({ ...view.orbit(), yaw: from.yaw + 2 * Math.PI * turns * eased,
-          pitch: from.pitch + tilt * Math.sin(Math.PI * eased) });
+          pitch: from.pitch + tilt * Math.sin(Math.PI * eased),
+          distance: from.distance / (1 + (dolly - 1) * eased) });
       }
     },
     // Where the most connected node is drawn, in page pixels, for a real pointer drag.

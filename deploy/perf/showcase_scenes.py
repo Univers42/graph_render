@@ -129,10 +129,11 @@ SPACE = [
     ("run", "appearance.edgecolour", {"mode": "gradient"}),
     ("run", "appearance.background", {"mode": "aurora"}),
     ("run", "view.fit"),
-    ("orbit", {"turns": 1, "tilt": 0.5, "ms": 7000}),
+    ("orbit", {"turns": 1, "tilt": 0.5, "dolly": 1.8, "ms": 7000}),
     ("still", "08-space"),
     *layout("basic3d.helix", 1.5),
-    ("orbit", {"turns": 0.5, "ms": 3500}),
+    ("run", "view.fit"),
+    ("orbit", {"turns": 0.5, "dolly": 1.4, "ms": 3500}),
 ]
 
 MILLION = [
@@ -140,6 +141,9 @@ MILLION = [
     ("cut",),
     ("run", "layout.run", {"id": "layout.spiral"}),
     synthetic(nodes=1000000, degree=1, shape="random"),
+    ("run", "appearance.glow", {"on": False}),
+    ("run", "appearance.background", {"mode": "theme"}),
+    ("run", "appearance.scale", {"factor": 0.3}),
     ("chrome", False),
     ("roll",),
     ("hold", 2.0),
@@ -153,6 +157,7 @@ OUTRO = [
     ("cut",),
     synthetic(),
     ("run", "layout.run", {"id": "layout.forceatlas2.barnes_hut"}),
+    ("run", "appearance.scale", {"factor": 1.0}),
     ("chrome", True),
     ("roll",),
     ("caption", "graph-motor + studio", "github.com/Univers42/graph_render"),
