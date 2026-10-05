@@ -7,9 +7,6 @@ use std::borrow::Cow;
 
 use crate::error::MAX_MESSAGE;
 
-/// The longest a relayed message may be, in bytes. The same bound as the hub's own bodies.
-pub(crate) const MAX_MESSAGE: usize = 256;
-
 /// What the motor answered, in the hub's own vocabulary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MotorFault {
@@ -73,7 +70,9 @@ impl MotorFault {
             Self::Auth => "the motor refused the hub's own key; this is a hub defect",
             Self::BodyTimeout => "the upload missed the motor's GRAPH_BODY_TIMEOUT_MS",
             Self::TooLarge { message } => message,
-            Self::MaterializeInvalid => "the document did not read at the motor; this is a hub defect",
+            Self::MaterializeInvalid => {
+                "the document did not read at the motor; this is a hub defect"
+            }
             Self::Error => "the motor refused the request; this is a hub defect",
             Self::Unavailable => "the motor is unreachable or past GRAPH_HUB_MOTOR_TIMEOUT_MS",
             Self::Relayed { message, .. } => message,
@@ -86,7 +85,11 @@ impl MotorFault {
     /// `/layout`, and an `Retry-After` there would invite one.
     pub fn relayed(&self) -> Option<Relayed> {
         match self {
-            Self::Relayed { status, error, message } => Some(Relayed {
+            Self::Relayed {
+                status,
+                error,
+                message,
+            } => Some(Relayed {
                 status: *status,
                 error: error.clone(),
                 message: one_line(message),
@@ -118,8 +121,7 @@ impl axum::response::IntoResponse for Relayed {
     fn into_response(self) -> axum::response::Response {
         use axum::http::{HeaderValue, StatusCode, header};
         let json = HeaderValue::from_static("application/json");
-        let status =
-            StatusCode::from_u16(self.status).unwrap_or(StatusCode::BAD_GATEWAY);
+        let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::BAD_GATEWAY);
         (status, [(header::CONTENT_TYPE, json)], self.body()).into_response()
     }
 }

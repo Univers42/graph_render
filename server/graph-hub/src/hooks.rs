@@ -9,8 +9,11 @@
 //! The signatures are the same in both builds: the [`Hooks`] value is a zero-sized type without the
 //! feature, so a call site never has to know which build it is in.
 
+#[cfg(feature = "test-hooks")]
 use std::future::Future;
+#[cfg(feature = "test-hooks")]
 use std::pin::Pin;
+#[cfg(feature = "test-hooks")]
 use std::sync::Arc;
 
 /// A hook's body: a future a test drives, boxed so the seam costs no generic plumbing at each call
@@ -36,6 +39,26 @@ pub struct Hooks {
 #[cfg(not(feature = "test-hooks"))]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Hooks;
+
+#[cfg(not(feature = "test-hooks"))]
+impl Hooks {
+    /// Hooks with nothing installed.
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(feature = "test-hooks")]
+impl Hooks {
+    /// Hooks with nothing installed.
+    pub const fn new() -> Self {
+        Self {
+            pause_after_admit: None,
+            before_ack: None,
+            count_headers: None,
+        }
+    }
+}
 
 /// Pause after a route admitted its permit, naming the route so one hook can tell them apart.
 #[cfg(feature = "test-hooks")]

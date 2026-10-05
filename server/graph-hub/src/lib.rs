@@ -16,10 +16,8 @@ pub mod hooks;
 pub mod observe;
 pub mod serve;
 
-use app::App;
 use axum::Router;
 use axum::routing::get;
-use error::HubApiError;
 use std::sync::Arc;
 
 pub use app::{App, LogSink};

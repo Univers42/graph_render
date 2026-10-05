@@ -31,7 +31,10 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// Serves until `SIGTERM` or `SIGINT`, then drains. Exit 0 after a drain, 1 when the listener
 /// could not start.
 pub fn run(addr: SocketAddr, limits: Limits, app: Arc<App>) -> ExitCode {
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
         Err(error) => return fail(&error),
     };
@@ -70,7 +73,9 @@ async fn serve(addr: SocketAddr, limits: Limits, app: Arc<App>) -> io::Result<()
     let listener = TcpListener::bind(addr).await?;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    app.log(&serde_json::json!({ "event": "listening", "addr": listener.local_addr()?.to_string() }));
+    app.log(
+        &serde_json::json!({ "event": "listening", "addr": listener.local_addr()?.to_string() }),
+    );
     let accept = Acceptor::new(crate::router(Arc::clone(&app)), limits);
     loop {
         tokio::select! {
@@ -99,7 +104,11 @@ struct Acceptor {
 impl Acceptor {
     fn new(router: Router, limits: Limits) -> Self {
         let slots = Arc::new(Semaphore::new(limits.max_connections));
-        Self { router, limits, slots }
+        Self {
+            router,
+            limits,
+            slots,
+        }
     }
 
     /// The next connection once a slot is free; past the cap the kernel backlog holds it.
@@ -134,4 +143,3 @@ fn fail(error: &io::Error) -> ExitCode {
     eprintln!("graph-hub: {error}");
     ExitCode::FAILURE
 }
-

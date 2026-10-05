@@ -3,10 +3,10 @@
 //!
 //! Task 1 builds the state with `App::new`; Task 2 replaces that with `App::from_settings` once
 //! `config::Settings` exists, so the fixture is the one that grows, not a second fixture beside it.
-// #![allow(
-//     dead_code,
-//     unused_imports,
-//     reason = "each test binary uses a part of this module"
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "each test binary uses a part of this module"
 )]
 
 use axum::Router;

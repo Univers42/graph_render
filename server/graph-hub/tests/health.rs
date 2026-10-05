@@ -30,5 +30,8 @@ async fn an_unknown_route_is_the_json_404_shape() {
 #[test]
 fn the_hub_source_never_names_auth_check() {
     let hits = support::grep_this_crate("auth::check");
-    assert!(hits.is_empty(), "graph-hub must not call auth::check: {hits:?}");
+    assert!(
+        hits.is_empty(),
+        "graph-hub must not call auth::check: {hits:?}"
+    );
 }

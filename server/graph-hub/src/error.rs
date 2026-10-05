@@ -20,7 +20,12 @@ use std::borrow::Cow;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 
-use crate::error::motor::MAX_MESSAGE;
+/// The longest message an error body carries, in bytes. A refusal can quote the caller's own text,
+/// and without a bound a 64 MiB id would be echoed back whole.
+/// Caveat: 256 bytes, truncated at a character boundary and marked with `...`, so a message past
+/// it is a prefix and not the whole reason. 256 is a guess at one screen line, and the field that
+/// matters — the `error` name — is never truncated.
+pub(crate) const MAX_MESSAGE: usize = 256;
 
 /// The hub's own error enum. One variant per reason §5.2 refuses for, so the status a variant
 /// answers with is written down once and a handler never re-derives it.
@@ -106,7 +111,13 @@ impl HubApiError {
             Self::Gone(_) => 410,
             Self::TooLarge { .. } => 413,
             Self::Invalid { .. } => 422,
-            Self::Busy { retry_after } => if *retry_after == 0 { 503 } else { 429 },
+            Self::Busy { retry_after } => {
+                if *retry_after == 0 {
+                    503
+                } else {
+                    429
+                }
+            }
             Self::Motor(fault) => fault.status(),
             Self::Internal(_) => 500,
         }
@@ -157,8 +168,10 @@ impl IntoResponse for HubApiError {
         };
         let body = serde_json::json!({ "error": self.code(), "message": one_line(&message) });
         let json = HeaderValue::from_static("application/json");
-        let status = StatusCode::from_u16(self.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let mut response = (status, [(header::CONTENT_TYPE, json)], body.to_string()).into_response();
+        let status =
+            StatusCode::from_u16(self.status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let mut response =
+            (status, [(header::CONTENT_TYPE, json)], body.to_string()).into_response();
         if let Some(extra) = self.extra_header() {
             response.headers_mut().insert(extra.0, extra.1);
         }
@@ -174,7 +187,9 @@ impl HubApiError {
     /// way (`docs/superpowers/specs/2026-10-05-graph-service-plugins-design.md` §7).
     fn extra_header(&self) -> Option<(axum::http::HeaderName, HeaderValue)> {
         match self {
-            Self::Unauthorized(_) => Some((header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"))),
+            Self::Unauthorized(_) => {
+                Some((header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer")))
+            }
             Self::Busy { .. } => Some((header::RETRY_AFTER, HeaderValue::from_static("1"))),
             _ => None,
         }

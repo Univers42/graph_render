@@ -24,8 +24,9 @@ use graph_server::app::{App, LogSink};
 use graph_server::config::Settings;
 use graph_server::keys;
 use http_body_util::{BodyExt, Empty};
-use hyper::Error as HyperError;
 use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::Error as ClientError;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -145,7 +146,9 @@ async fn serve(router: Router, ready: fn(StatusCode) -> bool) -> Motor {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .expect("the fixture's listener binds");
-    let addr = listener.local_addr().expect("the fixture's listener address");
+    let addr = listener
+        .local_addr()
+        .expect("the fixture's listener address");
     let stop = Arc::new(Notify::new());
     let task = tokio::spawn(accept(listener, router, Arc::clone(&stop)));
     let motor = Motor { addr, task, stop };
@@ -158,7 +161,9 @@ async fn serve(router: Router, ready: fn(StatusCode) -> bool) -> Motor {
 /// fixture that served a test has nowhere to report it that a test would read.
 async fn accept(listener: TcpListener, router: Router, stop: Arc<Notify>) {
     let signal = async move { stop.notified().await };
-    let _served = axum::serve(listener, router).with_graceful_shutdown(signal).await;
+    let _served = axum::serve(listener, router)
+        .with_graceful_shutdown(signal)
+        .await;
 }
 
 /// Polls `GET /healthz` until `ready` accepts the status or [`PATIENCE`] is out. This is the
@@ -181,8 +186,8 @@ async fn await_ready(motor: &Motor, ready: fn(StatusCode) -> bool) {
 
 /// One `GET /healthz`, or the transport error: a refused connection is the state before the
 /// accept task is scheduled, so it is expected on the first probe and not a failure.
-async fn healthz(addr: SocketAddr) -> Result<StatusCode, HyperError> {
-    let client: Client<Empty<Bytes>, Empty<Bytes>> =
+async fn healthz(addr: SocketAddr) -> Result<StatusCode, ClientError> {
+    let client: Client<HttpConnector, Empty<Bytes>> =
         Client::builder(TokioExecutor::new()).build_http();
     let uri = format!("http://{addr}/healthz")
         .parse::<hyper::Uri>()
@@ -197,6 +202,7 @@ async fn healthz(addr: SocketAddr) -> Result<StatusCode, HyperError> {
 /// One scripted answer for [`stub`]. `body` wins when it is not empty; otherwise the
 /// `{"error","message"}` shape is written. Caveat: `content-type` is `application/json` either
 /// way, so a verbatim body is expected to be JSON text.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StubReply {
     /// The status line.
     pub status: u16,
@@ -211,12 +217,22 @@ pub struct StubReply {
 impl StubReply {
     /// The JSON error shape: `status` carrying `error` and `message`.
     pub fn new(status: u16, error: &str, message: &str) -> Self {
-        Self { status, error: error.into(), message: message.into(), body: String::new() }
+        Self {
+            status,
+            error: error.into(),
+            message: message.into(),
+            body: String::new(),
+        }
     }
 
     /// A verbatim body, for the arms §5.2 relays unchanged.
     pub fn with_body(status: u16, body: &str) -> Self {
-        Self { status, error: String::new(), message: String::new(), body: body.into() }
+        Self {
+            status,
+            error: String::new(),
+            message: String::new(),
+            body: body.into(),
+        }
     }
 
     /// The bytes this answer writes: `body` when it is set, else the `{"error","message"}` shape.
@@ -280,7 +296,11 @@ impl Script {
     /// is a stub that refuses everything rather than a stub that panics.
     fn new(answers: Vec<StubReply>) -> Self {
         let answers = if answers.is_empty() {
-            vec![StubReply::new(404, "NotFound", "the stub's script is empty")]
+            vec![StubReply::new(
+                404,
+                "NotFound",
+                "the stub's script is empty",
+            )]
         } else {
             answers
         };

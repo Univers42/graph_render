@@ -22,7 +22,7 @@ impl App {
     pub fn new(log: LogSink) -> Arc<App> {
         Arc::new(Self {
             log,
-            hooks: Hooks::default(),
+            hooks: Hooks::new(),
         })
     }
 
@@ -36,8 +36,9 @@ impl App {
     ///
     /// This is the hub's **only** use of the compute crate's credential parsing: it reuses
     /// `graph_server::auth::bearer` (`docs/decisions/graph-hub.md:120-121`) and nothing else of
-    /// `auth`, because `auth::check` carries the `any-key` break and the compute `App`
-    /// (`auth.rs:24`). Task 3 moves the decision into `auth::credential`, which calls this.
+    /// that module, because its credential check carries the `any-key` break and the compute
+    /// `App` (`server/graph-server/src/auth.rs:24`). Task 3 moves the decision into
+    /// `auth::credential`, which calls this.
     ///
     /// Caveat: RFC 6750 §2.1 leaves the scheme case-insensitive and the token's own syntax open,
     /// so this accepts any non-empty token and the key file's hash is what decides.
