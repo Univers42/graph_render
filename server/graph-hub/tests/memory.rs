@@ -62,7 +62,10 @@ fn f_w_is_measured_on_this_reader() {
     }
     println!("HUB_MEM f_w={worst:.2}");
     let ceiling = ledger::value("f_w_ceiling");
-    assert!(worst <= ceiling, "F_w {worst:.2} is over the recorded {ceiling}");
+    assert!(
+        worst <= ceiling,
+        "F_w {worst:.2} is over the recorded {ceiling}"
+    );
 }
 
 #[test]
@@ -72,7 +75,10 @@ fn the_last_seen_map_entry_is_the_planned_size() {
     let entry = run.peak as f64 / run.size as f64;
     println!("HUB_MEM last_seen_entry={entry:.1} peak={}", run.peak);
     let ceiling = ledger::value("last_seen_entry_ceiling_bytes");
-    assert!(entry <= ceiling, "a last-seen entry is {entry:.1} B, over the recorded {ceiling}");
+    assert!(
+        entry <= ceiling,
+        "a last-seen entry is {entry:.1} B, over the recorded {ceiling}"
+    );
 }
 
 /// The hub's writer path for one body, minus the database: the raw bytes (`body::read`), the
@@ -88,8 +94,11 @@ fn one_body_peak() {
     let manifest = read_manifest(MANIFEST, PLUGIN).expect("the fixture manifest");
     let base = rss::baseline();
     let raw = bodies::body(&shape, size, limits.max_batch as usize).into_bytes();
-    let batch = read_batch(&String::from_utf8_lossy(&raw).into_owned(), &limits)
-        .unwrap_or_else(|error| panic!("a {shape} body of {size} B: {error:?}"));
+    let batch = {
+        let text = String::from_utf8_lossy(&raw).into_owned();
+        read_batch(&text, &limits)
+    };
+    let batch = batch.unwrap_or_else(|error| panic!("a {shape} body of {size} B: {error:?}"));
     batch
         .check(PLUGIN, &manifest, &limits)
         .unwrap_or_else(|error| panic!("a {shape} body of {size} B: {error:?}"));
@@ -126,7 +135,10 @@ fn last_seen_peak() {
 fn one_body(shape: &str, size: usize) -> Measured {
     child(
         "one_body_peak",
-        &[("HUB_MEM_SHAPE", shape.to_owned()), ("HUB_MEM_BYTES", size.to_string())],
+        &[
+            ("HUB_MEM_SHAPE", shape.to_owned()),
+            ("HUB_MEM_BYTES", size.to_string()),
+        ],
     )
 }
 
@@ -134,7 +146,13 @@ fn one_body(shape: &str, size: usize) -> Measured {
 fn child(case: &str, vars: &[(&str, String)]) -> Measured {
     let exe = std::env::current_exe().expect("this test binary");
     let output = Command::new(exe)
-        .args([case, "--exact", "--ignored", "--nocapture", "--test-threads=1"])
+        .args([
+            case,
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .envs(vars.iter().map(|(name, value)| (*name, value.as_str())))
         .output()
         .expect("a child test process");
@@ -151,7 +169,10 @@ fn child(case: &str, vars: &[(&str, String)]) -> Measured {
             // libtest prints `test <case> ... ` on the same line, before the case's own output.
             let (_, rest) = line.split_once("HUB_MEM peak=")?;
             let (peak, size) = rest.split_once(" size=")?;
-            Some(Measured { peak: peak.parse().ok()?, size: size.trim().parse().ok()? })
+            Some(Measured {
+                peak: peak.parse().ok()?,
+                size: size.trim().parse().ok()?,
+            })
         })
         .unwrap_or_else(|| panic!("{case} {vars:?} printed no HUB_MEM line:\n{stdout}"))
 }

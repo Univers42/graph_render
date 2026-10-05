@@ -34,7 +34,11 @@ pub fn body(shape: &str, size: usize, max_batch: usize) -> String {
         record(&mut out, shape, i, budget);
     }
     out.push_str(TAIL);
-    assert!(out.len() <= size, "a {shape} body of {} > {size}", out.len());
+    assert!(
+        out.len() <= size,
+        "a {shape} body of {} > {size}",
+        out.len()
+    );
     out
 }
 
@@ -44,7 +48,11 @@ fn record(out: &mut String, shape: &str, i: usize, budget: usize) {
     if i > 0 {
         out.push(',');
     }
-    let (open, close) = if shape == "keys" { ('{', '}') } else { ('[', ']') };
+    let (open, close) = if shape == "keys" {
+        ('{', '}')
+    } else {
+        ('[', ']')
+    };
     let _ = write!(
         out,
         r#"{{"collection":"task","id":"r{i}","updatedAt":0,"values":{{"note":{open}"#

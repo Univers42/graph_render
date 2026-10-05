@@ -110,3 +110,54 @@ Spec §6's formula with `F_w` = 52 and the entry at 272 B; every other term is t
 That leaves 227 MiB of the container's 1 GiB for `base` and the I/O buffers, so no default shrinks on
 this arithmetic. Caveat: this is arithmetic over a measured `F_w`, not a measurement of the whole
 process; the container run below is.
+
+## The container run
+
+`scripts/orch/hub-mem.sh` starts the hub image (`deploy/hub.Dockerfile`) through `hub-run.sh` with
+`--memory 1g --memory-swap 1g`, `GM_HUB_HOLD_BODIES` and `GRAPH_HUB_WRITERS_PER_KEY` equal to the
+writer count, and runs `container::peak_rss_at_every_cap_fits_one_gib`
+(`tests/memory/container.rs`). That case posts one `zeros` body of `MAX_BODY` per writer, each to its
+own workspace. The hook in `src/hooks.rs` parks every write after `body::read` until all of them have
+read their body, so every parse starts together. The script reads `VmHWM` of the hub's process and
+`memory.peak` of its cgroup from the host, and the OOM flag from `docker inspect`.
+
+| Verb | Writers | Pool | Idle VmHWM | Peak VmHWM | cgroup peak | OOM-killed | Exit |
+|---|---|---|---|---|---|---|---|
+| `measure` (the defaults) | 2 | 8 | 5 656 KiB | 404 580 KiB (395 MiB) | 413 130 752 B | false | 0 |
+| `control` | 6 | 10 | 5 836 KiB | gone | unknown (cgroup removed) | true | 137 |
+
+At the defaults the peak is 2 × 213.5 MB (the single-body peak above) less the slack of two
+staggered parses: 38 % of the cap. Six writers need about 1.28 GB, and the kernel kills the hub at
+the cap, which is what the negative control asserts. Both rows are in `scripts/orch/rows/hub.rows`
+(`hub-memory`, `negctl-hub-memory`).
+
+Caveat: the barrier aligns the start of every parse, not the peaks, so the measured peak can sit
+below writers × the single-body peak. The control is sized to pass the cap even so.
+
+## Commands
+
+| # | Command | Exit |
+|---|---|---|
+| 1 | `scripts/orch/gr cargo test --manifest-path server/Cargo.toml -p graph-hub --release --test memory -- --test-threads=1 --nocapture` (runs 1–3, before the ledger existed; `~/goinfre/logs/hub-mem-{2,3.1,3.2}.out`) | 101 |
+| 2 | the same, with the ledger (`~/goinfre/logs/hub-mem-4.out`: `F_w` 50.92, entry 263.8 B, 2 passed in 23.23 s) | 0 |
+| 3 | the same, debug profile (`~/goinfre/logs/hub-mem-debug.out`, 56.16 s) | 0 |
+| 4 | `scripts/orch/hub-mem.sh measure` (`~/goinfre/logs/hub-mem-container-measure.out`) | 0 |
+| 5 | `scripts/orch/hub-mem.sh control` (`~/goinfre/logs/hub-mem-container-control.out`) | 137 |
+
+## Deviations from the plan
+
+- `F_w` is the highest peak of a shape divided by its largest body, not a fit through the ladder:
+  the budget multiplies `MAX_BODY`, so this is the quantity it needs.
+- Each body runs in its own child process (see Conditions). The plan measured them in one process.
+- The writer path is emulated in-process (body, lossy copy, parse, check, the store's plan). The
+  database and the motor are not in the in-process measurement; the container run covers the whole
+  hub at the writer term only.
+- `rss.rs` is copied from graph-cli's reader of `/proc/self/status` rather than shared: graph-hub's
+  tests do not depend on graph-cli.
+- The container run sets `GRAPH_HUB_WRITERS_PER_KEY` to the writer count so one key can hold every
+  writer permit at once; the default is 1.
+- The reads, layouts and subscribers terms are arithmetic only. The records page carries no record
+  values and the hub calls no motor yet, so no route reaches those peaks. The SSE-page case waits on
+  Task 7 and the upload and throttled-upload rows on Task 8.
+- The hub does not migrate its database on start; the container case migrates it
+  (`support::db::migrated`) before the first write.
