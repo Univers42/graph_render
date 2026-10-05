@@ -14,11 +14,13 @@ pub mod change;
 pub mod idempotency;
 pub mod links;
 pub mod manifest;
+pub mod plan;
 pub mod retry;
 pub mod space;
 pub mod step;
 
-use graph_contract::hub::{Batch, Growth, Limits, Manifest};
+use graph_contract::hub::batch::Batch;
+use graph_contract::hub::{Growth, Limits, Manifest};
 
 use crate::error::StoreError;
 use crate::store::Store;
