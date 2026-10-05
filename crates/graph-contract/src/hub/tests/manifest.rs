@@ -53,10 +53,11 @@ fn a_link_target_is_qualified_once_and_only_once() {
     );
 }
 
-/// Every refusal, with the message it gives — `(what broke, the body, the message)`. One
-/// table because the point is that each refusal says *where*, and a reader should be able to
-/// learn what one looks like without running the suite.
-fn refusals() -> [(&'static str, String, &'static str); 7] {
+/// The refusals that come from the manifest's *shape*: a member the contract does not name,
+/// a version it does not read, a title field that names nothing, and a NUL in a name.
+/// `(what broke, the body, the message)` — the message in full, because a path is only
+/// useful if it is the whole path.
+fn shape_refusals() -> [(&'static str, String, &'static str); 4] {
     [
         (
             "unknown member",
@@ -68,6 +69,24 @@ fn refusals() -> [(&'static str, String, &'static str); 7] {
             TWO.replace(r#""version": 1"#, r#""version": 2"#),
             "version: unsupported hub manifest version 2",
         ),
+        (
+            "missing title field",
+            TWO.replace(r#""titleField": "name""#, r#""titleField": "nope""#),
+            "collections[1].titleField: no field with id `nope`",
+        ),
+        (
+            "NUL in a name",
+            TWO.replace(r#""name": "Tasks","#, r#""name": "Ta\u0000sks","#),
+            "name: a NUL character",
+        ),
+    ]
+}
+
+/// The refusals that come from the manifest naming something **twice**, or naming a
+/// collection it does not declare. A table of its own only for the 40-line limit; the
+/// assertion is the same as `shape_refusals`'s.
+fn naming_refusals() -> [(&'static str, String, &'static str); 3] {
+    [
         (
             "duplicate collection id",
             TWO.replace(
@@ -85,27 +104,19 @@ fn refusals() -> [(&'static str, String, &'static str); 7] {
             "collections[1].fields[2].id: duplicate field id `name`",
         ),
         (
-            "missing title field",
-            TWO.replace(r#""titleField": "name""#, r#""titleField": "nope""#),
-            "collections[1].titleField: no field with id `nope`",
-        ),
-        (
             "a link to a collection the manifest does not declare",
             TWO.replace(r#""collection": "note""#, r#""collection": "gone""#),
             "collections[1].fields[1].link.collection: link target `tracker.gone` is not \
              declared by this manifest",
         ),
-        (
-            "NUL in a name",
-            TWO.replace(r#""name": "Tasks","#, r#""name": "Ta\u0000sks","#),
-            "name: a NUL character",
-        ),
     ]
 }
 
+/// Every refusal names *where*: the path, the coordinate or the version. One table per kind
+/// so a reader can learn what a refusal looks like without running the suite.
 #[test]
 fn a_manifest_that_breaks_the_contract_is_refused_naming_the_path() {
-    for (what, text, message) in refusals() {
+    for (what, text, message) in shape_refusals().into_iter().chain(naming_refusals()) {
         assert_eq!(
             read_manifest(&text, "tracker").unwrap_err().to_string(),
             message,
