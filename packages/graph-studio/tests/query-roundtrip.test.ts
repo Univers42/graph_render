@@ -58,6 +58,10 @@ function leaf(draw: Draw): Query {
   if (draw.often(0.4)) {
     return { kind: "field", field: "degree", op: draw.pick(["=", "<", ">", "<=", ">="]), value: draw.pick(NUMBERS) };
   }
+  if (draw.often(0.5)) {
+    return { kind: "field", field: "version", op: draw.pick(["=", "<", ">", "<=", ">="]), value: draw.pick(NUMBERS) };
+  }
+  if (draw.often(0.5)) return { kind: "field", field: "group", op: "", value: draw.pick(WORDS) };
   return { kind: "field", field: draw.pick(PLAIN), op: draw.pick(OPS), value: draw.pick(WORDS) };
 }
 
@@ -103,7 +107,21 @@ test("every printed tree reads back as the same tree", () => {
 const LITERALS: readonly string[] = [
   "a", "note", '"two words"', '""', '"say \\"hi\\""', '"x:y"', '"a#b"', '"and"', "tag:#x", "tag:#", "tag:x",
   "kind:note", 'kind:"two words"', "id:42", "db:blog", "path:src/a.ts", "degree:>3", "degree:<=2", "a\\b",
+  "version:>=1700000000", 'group:"Ana B"', "group:ana", "group:ana OR version:<5",
 ];
+
+/** The three lines the studio must be able to write back: a number, a name with a space, a join. */
+const NEW_LITERALS: readonly string[] = ["version:>=1700000000", 'group:"Ana B"', "group:ana OR version:<5"];
+
+test("the new fields print to a line that reads back as the same tree", () => {
+  for (const line of NEW_LITERALS) {
+    const once = parseQuery(line);
+    assert.deepEqual(parseQuery(printQuery(once)), once, line);
+  }
+  assert.equal(parseQuery("version:>=1700000000").kind, "field");
+  assert.equal(parseQuery('group:"Ana B"').kind, "field");
+  assert.equal(parseQuery("group:ana OR version:<5").kind, "or");
+});
 
 function written(draw: Draw, depth: number): string {
   if (draw.often(0.3)) return draw.pick(LITERALS);

@@ -41,6 +41,8 @@ const META: GraphMeta = {
   weight: Float32Array.of(1, 0.5, 0.25, 0, 0.5, 0.25),
   degree: Uint32Array.of(3, 1, 2, 0, 0, 0),
   maxDegree: 3,
+  // Unix seconds a source's `updatedAt` carries; one node carries none, and reads as 0.
+  versions: Float64Array.of(1700000000, 1600000000, 1700000000, 0, 1500000000, 1800000000),
   tags: [["one", "two"], ["two"], [], ["three"], [], ["ONE"]],
   dbs: ["db-1", "db-1", "db-2", "", "db-3", "db-1"],
   paths: ["src/a.md", "src/b.md", "", "src/d.md", "", "src/f.md"],
@@ -55,10 +57,19 @@ function mask(bits: Uint8Array | null): readonly number[] {
 }
 
 test("a row is total: every column is there, empty when the graph carries nothing", () => {
-  const full: QueryRow = { id: "a", label: "Alpha hub", kind: "record", tags: ["one", "two"], db: "db-1", path: "src/a.md", degree: 3 };
+  const full: QueryRow = {
+    id: "a", label: "Alpha hub", kind: "record", tags: ["one", "two"], db: "db-1", path: "src/a.md",
+    degree: 3, group: "Core", version: 1700000000,
+  };
   assert.deepEqual(rowOf(META, 0), full);
-  assert.deepEqual(rowOf(META, 2), { id: "c", label: "Gamma tag", kind: "tag", tags: [], db: "db-2", path: "", degree: 2 });
-  assert.deepEqual(rowOf(META, 4), { id: "e", label: "Epsilon rec", kind: "record", tags: [], db: "db-3", path: "", degree: 0 });
+  assert.deepEqual(rowOf(META, 2), {
+    id: "c", label: "Gamma tag", kind: "tag", tags: [], db: "db-2", path: "",
+    degree: 2, group: "Tags", version: 1700000000,
+  });
+  assert.deepEqual(rowOf(META, 4), {
+    id: "e", label: "Epsilon rec", kind: "record", tags: [], db: "db-3", path: "",
+    degree: 0, group: UNGROUPED, version: 1500000000,
+  });
 });
 
 test("the empty query matches every node, and free text is a case-insensitive substring", () => {
@@ -86,6 +97,32 @@ test("a tag is membership, case-insensitive, with a leading `#` the user may typ
   assert.deepEqual(every(field("tag", "=", "#one")), [true, false, false, false, false, true]);
   assert.deepEqual(every(field("tag", "=", "three")), [false, false, false, true, false, false]);
   assert.deepEqual(every(field("tag", "=", "#")), ALL.map(() => false));
+});
+
+test("group is the group's own name, case-insensitive, and the ungrouped node has one too", () => {
+  assert.deepEqual(every(field("group", "", "Core")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", "", "ana")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", "=", "CORE")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", "", "Tags")), [false, false, true, false, false, false]);
+  assert.deepEqual(every(field("group", "", UNGROUPED)), [false, false, false, false, true, false]);
+  assert.deepEqual(every(field("group", "", "nothing here")), ALL.map(() => false));
+});
+
+test("version compares numbers, like degree, and a node with none reads as 0", () => {
+  assert.deepEqual(every(field("version", ">=", "1700000000")), [true, false, true, false, false, true]);
+  assert.deepEqual(every(field("version", "<", "1700000000")), [false, true, false, true, true, false]);
+  assert.deepEqual(every(field("version", ">", "1500000000")), [true, true, true, false, false, true]);
+  assert.deepEqual(every(field("version", "=", "0")), [false, false, false, true, false, false]);
+  assert.deepEqual(every(field("version", "<=", "1500000000")), [false, false, false, true, true, false]);
+  assert.deepEqual(every(field("version", ">", "1.5")), [true, true, true, false, true, true]);
+});
+
+test("group and version combine with not and and", () => {
+  const query: Query = { kind: "and", of: [
+    { kind: "not", of: field("group", "", "ana") },
+    field("version", ">", "1700000000"),
+  ] };
+  assert.deepEqual(every(query), [false, false, false, false, false, true]);
 });
 
 test("degree compares numbers: `>` `<` `>=` `<=` and `=`", () => {

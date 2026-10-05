@@ -3,13 +3,14 @@ import { test } from "node:test";
 
 import {
   type Query,
+  type QueryField,
   QueryRefusal,
   parseQuery,
   printQuery,
 } from "../src/console/parse.ts";
 
 const text = (word: string): Query => ({ kind: "text", text: word });
-const field = (name: "id" | "tag" | "kind" | "db" | "path" | "degree", op: string, value: string): Query =>
+const field = (name: QueryField, op: string, value: string): Query =>
   ({ kind: "field", field: name, op, value });
 
 test("an empty query is the whole graph", () => {
@@ -54,7 +55,20 @@ test("a tag keeps the `#`, whether or not it is written", () => {
   assert.deepEqual(parseQuery('tag:"#two words"'), field("tag", "", "#two words"));
 });
 
-test("`degree:` needs its operator, and `degree` is the only field that does", () => {
+test("`version:` is numeric, like `degree:`, and takes a fraction where a degree cannot", () => {
+  assert.deepEqual(parseQuery("version:>=1700000000"), field("version", ">=", "1700000000"));
+  assert.deepEqual(parseQuery("version:>1.5"), field("version", ">", "1.5"));
+  assert.deepEqual(parseQuery("version:=1700000000"), field("version", "=", "1700000000"));
+});
+
+test("`group:` is a name: no operator, and `=` written or implied", () => {
+  assert.deepEqual(parseQuery("group:Ana"), field("group", "", "Ana"));
+  assert.deepEqual(parseQuery("group:=Ana"), field("group", "=", "Ana"));
+  assert.deepEqual(parseQuery("GROUP:Ana"), field("group", "", "Ana"));
+  assert.deepEqual(parseQuery('group:"Ana B"'), field("group", "", "Ana B"));
+});
+
+test("`degree:` needs its operator, and `version:` does too; no name field does", () => {
   assert.deepEqual(parseQuery("degree:>3"), field("degree", ">", "3"));
   assert.deepEqual(parseQuery("degree:<3"), field("degree", "<", "3"));
   assert.deepEqual(parseQuery("degree:>=3"), field("degree", ">=", "3"));
@@ -129,6 +143,14 @@ const REFUSED: readonly (readonly [string, string, number, string])[] = [
   ["a degree with a non-integer", "degree:>x", 9, "9: `degree:` needs a whole number after `>`"],
   ["a degree with a negative", "degree:>-1", 9, "9: `degree:` needs a whole number after `>`"],
   ["a degree with an operator inside quotes", 'degree:">3"', 8, "8: `degree:` needs an operator: one of > < >= <= ="],
+  ["a version with no operator", "version:5", 9, "9: `version:` needs an operator: one of > < >= <= ="],
+  ["a version that is not a number either", "version:abc", 9, "9: `version:` needs an operator: one of > < >= <= ="],
+  ["a version with an unknown operator", "version:!=5", 9, "9: `version:` does not know the operator `!=`"],
+  ["a version with an operator inside quotes", 'version:">5"', 9, "9: `version:` needs an operator: one of > < >= <= ="],
+  ["a version with a value that is not a number", "version:>abc", 10, "10: `version:` needs a number after `>`"],
+  ["a version with a trailing point", "version:>1.", 10, "10: `version:` needs a number after `>`"],
+  ["a version with an empty value", 'version:>""', 10, "10: `version:` needs a number after `>`"],
+  ["a group given an ordering operator", "group:>Ana", 7, "7: `group:` does not know the operator `>`"],
   ["a dangling AND", "a AND", 3, "3: `AND` has nothing to join"],
   ["a dangling OR", "a OR", 3, "3: `OR` has nothing to join"],
   ["a dangling AND before a close", "a AND )", 3, "3: `AND` has nothing to join"],
@@ -175,6 +197,9 @@ const PRINTED: readonly (readonly [string, Query, string])[] = [
   ["a bare tag", field("tag", "", "x"), "tag:x"],
   ["a tag with a space", field("tag", "", "#two words"), 'tag:"#two words"'],
   ["a degree", field("degree", ">", "3"), "degree:>3"],
+  ["a version", field("version", ">=", "1700000000"), "version:>=1700000000"],
+  ["a group", field("group", "", "Ana"), "group:Ana"],
+  ["a group with a space", field("group", "", "Ana B"), 'group:"Ana B"'],
   ["a degree up to", field("degree", "<=", "2"), "degree:<=2"],
   ["a field with an empty value", field("id", "", ""), 'id:""'],
   ["an and", { kind: "and", of: [text("a"), text("b")] }, "a AND b"],
