@@ -17,14 +17,26 @@ impl Hooks {
 
     /// Pause after the workspace row lock (step 1) and before any write, so a second session can
     /// be made to deadlock against this one.
-    pub async fn pause_after_lock(&self) {}
+    ///
+    /// Armed by `<dir>/writer-after-lock.armed`; see [`armed`].
+    pub async fn pause_after_lock(&self) {
+        armed("writer-after-lock").await;
+    }
 
     /// Pause after the change header rows are written and before `COMMIT`, so a second session
     /// can prune between the header read and the operation read.
-    pub async fn pause_before_commit(&self, _seq: u64) {}
+    ///
+    /// Armed by `<dir>/writer-before-commit.armed`; see [`armed`].
+    pub async fn pause_before_commit(&self, _seq: u64) {
+        armed("writer-before-commit").await;
+    }
 
     /// Pause after the change headers are read and before their operations, for the same reason.
-    pub async fn pause_after_headers(&self, _seq: u64) {}
+    ///
+    /// Armed by `<dir>/writer-after-headers.armed`; see [`armed`].
+    pub async fn pause_after_headers(&self, _seq: u64) {
+        armed("writer-after-headers").await;
+    }
 
     /// Pause between the restore detector's flush-LSN read and its high-water snapshot.
     ///
@@ -42,6 +54,29 @@ impl Hooks {
         wait_for("detector-before-snapshot").await;
     }
 }
+
+/// Wait at `<name>`, but only when a peer armed it by writing `<dir>/<name>.armed`.
+///
+/// WHY the arming file: every seam here sits on a write path a hundred-writer case drives, and a
+/// seam that always waits makes that case pay two seconds per writer. A peer that wants the pause
+/// says so first, so an unarmed seam is a stat and a return.
+///
+/// Caveat: the arm is a file, so it is sticky within one step directory until something removes
+/// it. A case that arms a name must unarm it, or every later case in the same row waits too.
+/// `wait_for` polls the `.done` its own `.ready` announces, so the arm adds one file per seam and
+/// changes nothing about the handshake itself.
+#[cfg(feature = "test-hooks")]
+async fn armed(name: &str) {
+    let dir = std::env::var("GM_HUB_STEP_DIR").unwrap_or_else(|_| "target/hub-steps".to_string());
+    if !std::path::Path::new(&format!("{dir}/{name}.armed")).exists() {
+        return;
+    }
+    wait_for(name).await;
+}
+
+/// Wait at `<name>` with no `test-hooks` build: nothing to wait for.
+#[cfg(not(feature = "test-hooks"))]
+async fn armed(_name: &str) {}
 
 /// Announce that this run has reached `<name>` and wait for the peer's `<name>.done`.
 ///
