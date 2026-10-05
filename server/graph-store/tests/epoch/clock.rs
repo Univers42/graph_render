@@ -17,7 +17,6 @@ async fn epoch_is_microseconds() {
     );
 }
 
-
 /// separates two hubs drawing in the same millisecond.
 #[tokio::test]
 async fn epoch_run_ahead_is_microseconds() {
@@ -43,7 +42,6 @@ async fn epoch_run_ahead_is_microseconds() {
     );
     client.batch_execute("ROLLBACK").await.expect("rollback");
 }
-
 
 /// Deleting a workspace and recreating it draws an epoch strictly above the old one.
 #[tokio::test]

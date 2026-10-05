@@ -2,8 +2,6 @@
 
 use super::*;
 
-
-
 /// under test is the guard inside the trigger — the same guard whatever wrote the statement.
 #[tokio::test]
 async fn hub_write_paths_move_no_epoch() {
@@ -80,7 +78,6 @@ async fn hub_write_paths_move_no_epoch() {
         "an all-no-op batch moved the epoch"
     );
 }
-
 
 /// under the guard the clock must not move, and outside it the clock must.
 #[tokio::test]

@@ -82,6 +82,9 @@ fn stale(detector: &Detector) {
     detector.set_high_water("FFFFFFFF/FFFFFFFF");
 }
 
+#[path = "detector/map.rs"]
 mod map;
+#[path = "detector/matches.rs"]
 mod matches;
+#[path = "detector/refusals.rs"]
 mod refusals;

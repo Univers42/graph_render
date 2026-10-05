@@ -4,12 +4,14 @@
 //! Every test name is unchanged, so the rows still select them.
 #![cfg(feature = "db-tests")]
 
+#[path = "epoch/clock.rs"]
 mod clock;
+#[path = "epoch/guard.rs"]
 mod guard;
+#[path = "epoch/triggers.rs"]
 mod triggers;
 
-use tokio_postgres::Client;
-
+mod support;
 
 use graph_store::epoch::{bump_now, head_of};
 use tokio_postgres::Client;

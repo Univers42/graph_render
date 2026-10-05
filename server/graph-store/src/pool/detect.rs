@@ -7,8 +7,8 @@ use tokio_postgres::Client;
 
 use crate::breaks;
 use crate::error::StoreError;
-use crate::pool::connect::{HUB_LOCK, refuse_if_unusable};
 use crate::pool::Detector;
+use crate::pool::connect::{HUB_LOCK, refuse_if_unusable};
 
 /// Run the whole detector: refusals, then the snapshot, the reads, and the bump on a mismatch.
 pub async fn run_detector(

@@ -2,8 +2,6 @@
 
 use super::*;
 
-
-
 /// One statement per event, per trigger table, each moving the epoch; `COPY` included.
 #[tokio::test]
 async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
@@ -73,7 +71,6 @@ async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
     assert!(after > before, "a TRUNCATE moved no epoch");
 }
 
-
 /// under the replica role, and a standby's writes would then move no epoch at all.
 #[tokio::test]
 async fn replica_role_write_moves_the_epoch_for_every_event() {
@@ -119,7 +116,6 @@ async fn replica_role_write_moves_the_epoch_for_every_event() {
         );
     }
 }
-
 
 /// tables that are not workspace state.
 #[tokio::test]

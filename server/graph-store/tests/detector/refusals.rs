@@ -31,7 +31,6 @@ async fn detector_refuses_fsync_off() {
     );
 }
 
-
 /// `full_page_writes` off: refused, for the same reason.
 #[tokio::test]
 async fn detector_refuses_full_page_writes_off() {
@@ -62,7 +61,6 @@ async fn detector_refuses_full_page_writes_off() {
         "a database with full_page_writes off was accepted: {refused:?}"
     );
 }
-
 
 /// here — but a role default would suppress the epoch triggers for every write the role makes.
 #[tokio::test]

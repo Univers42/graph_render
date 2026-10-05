@@ -19,7 +19,6 @@ async fn last_seen_evicts_least_recently_used_first() {
     assert!(map.get("newest").is_some(), "the newest entry was evicted");
 }
 
-
 /// Entries only rise: a lower `(epoch, seq)` is ignored, so a stale writer cannot walk back.
 #[tokio::test]
 async fn last_seen_entries_only_rise() {

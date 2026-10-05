@@ -25,7 +25,6 @@ async fn detector_bumps_on_empty_hub_meta() {
     assert_eq!(again, DetectorOutcome::Match, "the second run bumped again");
 }
 
-
 /// so only the oid moves.
 #[tokio::test]
 async fn detector_bumps_on_a_new_database_oid() {
@@ -50,7 +49,6 @@ async fn detector_bumps_on_a_new_database_oid() {
     );
 }
 
-
 /// A database that matches is left alone.
 #[tokio::test]
 async fn detector_match_alone_bumps_nothing() {
@@ -73,7 +71,6 @@ async fn detector_match_alone_bumps_nothing() {
         .get(0);
     assert_eq!(after as u64, epoch, "a match moved the epoch");
 }
-
 
 /// reverses that order and this test is what catches it.
 #[tokio::test]
@@ -121,7 +118,6 @@ async fn detector_match_under_four_writers_bumps_nothing() {
     );
 }
 
-
 /// Two connections opening at once bump once, not twice: the mutex is taken before the snapshot.
 #[tokio::test]
 async fn two_connections_opened_at_once_bump_once() {
@@ -150,7 +146,6 @@ async fn two_connections_opened_at_once_bump_once() {
     }
     assert_eq!(bumps, 1, "two connections at once bumped {bumps} times");
 }
-
 
 /// comparison, so it is the control for this leg.
 #[tokio::test]
