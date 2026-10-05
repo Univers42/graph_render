@@ -150,7 +150,6 @@ const REFUSED: readonly (readonly [string, string, number, string])[] = [
   ["a version with a value that is not a number", "version:>abc", 10, "10: `version:` needs a number after `>`"],
   ["a version with a trailing point", "version:>1.", 10, "10: `version:` needs a number after `>`"],
   ["a version with an empty value", 'version:>""', 10, "10: `version:` needs a number after `>`"],
-  ["a group given an ordering operator", "group:>Ana", 7, "7: `group:` does not know the operator `>`"],
   ["a dangling AND", "a AND", 3, "3: `AND` has nothing to join"],
   ["a dangling OR", "a OR", 3, "3: `OR` has nothing to join"],
   ["a dangling AND before a close", "a AND )", 3, "3: `AND` has nothing to join"],

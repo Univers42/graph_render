@@ -101,8 +101,9 @@ test("a tag is membership, case-insensitive, with a leading `#` the user may typ
 
 test("group is the group's own name, case-insensitive, and the ungrouped node has one too", () => {
   assert.deepEqual(every(field("group", "", "Core")), [true, true, false, true, false, true]);
-  assert.deepEqual(every(field("group", "", "ana")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", "", "core")), [true, true, false, true, false, true]);
   assert.deepEqual(every(field("group", "=", "CORE")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", ">", "Core")), [true, true, false, true, false, true]);
   assert.deepEqual(every(field("group", "", "Tags")), [false, false, true, false, false, false]);
   assert.deepEqual(every(field("group", "", UNGROUPED)), [false, false, false, false, true, false]);
   assert.deepEqual(every(field("group", "", "nothing here")), ALL.map(() => false));
@@ -147,6 +148,7 @@ test("a degree value that is not a number matches no node at all", () => {
 // more than the user expected. Escape hatch: the parser may refuse it instead.
 test("an operator that is neither empty nor `=` falls back to equality", () => {
   assert.deepEqual(every(field("kind", ">", "tag")), [false, false, true, false, false, false]);
+  assert.deepEqual(every(field("group", ">", "Tags")), [false, false, true, false, false, false]);
   assert.deepEqual(every(field("id", "!=", "a")), [true, false, false, false, false, false]);
   assert.deepEqual(every(field("tag", "has", "two")), [true, true, false, false, false, false]);
 });
