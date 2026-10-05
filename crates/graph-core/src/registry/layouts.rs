@@ -3,22 +3,21 @@
 //! layout by INDEX, so an insertion repoints every index-keyed consumer with no compile
 //! error. The comments inside the array carry that reason per block.
 
+mod graphviz_dot;
 use super::capability::Capability;
-use super::params;
-use super::run_default;
 use super::{
     arms_3d, closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo,
     graphviz_fdp, graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid,
     hierarchy, igraph, radial, spectral, three_d,
 };
+use super::{params, run_default};
 use crate::layout::basic_3d;
-use crate::layout::force::spring::Spring;
-use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
+use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring, Spring3D};
 use crate::layout::force::{
     BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
-use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
+use crate::layout::graphviz::{circo, dot, fdp, neato, osage, patchwork, sfdp};
 use crate::layout::grid::Grid;
 use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
@@ -32,6 +31,7 @@ use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 use forceatlas2_bh::FA2_BH;
 use graphviz_circo::CIRCO;
+use graphviz_dot::DOT;
 use graphviz_fdp::FDP;
 use graphviz_neato::NEATO;
 use graphviz_osage::OSAGE;
@@ -46,7 +46,7 @@ use three_d::{
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 49] = [
+pub static LAYOUTS: [Capability; 50] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -297,4 +297,12 @@ pub static LAYOUTS: [Capability; 49] = [
     // merge-yifan-hu-octree: the 3D arm of yifan_hu, appended at the END so every existing
     // index — and every 2D byte and force-session digest behind it — keeps its position.
     arms_3d::YIFAN_HU_3D_LAYOUT,
+    // ---- p13-gv3-dot-position: Graphviz's own layered engine, the last Graphviz family to be
+    // registered, appended after the 3D arms by the append-only rule the header records.
+    Capability {
+        id: dot::ID,
+        run: dot::run,
+        params: &params::LayoutParams::NONE,
+        meta: DOT,
+    },
 ];
