@@ -78,7 +78,11 @@ impl Remote {
 
     async fn send(&self, request: Request<Full<Bytes>>) -> Result<Reply, String> {
         let exchange = async {
-            let response = self.client.request(request).await.map_err(|e| e.to_string())?;
+            let response = self
+                .client
+                .request(request)
+                .await
+                .map_err(|e| e.to_string())?;
             let (parts, body) = response.into_parts();
             let body = body.collect().await.map_err(|e| e.to_string())?.to_bytes();
             Ok(Reply {
@@ -96,7 +100,12 @@ impl Remote {
 impl Reply {
     /// The `seq` of a batch's 200 answer.
     pub fn seq(&self) -> u64 {
-        assert_eq!(self.status, StatusCode::OK, "a batch answer: {}", self.body());
+        assert_eq!(
+            self.status,
+            StatusCode::OK,
+            "a batch answer: {}",
+            self.body()
+        );
         let body: serde_json::Value = serde_json::from_slice(&self.body).expect("a JSON body");
         body["seq"].as_u64().expect("a numeric seq")
     }
