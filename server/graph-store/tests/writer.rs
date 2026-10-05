@@ -102,15 +102,7 @@ pub async fn store(url: &str) -> Store {
     store_on(url, StoreConfig::defaults()).await
 }
 
-/// A manifest read for `plugin`, through graph-contract's own reader.
-///
-/// WHY read the text rather than build the struct: a `Manifest` has no public constructor that
-/// skips the qualification pass, and a case that built one by hand would store link targets the
-/// reader never qualified — which is exactly the mistake the store must not be able to make.
-pub fn manifest_of(text: &str, plugin: &str) -> graph_contract::hub::Manifest {
-    graph_contract::hub::read_manifest(text, plugin)
-        .unwrap_or_else(|e| panic!("the manifest reads: {e}"))
-}
+pub use support::fixture::{LIMITS, batch_of, manifest_of};
 
 /// A manifest write for `plugin` at [`MANIFEST`].
 pub fn manifest_write(ws: &str, plugin: &str) -> ManifestWrite {
@@ -130,34 +122,6 @@ pub fn manifest_write_text(ws: &str, plugin: &str, text: &str) -> ManifestWrite 
         manifest: manifest_of(text, plugin),
         limits: LIMITS,
     }
-}
-
-/// The `Limits` every case reads a batch under.
-pub const LIMITS: graph_contract::hub::Limits = graph_contract::hub::Limits::DEFAULT;
-
-/// One batch: `upserts` as `(collection, id, updatedAt, cells)` and `deletes` as
-/// `(collection, id)`, read through graph-contract's own reader so no case spells a body twice.
-pub fn batch_of(
-    upserts: &[(&str, &str, u32, &str)],
-    deletes: &[(&str, &str)],
-) -> graph_contract::hub::batch::Batch {
-    let ups = upserts
-        .iter()
-        .map(|(c, id, at, cells)| {
-            format!(r#"{{"collection":"{c}","id":"{id}","updatedAt":{at},"values":{{{cells}}}}}"#)
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let dels = deletes
-        .iter()
-        .map(|(c, id)| format!(r#"{{"collection":"{c}","id":"{id}"}}"#))
-        .collect::<Vec<_>>()
-        .join(",");
-    graph_contract::hub::batch::read_batch(
-        &format!(r#"{{"upserts":[{ups}],"deletes":[{dels}]}}"#),
-        &LIMITS,
-    )
-    .expect("the batch reads")
 }
 
 /// A batch write for `plugin`, with no key and no `If-Match`.
