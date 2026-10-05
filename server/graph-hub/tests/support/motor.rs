@@ -257,19 +257,85 @@ impl StubReply {
 /// `NotFound`. The request body is drained rather than parsed, so a peer's streamed upload is
 /// read to its end and cannot deadlock the stub.
 pub async fn stub(answers: Vec<StubReply>) -> Motor {
-    let script = Arc::new(Mutex::new(Script::new(answers)));
+    stub_parts(answers, Duration::ZERO).await.0
+}
+
+/// [`stub`] and the key a hub under test presents to it, for the fixtures whose hub needs both.
+pub async fn stub_with_key(answers: Vec<StubReply>) -> (Motor, String) {
+    let (motor, _, key) = stub_parts(answers, Duration::ZERO).await;
+    (motor, key)
+}
+
+/// [`stub`] plus the number of requests it served, for the cases whose subject is a **count** rather
+/// than a status: `a_layout_is_never_retried` needs "exactly one request", which no status code can
+/// say.
+///
+/// Caveat: the counter is incremented after the body is drained and before the answer is written, so
+/// it counts requests that reached the stub and not requests whose answer was read. That is the
+/// right direction for "the hub did not retry": a second request would be counted even if the hub
+/// had given up on reading the first answer.
+pub async fn stub_counting(answers: Vec<StubReply>) -> (Motor, Arc<AtomicU64>) {
+    let (motor, served, _) = stub_parts(answers, Duration::ZERO).await;
+    (motor, served)
+}
+
+/// [`stub`] that holds each answer for `hold` after the request body is drained, so a test can look
+/// at the hub while the motor still has the request and has not answered.
+///
+/// This is the fixture seam `the_snapshot_closes_before_the_motor_answer_is_awaited` needs: the real
+/// motor's own `before_run` hook is behind graph-server's `test-hooks` feature, and the hub's
+/// dev-dependency on graph-server does not forward it (Decision 1 of the plan). A delay here is
+/// observable from the outside and needs no feature on either crate.
+///
+/// Caveat: a wall-clock sleep on the stub's own task, so it holds the connection rather than the
+/// accept loop and a second request is still served; it is a fixture delay and never a bound the hub
+/// reads.
+pub async fn stub_after(answers: Vec<StubReply>, hold: Duration) -> (Motor, String) {
+    let (motor, _, key) = stub_parts(answers, hold).await;
+    (motor, key)
+}
+
+/// The stub itself, plus its served counter and the key a hub under test presents to it.
+///
+/// [`stub`], [`stub_counting`] and [`stub_after`] are this one function with three shapes taken off
+/// it, so a fixture that needs the counter and a hold has one way to ask for both.
+pub async fn stub_parts(
+    answers: Vec<StubReply>,
+    hold: Duration,
+) -> (Motor, Arc<AtomicU64>, String) {
+    let served = Arc::new(AtomicU64::new(0));
+    let script = Arc::new(Mutex::new(Script::new(answers, Arc::clone(&served))));
     let router = Router::new()
         .route("/v1/layout", post(scripted))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
-        .with_state(script);
-    serve(router, |status| status == StatusCode::NOT_FOUND).await
+        .with_state(Served {
+            script,
+            hold,
+        });
+    let motor = serve(router, |status| status == StatusCode::NOT_FOUND).await;
+    (motor, served, String::from(STUB_KEY))
 }
 
-/// The next scripted answer, once the request body has been drained.
-async fn scripted(State(script): State<Arc<Mutex<Script>>>, body: Body) -> Response {
+/// The key a stub fixture's hub presents. The stub checks no credential, so this exists only so a
+/// fixture has the shape the relay's own reader insists on: one non-empty line of at most 256 bytes
+/// and no NUL.
+pub const STUB_KEY: &str = "a-key-the-stub-does-not-check";
+
+/// The stub's state: the script, and how long each answer is held after the body is drained.
+#[derive(Clone)]
+struct Served {
+    script: Arc<Mutex<Script>>,
+    hold: Duration,
+}
+
+/// The next scripted answer, once the request body has been drained and the hold has passed.
+async fn scripted(State(served): State<Served>, body: Body) -> Response {
     discard(body).await;
-    let reply = script.lock().expect("the stub's script lock").take();
+    if !served.hold.is_zero() {
+        tokio::time::sleep(served.hold).await;
+    }
+    let reply = served.script.lock().expect("the stub's script lock").take();
     reply.into_reply()
 }
 
@@ -285,16 +351,19 @@ async fn discard(body: Body) {
     while let Some(Ok(_frame)) = body.frame().await {}
 }
 
-/// The answers and how many requests the stub has served.
+/// The answers, in order, and how many of them have been handed out.
 struct Script {
     answers: Vec<StubReply>,
-    served: usize,
+    taken: usize,
+    /// The shared counter [`stub_counting`] hands back, so the count a test reads is the count the
+    /// requests incremented rather than a second number this struct keeps in step.
+    served: Arc<AtomicU64>,
 }
 
 impl Script {
     /// A script over `answers`, or over one JSON 404 when the list is empty, so an empty script
     /// is a stub that refuses everything rather than a stub that panics.
-    fn new(answers: Vec<StubReply>) -> Self {
+    fn new(answers: Vec<StubReply>, served: Arc<AtomicU64>) -> Self {
         let answers = if answers.is_empty() {
             vec![StubReply::new(
                 404,
@@ -304,15 +373,20 @@ impl Script {
         } else {
             answers
         };
-        Self { answers, served: 0 }
+        Self {
+            answers,
+            taken: 0,
+            served: Arc::clone(&served),
+        }
     }
 
     /// The next answer: the script in order, then its last entry for every request past the end.
     /// Caveat: a script shorter than the requests a test makes is read as the motor repeating its
     /// last answer, not as a fault, so a test that wants exactly one answer sends one request.
     fn take(&mut self) -> StubReply {
-        let index = self.served.min(self.answers.len() - 1);
-        self.served += 1;
+        let index = self.taken.min(self.answers.len() - 1);
+        self.taken += 1;
+        self.served.fetch_add(1, Ordering::Relaxed);
         self.answers[index].clone()
     }
 }

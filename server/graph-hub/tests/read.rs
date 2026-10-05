@@ -204,7 +204,7 @@ async fn changes_returns_410_for_a_cursor_from_another_epoch() {
 async fn changes_returns_410_for_a_cursor_below_what_is_kept() {
     let hub = hub_db(&[]).await;
     loaded(&hub, "pruned", "task", 3).await;
-    db::drop_changes(&hub, "pruned").await;
+    db::drop_changes(&hub.app, "pruned").await;
     let reply = hub
         .get_with("/v1/workspaces/pruned/changes?since=0.1")
         .await;

@@ -151,9 +151,10 @@ async fn send(
     request: &RelayReq,
     body: Body,
 ) -> Result<hyper::Response<hyper::body::Incoming>, MotorFault> {
+    let url = motor_uri(app, request);
     let sent = hyper::Request::builder()
         .method("POST")
-        .uri(motor_uri(app, request))
+        .uri(&url)
         .header(header::CONTENT_TYPE, "application/json")
         .header(header::AUTHORIZATION, bearer(app)?)
         .body(body);
@@ -164,6 +165,10 @@ async fn send(
     let answered = tokio::time::timeout(app.settings.motor_timeout, client.request(sent)).await;
     match answered {
         Ok(Ok(response)) => Ok(response),
+        Ok(Err(error)) => {
+            eprintln!("graph-hub: motor transport {url}: {error:?}");
+            Err(MotorFault::Unavailable)
+        }
         // A refused connection, a reset mid-upload and the timeout itself are one answer here:
         // §5.2's last row is "unreachable, or no answer in GRAPH_HUB_MOTOR_TIMEOUT_MS", and the
         // hub cannot tell those apart without a fact it does not have.
