@@ -169,3 +169,86 @@ async fn a_row_below_its_map_entry_is_a_mismatch() {
         "the run after a bump bumped again"
     );
 }
+
+/// The high-water must be snapshotted BEFORE the flush-LSN read, and `hw-after-lsn` reverses that.
+///
+/// The test asserts the CORRECT behaviour only — a healthy database matches and its epoch holds.
+/// It has no idea a break exists; `hw-after-lsn` reverses the order inside the library, the run
+/// then reads as a restore, and these assertions fail. That is what makes the row a control rather
+/// than a mirror.
+///
+/// A writer waits briefly for the seam to announce the gap and commits into it when it appears.
+/// Without the break there is no gap and no seam, so it waits its short bound and exits; that wait
+/// is the whole cost of this test when green.
+#[tokio::test]
+async fn detector_high_water_snapshotted_before_the_lsn_read() {
+    let _cluster = CLUSTER.lock().await;
+    let (mut client, _, url) = db("detector_high_water_snapshotted_before_the_lsn_read").await;
+    seed_ws(&mut client, "ws").await;
+    let detector = std::sync::Arc::new(Detector::new(64));
+    let epoch = primed(&detector, &mut client, "ws").await;
+
+    for stale in [
+        "detector-before-snapshot.ready",
+        "detector-before-snapshot.done",
+    ] {
+        let _ = std::fs::remove_file(stale_step(stale));
+    }
+    let writer_detector = std::sync::Arc::clone(&detector);
+    let writer = tokio::spawn(async move {
+        if !wait_briefly_for("detector-before-snapshot.ready").await {
+            return;
+        }
+        let mut w = support::db::more(&url).await;
+        w.execute(
+            "INSERT INTO links (ws, src_qcoll, src_id, field, target_qcoll, target_id) \
+             VALUES ('ws','p.c','in-the-gap','f','p.c','t')",
+            &[],
+        )
+        .await
+        .expect("commit inside the gap");
+        // Above any LSN the held run could have read, so its comparison must read as a restore.
+        writer_detector.set_high_water("FFFFFFFF/FFFFFFFF");
+        release("detector-before-snapshot.done");
+    });
+
+    let outcome = run(&detector, &mut client).await.expect("run");
+    writer.await.expect("writer");
+    assert_eq!(
+        outcome,
+        DetectorOutcome::Match,
+        "a healthy database was read as a restore"
+    );
+    let after: i64 = client
+        .query_one("SELECT epoch FROM workspaces WHERE id = 'ws'", &[])
+        .await
+        .expect("read the epoch")
+        .get(0);
+    assert_eq!(after as u64, epoch, "the epoch moved with the order intact");
+}
+
+/// The path of one handshake file.
+fn stale_step(name: &str) -> String {
+    let dir = std::env::var("GM_HUB_STEP_DIR").unwrap_or_else(|_| "target/hub-steps".to_string());
+    format!("{dir}/{name}")
+}
+
+/// Wait a few seconds for `target/hub-steps/<name>.ready`; `false` when it never came.
+async fn wait_briefly_for(name: &str) -> bool {
+    let dir = std::env::var("GM_HUB_STEP_DIR").unwrap_or_else(|_| "target/hub-steps".to_string());
+    let path = format!("{dir}/{name}");
+    for _ in 0..20 {
+        if std::path::Path::new(&path).exists() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    false
+}
+
+/// Create `target/hub-steps/<name>`, which is how a peer is told to stop waiting.
+fn release(name: &str) {
+    let dir = std::env::var("GM_HUB_STEP_DIR").unwrap_or_else(|_| "target/hub-steps".to_string());
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(format!("{dir}/{name}"), b"");
+}

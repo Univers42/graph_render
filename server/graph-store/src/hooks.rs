@@ -25,6 +25,48 @@ impl Hooks {
 
     /// Pause after the change headers are read and before their operations, for the same reason.
     pub async fn pause_after_headers(&self, _seq: u64) {}
+
+    /// Pause between the restore detector's flush-LSN read and its high-water snapshot.
+    ///
+    /// This is the seam S2 needs. With the snapshot taken FIRST (the correct order) a commit that
+    /// lands after the snapshot cannot make the run look like a restore, because the high-water the
+    /// run compares against predates the write. `hw-after-lsn` reverses the order, and the only
+    /// way to make that reversal observable without a race is to hold the run open in the gap and
+    /// let a writer commit into it.
+    ///
+    /// Caveat: the pause is bounded by [`crate::hooks::await_done`]-style polling, so a test that
+    /// signals nothing makes this wait out its bound and continue — the run then succeeds and the
+    /// control looks green for the wrong reason. Every caller signals within the bound.
+    pub async fn pause_before_snapshot(&self) {
+        #[cfg(feature = "test-hooks")]
+        wait_for("detector-before-snapshot").await;
+    }
+}
+
+/// Announce that this run has reached `<name>` and wait for the peer's `<name>.done`.
+///
+/// The two halves are what make the seam usable: the peer cannot commit into a gap it does not know
+/// has opened, and the run cannot proceed until the commit it is waiting for has happened.
+///
+/// Caveat: 20 polls of 100 ms is TWO seconds, and it is deliberately short. The seam sits on the
+/// restore detector's per-connection path, so under a break EVERY connection pays this wait — at the
+/// library's 600-poll bound a detector suite took eight minutes. Two seconds is far longer than the
+/// peer needs (a peer only has to notice a file that already exists) and it keeps the suite fast. A
+/// peer that never signals makes this wait out its bound and continue, so a forgotten signal reads
+/// as a slow case rather than a failed one — which is why the one test that drives this seam
+/// announces itself and asserts the outcome, rather than trusting the seam to block.
+#[cfg(feature = "test-hooks")]
+async fn wait_for(name: &str) {
+    let dir = std::env::var("GM_HUB_STEP_DIR").unwrap_or_else(|_| "target/hub-steps".to_string());
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(format!("{dir}/{name}.ready"), b"");
+    let done = format!("{dir}/{name}.done");
+    for _ in 0..20 {
+        if std::path::Path::new(&done).exists() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
 }
 
 /// Wait for another session to write `<dir>/<name>.done`.

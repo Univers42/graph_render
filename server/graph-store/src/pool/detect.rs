@@ -60,6 +60,9 @@ async fn snapshot_for_run(
 ) {
     if breaks::on("hw-after-lsn") {
         let _ = flush_lsn(client).await;
+        // The seam: hold the run open in the gap the break opens, so a writer can commit into it.
+        // Without it the reversed order is a race, and a race cannot be a negative control.
+        crate::hooks::Hooks::new().pause_before_snapshot().await;
     }
     detector.snapshot()
 }
