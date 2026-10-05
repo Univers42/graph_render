@@ -57,7 +57,7 @@ cleanup() {
   docker rm -f "$(motor_name)" >/dev/null 2>&1
   return 0
 }
-trap cleanup EXIT
+trap - EXIT
 
 # target/hub-mem/upload.txt, written on every path that gets as far as having numbers, so a failed
 # run is readable rather than only its exit code.
