@@ -115,7 +115,9 @@ impl fmt::Display for StoreError {
             StoreError::Hub(e) => write!(f, "{e}"),
             StoreError::Db(e) => write!(f, "{e}"),
             StoreError::NoDatabase => write!(f, "no database"),
-            StoreError::Serialization { retried } => write!(f, "serialization failure, retried: {retried}"),
+            StoreError::Serialization { retried } => {
+                write!(f, "serialization failure, retried: {retried}")
+            }
             StoreError::Busy { retry_after } => write!(f, "busy, retry after {retry_after}s"),
             StoreError::Gone => write!(f, "cursor is gone"),
             StoreError::Eof => write!(f, "end of document"),

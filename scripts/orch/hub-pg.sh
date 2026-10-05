@@ -75,6 +75,11 @@ start() {
     -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='hub') THEN \
       CREATE ROLE hub LOGIN PASSWORD 'hub' CREATEDB; ELSE ALTER ROLE hub PASSWORD 'hub'; END IF; END \$\$;" \
     >/dev/null || return 1
+  # PostgreSQL 15 and later grant CREATE on schema `public` to `pg_database_owner`, not to
+  # PUBLIC, so the store's own role cannot create its tables in a database it does not own.
+  "$drun" --rm --network "container:$name" "$image" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d hub \
+    -c "GRANT ALL ON SCHEMA public TO hub;" >/dev/null || return 1
+  # `detector_refuses_a_hub_writer_default` sets that GUC as a role default, which needs this.
   "$drun" --rm --network "container:$name" "$image" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d hub \
     -c "GRANT SET ON PARAMETER hub.writer TO hub;" >/dev/null || return 1
   url || return 1

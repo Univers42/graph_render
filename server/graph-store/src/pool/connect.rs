@@ -30,9 +30,7 @@ pub async fn open(url: &str, detector: &Detector) -> Result<Client, StoreError> 
 
 /// The three refusals, in §5.3's order. Read outside a transaction.
 async fn refuse_if_unusable(client: &mut Client) -> Result<(), StoreError> {
-    let row = client
-        .query_one("SELECT pg_is_in_recovery()", &[])
-        .await?;
+    let row = client.query_one("SELECT pg_is_in_recovery()", &[]).await?;
     if row.get::<_, bool>(0) {
         return Err(StoreError::NoDatabase);
     }
@@ -133,7 +131,10 @@ async fn compare_in_txn(
         )
         .await?;
     let meta = client
-        .query_opt("SELECT system_identifier, timeline, datoid FROM hub_meta WHERE one", &[])
+        .query_opt(
+            "SELECT system_identifier, timeline, datoid FROM hub_meta WHERE one",
+            &[],
+        )
         .await?;
     let flush = flush_lsn(client).await?;
     // §5.3 step 2: the LSN read is compared against the *snapshotted* high-water, bound as a
@@ -206,14 +207,20 @@ async fn read_workspaces(
     for row in &rows {
         // `bigint` is `i64` on the wire; the store's own bound is `2^53 - 1`, so the conversion
         // is total and a value above that bound is a schema violation, not a number to carry.
-        out.push((row.get(0), row.get::<_, i64>(1) as u64, row.get::<_, i64>(2) as u64));
+        out.push((
+            row.get(0),
+            row.get::<_, i64>(1) as u64,
+            row.get::<_, i64>(2) as u64,
+        ));
     }
     Ok(out)
 }
 
 /// How many workspaces a bump would touch.
 async fn count_workspaces(client: &mut Client) -> Result<u64, StoreError> {
-    let row = client.query_one("SELECT count(*) FROM workspaces", &[]).await?;
+    let row = client
+        .query_one("SELECT count(*) FROM workspaces", &[])
+        .await?;
     Ok(row.get::<_, i64>(0).max(0) as u64)
 }
 
@@ -223,7 +230,9 @@ async fn bump(client: &mut Client, _workspaces: u64) -> Result<(), StoreError> {
     client
         .execute("SELECT set_config('hub.writer','1',true)", &[])
         .await?;
-    client.batch_execute("UPDATE workspaces SET epoch = hub_next_epoch()").await?;
+    client
+        .batch_execute("UPDATE workspaces SET epoch = hub_next_epoch()")
+        .await?;
     client
         .execute(
             "INSERT INTO hub_meta (one, system_identifier, timeline, datoid) \

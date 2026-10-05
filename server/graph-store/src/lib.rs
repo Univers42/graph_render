@@ -12,8 +12,8 @@
 
 pub mod breaks;
 pub mod config;
-pub mod error;
 pub mod epoch;
+pub mod error;
 pub mod hooks;
 pub mod migrate;
 pub mod pool;

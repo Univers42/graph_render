@@ -64,7 +64,10 @@ pub async fn apply(client: &mut Client) -> Result<u32, StoreError> {
 async fn apply_one(client: &mut Client, name: &str, body: &str) -> Result<bool, StoreError> {
     let hash = sha256_hex(body.as_bytes());
     let recorded = client
-        .query_opt("SELECT sha256 FROM hub_migrations WHERE name = $1", &[&name])
+        .query_opt(
+            "SELECT sha256 FROM hub_migrations WHERE name = $1",
+            &[&name],
+        )
         .await?;
     if let Some(row) = recorded {
         let have: String = row.get(0);

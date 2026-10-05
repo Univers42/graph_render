@@ -73,7 +73,12 @@ impl Detector {
     ///
     /// §5.3 step 2 requires both to be read *before* the LSN and the workspace rows, so that a
     /// write landing between the two reads cannot be mistaken for a restore.
-    pub fn snapshot(&self) -> (Option<String>, std::collections::BTreeMap<String, (u64, u64)>) {
+    pub fn snapshot(
+        &self,
+    ) -> (
+        Option<String>,
+        std::collections::BTreeMap<String, (u64, u64)>,
+    ) {
         let high = self.high_water();
         let seen = match self.seen.lock() {
             Ok(mut guard) => guard.snapshot(),
