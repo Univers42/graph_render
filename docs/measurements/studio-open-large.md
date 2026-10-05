@@ -55,6 +55,10 @@ noise of a single round on its own: it is the median of five, the interleaved pa
 (1593 → 1548 and 1532 → 1453), and the profile rows below say where it comes from. The switch did
 not move: the second document normalises in about 3 ms either way.
 
+The probe as shipped differs from the one that produced the table above only in comments and
+docstrings (it went over the house's 300-line limit and was trimmed); two further webgl2 rounds on
+the shipped probe, after the trim, gave 1533 ms and 1581 ms — inside this arm's spread.
+
 ## Where the open goes — the three largest costs
 
 From `scripts/studio-probe.sh open-document` on develop's build, worker profile,

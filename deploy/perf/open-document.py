@@ -5,11 +5,11 @@ the page and of every motor worker (a probe, not a gate).
         target/git-plugin/contributor-stats/contributor-stats.studio.json
 
 Build first (scripts/studio.sh build). Each path is read from the repository root (the container
-mounts it at /w, which is the working directory). The page fetches it from a second server this
-probe starts on 127.0.0.1 and hands it to the studio as one `source.document` dispatch with the
-params `name` and `text` — the params the file control sends, so the measured open is the one a
-dropped file goes through. `layout.dag.sugiyama` is selected first, on the graph the studio opened
-with, and each document is then laid out once by the layout that was asked for.
+mounts it at /w, the working directory). The page fetches it from a second server this probe starts
+on 127.0.0.1 and hands it to the studio as one `source.document` dispatch with the params `name` and
+`text` — the params the file control sends, so the measured open is the one a dropped file goes
+through. `layout.dag.sugiyama` is selected first, on the graph the studio opened with, and each
+document is then laid out once by the layout that was asked for.
 
 It prints, for each document: the dispatch's own milliseconds, the milliseconds to the first
 animation frame after it, `performance.memory.usedJSHeapSize` on the page and in the worker that
@@ -22,21 +22,21 @@ WHY the dispatch is not awaited: a new source starts in a NEW worker (graph-stud
 `motor/client.ts`, `loadFresh`), and this client reads CDP frames only inside `call`, so an awaited
 dispatch would leave the worker that does the work unattached and unsampled — exactly the caveat
 `deploy/perf/open.py` records. The dispatch is started and left running; each poll below is a CDP
-round trip that drains the events, which attaches the profiler to the new worker within a
-millisecond or two of its start and then reports on it.
+round trip that drains the events, attaching the profiler to the new worker a millisecond or two
+after it starts.
 
 Caveat: the open's own milliseconds are `performance.now()` around the dispatch, so they carry the
 document's fetch, its structured clone to the worker, the wasm module start of a worker that begins
-with it, and the profiler's own few percent; nothing here separates those. The wall clock beside
-them is this probe's own polling — a check on that number, not a second measurement. Caveat: a 0.5 ms
+with it, and the profiler's own few percent; nothing here separates those. The wall clock beside them
+is this probe's own polling — a check on that number, not a second measurement. Caveat: a 0.5 ms
 sampling profiler: self times under a few samples are noise, wasm names are mangled Rust symbols, the
 page's JavaScript is minified (find a row in app/dist/assets/<chunk>.js), and a worker is sampled
 from a millisecond or two after it starts. Caveat: the heap is the page's `performance.memory`, which
 Chromium rounds, never collects to zero and does not have in a worker, so it says nothing of the wasm
-heap: the resident memory printed beside it is the only figure here that sees that heap, and it is the
-whole browser, processes this probe does not name. Caveat: the cross-origin fetch of the document is
-one request a dropped file does not pay, and one run is one run — take medians over rounds and
-compare only arms of this probe on the same host.
+heap: the resident memory beside it is the only figure here that sees that heap, and it is the whole
+browser, processes this probe does not name. Caveat: the cross-origin fetch of the document is one
+request a dropped file does not pay, and one run is one run — take medians over rounds and compare
+only arms of this probe on the same host.
 """
 import functools
 import json
@@ -62,9 +62,9 @@ LAYOUT = "layout.dag.sugiyama"
 POLLS = 4000
 
 # The studio's own action, with the file control's own params. The shared driver
-# (deploy/perf/drivers/hook.js) has no document opener, so the dispatch the dock's file control
-# makes is spelled out here rather than added to a file both probes share. `__gmOpen` is the
-# promise the poll below watches; `__gmSettled` is what it leaves behind.
+# (deploy/perf/drivers/hook.js) has no document opener, so the dispatch the dock's file control makes
+# is spelled out here rather than added to a file both probes share. `__gmOpen` is the promise the
+# poll below watches; `__gmSettled` is what it leaves behind, including on a refusal or a throw.
 OPEN_DOCUMENT = """(async (name, url) => {
   window.__gmSettled = null;
   const started = performance.now();
@@ -78,7 +78,6 @@ OPEN_DOCUMENT = """(async (name, url) => {
     ? entry.message : `REFUSED ${entry.command}: ${entry.message}` };
   window.__gmSettled = done;
 })"""
-# A refused or thrown open still has to leave `__gmSettled` behind: nothing else watches the page.
 CAUGHT = """(error) => {
   window.__gmSettled = { error: String(error?.message ?? error) };
 }"""
@@ -93,9 +92,10 @@ class Documents(SimpleHTTPRequestHandler):
     """The listed documents and nothing else, cross-origin: the studio is served by another port.
 
     `deploy/serve.py`'s handler carries the app's cross-origin isolation, which a document on a
-    second origin does not need; what it needs instead is CORS (the page is another origin) and a
-    permissive CORP (the page is `Cross-Origin-Embedder-Policy: require-corp`).
+    second origin does not need; it needs CORS and a permissive CORP instead, the page being
+    another origin and `Cross-Origin-Embedder-Policy: require-corp`.
     """
+
     def __init__(self, *args, allowed, **kwargs):
         self.allowed = allowed
         super().__init__(*args, **kwargs)
@@ -124,10 +124,8 @@ def documents(paths):
 
 
 def harvest(page, done):
-    """The worker sessions attached since the last call, profiled, minus the ones that went away.
-
-    A source change closes the worker it replaced (`loadFresh` retires it), so a session that has
-    detached between two polls is reported and not profiled.
+    """The worker sessions attached since the last call, profiled, minus the ones that went away:
+    a source change closes the worker it replaced (`loadFresh` retires it).
     """
     fresh: list[str] = []
     for event in page.events:
@@ -155,7 +153,7 @@ def stop_profiles(page, sessions, rows):
         try:
             profile = page.session_call(session, "Profiler.stop", timeout=120)["profile"]
         except cdp.CdpError as error:
-            # A worker the open retired answers nothing: the session detached, and that is the
+            # A worker the open retired answers nothing: the session detached, which is the
             # expected end of the worker that held the previous document, not a failure.
             if "not found" not in str(error) and not isinstance(error, smokecdp.Detached):
                 raise
@@ -215,8 +213,7 @@ def rss_mb():
 
 def open_one(page, done, name, url, rows):
     """One open, measured and profiled: the dispatch's ms, the first frame, the heap, the rows.
-
-    Returns the studio's own message, or null where the open threw and `name` is at fault.
+    The studio's own message, or null where the open threw and `name` is at fault.
     """
     page.evaluate(WATCH_FRAMES)
     start(page)
@@ -269,7 +266,7 @@ def run(page, served, pairs, rows):
     gpu.check(page)
     page.evaluate(open("deploy/perf/drivers/hook.js").read())
     # The layout first, on the small graph the studio opened with, so each document is laid out
-    # once, by the layout that was asked for (the shared driver's own `open` does the same).
+    # once, by the layout asked for (as the shared driver's own `open` does).
     page.evaluate(f"window.__perf.run({json.dumps(LAYOUT)})", timeout=300)
     done = set()
     opened = [open_one(page, done, name, url, rows) for name, url in pairs]
