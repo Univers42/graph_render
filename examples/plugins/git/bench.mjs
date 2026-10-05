@@ -2,6 +2,9 @@
 // bench.mjs <wasm> <log>...: the plugin's in-process steps, timed, 3 rounds, medians. Per log:
 // parse, map + rowsToIngest, stringify, the wasm motor's contract build (the same derivation
 // as graph-cli ingest), then `layout.dag.sugiyama` and `layout.dag.lanes` (when registered) with their note counts.
+// For `layout.dag.lanes` it also prints `layout.dag.lanes.width=<k>`, the number of distinct node
+// `x` values — the lane count, read off `geometry.nodes.x`, the flat f32 column of the JSON face's
+// Point node geometry (`geometry.nodes.kind` is "Point"; `nodes.id` is the parallel id column).
 // Caveat: wall clock on a shared host; a median under load is an upper bound. Container
 // start-up (node-slim, gr) is outside every number here and is reported apart.
 import { readFile } from "node:fs/promises";
@@ -61,7 +64,15 @@ function layoutOnce(handle, id, push, state) {
     return `${id}=REFUSED`;
   }
   push(id, ms);
+  const json = JSON.parse(motor.toJSON(run.handle));
   const codes = {};
-  for (const code of JSON.parse(motor.toJSON(run.handle)).notes?.code ?? []) codes[code] = (codes[code] ?? 0) + 1;
-  return `${id}.notes=${JSON.stringify(codes)}`;
+  for (const code of json.notes?.code ?? []) codes[code] = (codes[code] ?? 0) + 1;
+  const width = id === "layout.dag.lanes" ? ` layout.dag.lanes.width=${laneWidth(json)}` : "";
+  return `${id}.notes=${JSON.stringify(codes)}${width}`;
+}
+
+// The lanes width: the number of distinct node `x` values, read off the JSON face's Point node
+// column `geometry.nodes.x`. Node y is not read — a lane is a column, a row is a rank.
+function laneWidth(json) {
+  return new Set(json.geometry.nodes.x).size;
 }
