@@ -22,6 +22,7 @@ gm_image_recipe() {
     ge-audit) echo "docker/audit.Dockerfile ge-rust" ;;
     ge-wasm-threads) echo "docker/wasm-threads.Dockerfile ge-rust" ;;
     gm-chromium) echo "deploy/chromium.Dockerfile -" ;;
+    gm-media) echo "deploy/media.Dockerfile -" ;;
   esac
 }
 

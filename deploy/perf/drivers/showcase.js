@@ -45,15 +45,51 @@
       }
     },
     // Hide the panels over the canvas (search, dock, legend, status) for a full-frame shot.
-    chrome: (on) => {
-      const shadow = document.querySelector("graph-studio").shadowRoot;
-      let style = shadow.getElementById("show-chrome");
+    // `display: none`, not `visibility`: the fit's safe area is measured from those panels,
+    // so only a removed panel gives the graph the whole frame back.
+    chrome: async (on) => {
+      const element = document.querySelector("graph-studio");
+      let style = element.shadowRoot.getElementById("show-chrome");
       if (style === null) {
         style = document.createElement("style");
         style.id = "show-chrome";
-        shadow.appendChild(style);
+        element.shadowRoot.appendChild(style);
       }
-      style.textContent = on ? "" : ".gs-root { visibility: hidden !important; }";
+      style.textContent = on ? "" : ".gs-root { display: none !important; }";
+      await frame();
+      await frame();
+      await (await settled()).dispatch("view.fit", {});
+    },
+    // Turn a 3D drawing about its vertical axis by `turns` over `ms`, eased, one step per frame.
+    orbit: async ({ turns = 1, tilt = 0, ms = 6000 }) => {
+      const view = document.querySelector("graph-studio").view;
+      const start = performance.now();
+      const from = view.orbit();
+      if (from === null) throw new Error("showcase driver: orbit on a 2D drawing");
+      let done = 0;
+      while (done < 1) {
+        await frame();
+        done = Math.min(1, (performance.now() - start) / ms);
+        const eased = done < 0.5 ? 2 * done * done : 1 - (-2 * done + 2) ** 2 / 2;
+        view.setOrbit({ ...view.orbit(), yaw: from.yaw + 2 * Math.PI * turns * eased,
+          pitch: from.pitch + tilt * Math.sin(Math.PI * eased) });
+      }
+    },
+    // Where the most connected node is drawn, in page pixels, for a real pointer drag.
+    hub: () => {
+      const element = document.querySelector("graph-studio");
+      const view = element.view;
+      const state = studioOf().store.get();
+      const { nodeCount, source, target } = view.frame();
+      const degree = new Uint32Array(nodeCount);
+      for (let edge = 0; edge < source.length; edge += 1) { degree[source[edge]] += 1; degree[target[edge]] += 1; }
+      let best = 0;
+      for (let node = 1; node < nodeCount; node += 1) if (degree[node] > degree[best]) best = node;
+      const camera = view.camera();
+      const world = view.position(best);
+      const box = element.getBoundingClientRect();
+      return { node: best, degree: degree[best], nodes: state.meta?.ids?.length ?? nodeCount,
+        x: box.left + world.x * camera.scale + camera.x, y: box.top + world.y * camera.scale + camera.y };
     },
     catalog: () => {
       const state = studioOf().store.get();

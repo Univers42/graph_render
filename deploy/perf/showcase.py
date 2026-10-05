@@ -13,6 +13,7 @@ page and the JPEG encoder kept up with on this host, and a 1M-node load is cut f
 rather than shown at its real length. The stills are full screenshots, not screencast frames.
 """
 import json
+import math
 import os
 import sys
 import tempfile
@@ -30,6 +31,26 @@ from screencast import Recorder
 DRIVER = open("deploy/perf/drivers/showcase.js").read()
 OUT = "target/showcase"
 WIDTH, HEIGHT = 1920, 1080
+FPS = 60
+
+
+def mouse(page, kind, x, y, buttons):
+    page.call("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": "left",
+                                           "buttons": buttons, "clickCount": 1})
+
+
+def drag(page, reach, seconds):
+    """Grab the most connected node and swing it through a figure eight of `reach` pixels."""
+    hub = page.evaluate("window.__show.hub()")
+    print("  drag", json.dumps(hub), flush=True)
+    x, y = hub["x"], hub["y"]
+    mouse(page, "mousePressed", x, y, 1)
+    steps = max(1, int(seconds * FPS))
+    for index in range(1, steps + 1):
+        turn = 2 * math.pi * index / steps
+        mouse(page, "mouseMoved", x + reach * math.sin(turn), y + reach * math.sin(2 * turn) / 2, 1)
+        page.hold(1 / FPS)
+    mouse(page, "mouseReleased", x, y, 0)
 
 
 def step(page, kind, *args):
@@ -46,7 +67,11 @@ def step(page, kind, *args):
     elif kind == "still":
         page.screenshot(os.path.join(OUT, "stills", f"{args[0]}.png"))
     elif kind == "chrome":
-        page.evaluate(f"window.__show.chrome({json.dumps(args[0])})")
+        page.evaluate(f"window.__show.chrome({json.dumps(args[0])})", timeout=120)
+    elif kind == "orbit":
+        page.evaluate(f"window.__show.orbit({json.dumps(args[0])})", timeout=120)
+    elif kind == "drag":
+        drag(page, *args)
     elif kind == "cut":
         page.pause()
     elif kind == "roll":
