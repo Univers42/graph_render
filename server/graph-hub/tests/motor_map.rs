@@ -70,7 +70,7 @@ const COUNT: usize = 3;
 /// `POST /layout?layout=…`, the one request every case below makes.
 async fn relay(hub: &Hub) -> Reply {
     hub.post(
-        &format!("/v1/workspaces/mapped/layout?layout={LAYOUT}"),
+        &format!("/v1/workspaces/relay-mapped/layout?layout={LAYOUT}"),
         Body::empty(),
     )
     .await
@@ -78,13 +78,13 @@ async fn relay(hub: &Hub) -> Reply {
 
 /// A workspace with `count` records, so `/layout` has a document to stream.
 async fn loaded(hub: &Hub, count: usize) {
-    ready(hub, "mapped", "task").await;
+    ready(hub, "relay-mapped", "task").await;
     let upserts: Vec<(&str, &str, &str)> = (0..count)
         .map(|i| ("task", leaked(&format!("id{i:04}")), "note"))
         .collect();
     let reply = hub
         .post(
-            "/v1/workspaces/mapped/plugins/task/batches",
+            "/v1/workspaces/relay-mapped/plugins/task/batches",
             batch(&upserts, &[]),
         )
         .await;
@@ -324,7 +324,7 @@ async fn a_pool_wait_past_the_timeout_is_503_before_the_motor_is_called() {
     )
     .await;
     let holder = hub.spawn(
-        hub.request("POST", "/v1/workspaces/mapped/layout?layout=layout.graph")
+        hub.request("POST", &format!("/v1/workspaces/relay-mapped/layout?layout={LAYOUT}"))
             .body(Body::empty())
             .expect("the relay request"),
     );

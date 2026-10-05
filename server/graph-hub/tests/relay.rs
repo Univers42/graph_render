@@ -25,6 +25,7 @@ use std::time::Duration;
 
 use axum::body::Body;
 use graph_hub::relay::body::Probe;
+use http_body_util::BodyExt;
 use support::fixtures::*;
 use support::*;
 
@@ -37,13 +38,17 @@ const LAYOUT: &str = "layout.grid";
 const STUB_KEY: &str = "a-key-the-stub-does-not-check";
 
 /// The three fixtures of §8's `hub-roundtrip`, in the order the loop walks them.
-const FIXTURES: [&str; 3] = ["plain", "linked", "pruned"];
+const FIXTURES: [&str; 3] = ["relay-plain", "relay-linked", "relay-pruned"];
 
 /// A hub whose store reads `GM_HUB_PG_URL`, whose motor is `motor`, and whose
 /// `GRAPH_HUB_MOTOR_KEY_FILE` carries `key`: the whole wiring `/layout` reads.
 async fn hub_against(motor: &Motor, key: &str, env: &[(&str, &str)]) -> Hub {
     db::migrated().await;
-    let url = db::url();
+    hub_over(&db::url(), motor, key, env).await
+}
+
+/// [`hub_against`] over a named database rather than the shared `hub` one.
+async fn hub_over(url: &str, motor: &Motor, key: &str, env: &[(&str, &str)]) -> Hub {
     let dir = scratch();
     let key_file = write_private(&dir.join("motor-key"), &format!("{key}\n"));
     let motor_url = motor.url("");
@@ -51,10 +56,22 @@ async fn hub_against(motor: &Motor, key: &str, env: &[(&str, &str)]) -> Hub {
     let mut all: Vec<(&str, &str)> = vec![
         ("GRAPH_HUB_MOTOR_URL", motor_url.as_str()),
         ("GRAPH_HUB_MOTOR_KEY_FILE", key_path.as_str()),
-        ("GRAPH_HUB_DB_URL", url.as_str()),
+        ("GRAPH_HUB_DB_URL", url),
     ];
     all.extend_from_slice(env);
     hub_with_env(&all)
+}
+
+/// A hub over a database of this case's own, which is what lets the snapshot count below be a
+/// statement about one request.
+///
+/// Caveat: a database per case rather than the shared `hub` one, because `pg_stat_activity` counts
+/// every backend of whichever database it reads and the cases of this binary run concurrently. On
+/// the shared database the count would name another case's snapshot and this case would fail for a
+/// reason that is not about the relay.
+async fn hub_alone(motor: &Motor, key: &str, ws: &str) -> Hub {
+    let url = db::fresh_migrated(ws).await;
+    hub_over(&url, motor, key, &[]).await
 }
 
 /// `POST /layout?layout=…` with no `Accept`, so the motor answers its binary face.
@@ -87,7 +104,7 @@ async fn single_plugin(hub: &Hub, ws: &str, count: usize) {
             batch(&upserts, &[]),
         )
         .await;
-    assert_eq!(reply.code(), 200, "{}", reply.body());
+    assert_eq!(reply.code(), 200, "{ws}: {}", reply.body());
 }
 
 /// A second plugin whose `relates` field is a **link** naming the first plugin's `task` collection,
@@ -167,11 +184,11 @@ async fn layout_bytes_equal_motor_bytes_at_the_same_cursor() {
 /// that resolves across plugins, and `pruned` names a record nobody stored.
 async fn fixture(hub: &Hub, ws: &str) {
     match ws {
-        "plain" => single_plugin(hub, ws, 6).await,
+        "relay-plain" => single_plugin(hub, ws, 6).await,
         _ => {
             single_plugin(hub, ws, 4).await;
             second_plugin(hub, ws).await;
-            memo(hub, ws, if ws == "linked" { "id0000" } else { "nowhere" }).await;
+            memo(hub, ws, if ws == "relay-linked" { "id0000" } else { "nowhere" }).await;
         }
     }
 }
@@ -197,16 +214,74 @@ async fn at_the_motor(motor: &Motor, key: &str, doc: &str) -> Reply {
     Reply::from_parts(parts, body).await
 }
 
+/// `/graph` is **not** the relay's stream: `drop-record` drops one record in `/layout` and nowhere
+/// else, so the two routes cannot change together (§5.3, D4).
+///
+/// This is the half of row `negctl-drop-record` that must stay green: the control runs the byte
+/// equality and requires it to fail, and runs this and requires it to pass. Without it the control
+/// would only prove that some relay exists, not that the break is in the relay alone.
+#[tokio::test]
+async fn graph_is_not_affected_by_drop_record() {
+    let (motor, key) = real_with_key().await;
+    let hub = hub_against(&motor, &key, &[]).await;
+    let count = 6;
+    single_plugin(&hub, "relay-whole", count).await;
+    let read = graph(&hub, "relay-whole").await;
+    assert_eq!(read.code(), 200, "{}", read.body());
+    for i in 0..count {
+        assert!(
+            read.body().contains(&format!("id{i:04}")),
+            "record id{i:04} is missing from /graph"
+        );
+    }
+    let store = hub.app.store().await.expect("the store under test");
+    let document = graph_store::materialize::open(store, "relay-whole")
+        .await
+        .expect("a snapshot of the workspace");
+    let probe = Arc::new(Probe::default());
+    let cursor = document.cursor();
+    let request = graph_hub::relay::RelayReq {
+        cursor,
+        ws: String::from("relay-whole"),
+        layout: Some(String::from(LAYOUT)),
+        post: None,
+        accept: None,
+    };
+    let relayed = graph_hub::relay::post(&hub.app, &request, document, Some(Arc::clone(&probe)))
+        .await
+        .expect("the relay answer");
+    let relayed = relayed.body.collect().await.expect("the relay body").to_bytes();
+    let dropped = probe.counts().dropped;
+    assert_eq!(
+        dropped,
+        u64::from(graph_hub::breaks::on("drop-record")),
+        "the relay drops exactly one record, and only with the break on"
+    );
+    if dropped == 1 {
+        assert_ne!(
+            relayed.as_ref(),
+            read.body.as_ref(),
+            "with drop-record on the two routes must differ by one record"
+        );
+    } else {
+        assert_eq!(
+            relayed.as_ref(),
+            read.body.as_ref(),
+            "with no break the relay streams the same bytes /graph serves"
+        );
+    }
+}
+
 /// `Graph-Seq` on `/layout` is the position `/graph`'s `ETag` quotes, so a caller that read the
 /// document at one cursor knows which state the motor laid out (H15).
 #[tokio::test]
 async fn the_graph_seq_header_equals_the_graph_etag() {
     let (motor, key) = real_with_key().await;
     let hub = hub_against(&motor, &key, &[]).await;
-    single_plugin(&hub, "same", 4).await;
-    let read = graph(&hub, "same").await;
+    single_plugin(&hub, "relay-same", 4).await;
+    let read = graph(&hub, "relay-same").await;
     assert_eq!(read.code(), 200, "{}", read.body());
-    let laid_out = lay_out(&hub, "same").await;
+    let laid_out = lay_out(&hub, "relay-same").await;
     assert_eq!(laid_out.code(), 200, "{}", laid_out.body());
     assert!(!read.header("etag").is_empty(), "/graph carries an ETag");
     assert_eq!(
@@ -229,10 +304,10 @@ async fn the_snapshot_closes_before_the_motor_answer_is_awaited() {
         Duration::from_millis(HOLD_MS),
     )
     .await;
-    let hub = hub_against(&motor, &key, &[]).await;
-    single_plugin(&hub, "closed", 8).await;
+    let hub = hub_alone(&motor, &key, "relay-closed").await;
+    single_plugin(&hub, "relay-closed", 8).await;
     let relay = hub.spawn(
-        hub.request("POST", "/v1/workspaces/closed/layout?layout=layout.grid")
+        hub.request("POST", "/v1/workspaces/relay-closed/layout?layout=layout.grid")
             .body(Body::empty())
             .expect("the relay request"),
     );
@@ -274,15 +349,24 @@ const POLL_MS: u64 = 25;
 async fn open_snapshots(hub: &Hub) -> i64 {
     let store = hub.app.store().await.expect("the store under test");
     let client = store.client().await.expect("a connection");
-    let row = client
-        .query_one(
-            "SELECT count(*) FROM pg_stat_activity \
-             WHERE datname = current_database() AND state = 'idle in transaction'",
+    let rows = client
+        .query(
+            "SELECT pid, state, left(query, 60) AS q FROM pg_stat_activity \
+             WHERE datname = current_database() AND state LIKE 'idle%'",
             &[],
         )
         .await
         .expect("the open-snapshot count");
-    row.get::<_, i64>(0)
+    rows.iter()
+        .map(|r| {
+            format!(
+                "{} {:?} {:?}",
+                r.get::<_, i32>(0),
+                r.get::<_, String>(1),
+                r.get::<_, String>(2)
+            )
+        })
+        .collect()
 }
 
 /// The relay's own instrumentation rather than RSS: the store reported more than one chunk while the
@@ -295,15 +379,15 @@ async fn open_snapshots(hub: &Hub) -> i64 {
 async fn layout_never_holds_a_whole_document() {
     let (motor, key) = real_with_key().await;
     let hub = hub_against(&motor, &key, &[]).await;
-    single_plugin(&hub, "streamed", 40).await;
+    single_plugin(&hub, "relay-streamed", 40).await;
     let store = hub.app.store().await.expect("the store under test");
-    let document = graph_store::materialize::open(store, "streamed")
+    let document = graph_store::materialize::open(store, "relay-streamed")
         .await
         .expect("a snapshot of the workspace");
     let probe = Arc::new(Probe::default());
     let request = graph_hub::relay::RelayReq {
         cursor: document.cursor(),
-        ws: String::from("streamed"),
+        ws: String::from("relay-streamed"),
         layout: Some(String::from(LAYOUT)),
         post: None,
         accept: None,
@@ -319,7 +403,7 @@ async fn layout_never_holds_a_whole_document() {
         "the walk held more than one chunk at once: {counts:?}"
     );
     assert_eq!(counts.dropped, 0, "no break is on: {counts:?}");
-    let whole = graph(&hub, "streamed").await.body().len() as u64;
+    let whole = graph(&hub, "relay-streamed").await.body().len() as u64;
     assert!(
         whole > counts.largest,
         "the document is not bigger than one chunk: {counts:?} of {whole}"
@@ -332,8 +416,8 @@ async fn layout_never_holds_a_whole_document() {
 async fn a_layout_failure_is_relayed_with_the_motors_error() {
     let motor = stub(vec![StubReply::new(422, "LayoutFailed", "the layout refused")]).await;
     let hub = hub_against(&motor, STUB_KEY, &[]).await;
-    single_plugin(&hub, "refused", 4).await;
-    let reply = lay_out(&hub, "refused").await;
+    single_plugin(&hub, "relay-refused", 4).await;
+    let reply = lay_out(&hub, "relay-refused").await;
     assert_eq!(reply.code(), 422, "{}", reply.body());
     assert_eq!(reply.error(), "LayoutFailed");
     assert_eq!(reply.message(), "the layout refused");
@@ -346,8 +430,8 @@ async fn a_layout_is_never_retried() {
     let (motor, served) =
         stub_counting(vec![StubReply::new(503, "Timeout", "the queue is full")]).await;
     let hub = hub_against(&motor, STUB_KEY, &[]).await;
-    single_plugin(&hub, "once", 4).await;
-    let reply = lay_out(&hub, "once").await;
+    single_plugin(&hub, "relay-once", 4).await;
+    let reply = lay_out(&hub, "relay-once").await;
     assert_eq!(reply.code(), 503, "{}", reply.body());
     assert_eq!(reply.error(), "Timeout", "the motor's own error string");
     assert_eq!(
