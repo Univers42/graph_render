@@ -9,9 +9,10 @@
 # (scripts/orch/drun-check.sh). The image is built from deploy/postgres.Dockerfile; `docker build`
 # is not a run, so drun-check.sh stays green.
 #
-# Volumes: gm-hub-pg-data (the data directory), gm-hub-pg-archive (WAL archive) and
-# gm-hub-pg-snapshot (a tar of the data volume, used only by copy-data/restore-data).
-# Container name: gm-hub-pg. Role: postgres owns it; the store connects as `hub`/`hub` on database `hub`.
+# Instance: one server per worktree, named gm-hub-pg-<worktree dir> (GM_HUB_PG_NAME overrides), so
+# parallel jobs never share a database. Volumes: <name>-data, <name>-archive (WAL archive) and
+# <name>-snapshot (a tar of the data volume, used only by copy-data/restore-data).
+# Role: postgres owns it; the store connects as `hub`/`hub` on database `hub`.
 #
 # Exit: 0 the verb did what it says · 1 it could not (docker or psql failed) · 2 usage
 #
@@ -25,13 +26,13 @@ here=$(dirname "$(readlink -f "$0")")
 root=$(git -C "$here" rev-parse --show-toplevel)
 cd "$root" || exit 2
 drun=$here/drun
-name=gm-hub-pg
+name=${GM_HUB_PG_NAME:-gm-hub-pg-$(basename "$root")}
 image=gm-hub-pg:17
-data_vol=gm-hub-pg-data
-archive_vol=gm-hub-pg-archive
+data_vol=$name-data
+archive_vol=$name-archive
 # A third volume, used only by copy-data/restore-data: a volume snapshot belongs in its own
 # volume, and putting the tar in the archive volume would leave a multi-gigabyte file beside WAL.
-snap_vol=gm-hub-pg-snapshot
+snap_vol=$name-snapshot
 
 image() {
   docker build -q -f deploy/postgres.Dockerfile -t "$image" deploy >/dev/null || return 1
