@@ -39,7 +39,10 @@ pub struct LanesParams {
 
 impl Default for LanesParams {
     fn default() -> Self {
-        Self { lane_spacing: 1.0, row_spacing: 1.0 }
+        Self {
+            lane_spacing: 1.0,
+            row_spacing: 1.0,
+        }
     }
 }
 
@@ -76,12 +79,18 @@ pub fn rows_fit(n: u32) -> Result<(), StageError> {
     if n < MAX_ROWS {
         return Ok(());
     }
-    Err(StageError::Param { name: "nodes", rule: "below 2^23 rows: the half-row bend is not representable in f32" })
+    Err(StageError::Param {
+        name: "nodes",
+        rule: "below 2^23 rows: the half-row bend is not representable in f32",
+    })
 }
 
 fn legal(name: &'static str, value: f32) -> Result<(), StageError> {
     if value.is_finite() && value > 0.0 {
         return Ok(());
     }
-    Err(StageError::Param { name, rule: "finite and above 0" })
+    Err(StageError::Param {
+        name,
+        rule: "finite and above 0",
+    })
 }

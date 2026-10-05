@@ -101,7 +101,11 @@ impl Arcs {
             targets[fill[s] as usize] = cols.target[e];
             fill[s] += 1;
         }
-        Self { offsets, targets, pending }
+        Self {
+            offsets,
+            targets,
+            pending,
+        }
     }
 }
 
@@ -110,11 +114,17 @@ impl Rows {
     pub(super) fn of(topology: &Topology) -> Self {
         let n = topology.node_count() as usize;
         let mut arcs = Arcs::of(topology);
-        let mut queue = Queue { heap: BinaryHeap::with_capacity(n), version: &topology.nodes().version };
+        let mut queue = Queue {
+            heap: BinaryHeap::with_capacity(n),
+            version: &topology.nodes().version,
+        };
         for v in (0..n as u32).filter(|&v| arcs.pending[v as usize] == 0) {
             queue.push(v);
         }
-        let mut rows = Self { order: Vec::with_capacity(n), row: vec![UNPLACED; n] };
+        let mut rows = Self {
+            order: Vec::with_capacity(n),
+            row: vec![UNPLACED; n],
+        };
         let mut scan = 0usize;
         while rows.order.len() < n {
             let v = match queue.heap.pop() {
@@ -162,7 +172,10 @@ impl Rows {
                 let (s, t) = (cols.source[e] as usize, cols.target[e] as usize);
                 cols.directed[e] && s != t && self.row[s] > self.row[t]
             })
-            .map(|e| Note { code: NoteCode::EdgeReversed, index: e as u32 })
+            .map(|e| Note {
+                code: NoteCode::EdgeReversed,
+                index: e as u32,
+            })
             .collect()
     }
 }

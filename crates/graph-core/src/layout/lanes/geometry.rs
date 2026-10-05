@@ -11,14 +11,31 @@ use crate::index::Topology;
 use graph_contract::geometry::Paths;
 
 /// Every vertex's `(x, y)`, in node order.
-pub(super) fn positions(drawing: &Drawing, rows: &Rows, params: &LanesParams) -> (Vec<f32>, Vec<f32>) {
-    let x = drawing.lane.iter().map(|&l| l as f32 * params.lane_spacing).collect();
-    let y = rows.row.iter().map(|&r| r as f32 * params.row_spacing).collect();
+pub(super) fn positions(
+    drawing: &Drawing,
+    rows: &Rows,
+    params: &LanesParams,
+) -> (Vec<f32>, Vec<f32>) {
+    let x = drawing
+        .lane
+        .iter()
+        .map(|&l| l as f32 * params.lane_spacing)
+        .collect();
+    let y = rows
+        .row
+        .iter()
+        .map(|&r| r as f32 * params.row_spacing)
+        .collect();
     (x, y)
 }
 
 /// Every edge's interior points, CSR-shaped like `layout.dag.sugiyama`'s.
-pub(super) fn paths(drawing: &Drawing, topology: &Topology, rows: &Rows, params: &LanesParams) -> Paths {
+pub(super) fn paths(
+    drawing: &Drawing,
+    topology: &Topology,
+    rows: &Rows,
+    params: &LanesParams,
+) -> Paths {
     let cols = topology.edges();
     let m = cols.source.len();
     let mut offsets = Vec::with_capacity(m + 1);
@@ -27,7 +44,11 @@ pub(super) fn paths(drawing: &Drawing, topology: &Topology, rows: &Rows, params:
     for e in 0..m {
         let (s, t) = (cols.source[e], cols.target[e]);
         if s != t {
-            let route = Route { source: s, target: t, lane: drawing.carried[e] };
+            let route = Route {
+                source: s,
+                target: t,
+                lane: drawing.carried[e],
+            };
             push_route(&mut pts, route, (drawing, rows), params);
         }
         offsets.push((pts.len() / 2) as u32);
@@ -42,9 +63,21 @@ struct Route {
     lane: u32,
 }
 
-fn push_route(pts: &mut Vec<f32>, route: Route, (drawing, rows): (&Drawing, &Rows), params: &LanesParams) {
-    let (rs, rt) = (rows.row[route.source as usize], rows.row[route.target as usize]);
-    let (early, late) = if rs < rt { (route.source, route.target) } else { (route.target, route.source) };
+fn push_route(
+    pts: &mut Vec<f32>,
+    route: Route,
+    (drawing, rows): (&Drawing, &Rows),
+    params: &LanesParams,
+) {
+    let (rs, rt) = (
+        rows.row[route.source as usize],
+        rows.row[route.target as usize],
+    );
+    let (early, late) = if rs < rt {
+        (route.source, route.target)
+    } else {
+        (route.target, route.source)
+    };
     let x = route.lane as f32 * params.lane_spacing;
     let mut points = [(0.0f32, 0.0f32); 2];
     let mut count = 0;

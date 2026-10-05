@@ -68,7 +68,9 @@ impl Pool {
 
     #[cfg(debug_assertions)]
     fn mark_opened(&mut self, lane: u32) {
-        self.free_flag.resize(lane as usize + 1, false);
+        if self.free_flag.len() <= lane as usize {
+            self.free_flag.resize(lane as usize + 1, false);
+        }
     }
 
     #[cfg(not(debug_assertions))]
@@ -143,13 +145,23 @@ impl Reserved {
     /// every push and every settle in a debug build.
     #[cfg(debug_assertions)]
     fn assert_sole(&self, lane: u32, holder: u32, pool: &Pool) {
-        debug_assert_eq!(self.held[lane as usize], 1, "lane {lane} is in two reservations");
-        debug_assert!(!pool.free_flag[lane as usize], "lane {lane} is reserved for {holder} and free");
+        debug_assert_eq!(
+            self.held[lane as usize], 1,
+            "lane {lane} is in two reservations"
+        );
+        debug_assert!(
+            !pool.free_flag[lane as usize],
+            "lane {lane} is reserved for {holder} and free"
+        );
     }
 
     #[cfg(debug_assertions)]
     fn hold(&mut self, lane: u32) {
-        self.held.resize(lane as usize + 1, 0);
+        // Grow only: `resize` would truncate the higher lanes' counts when a lower lane is
+        // re-held, which is exactly what happens when a lane is reused.
+        if self.held.len() <= lane as usize {
+            self.held.resize(lane as usize + 1, 0);
+        }
         self.held[lane as usize] += 1;
     }
 
@@ -178,9 +190,15 @@ impl Forward {
         let n = rows.order.len();
         let ends = |e: usize| {
             let (s, t) = (cols.source[e], cols.target[e]);
-            if rows.row[s as usize] < rows.row[t as usize] { (s, t) } else { (t, s) }
+            if rows.row[s as usize] < rows.row[t as usize] {
+                (s, t)
+            } else {
+                (t, s)
+            }
         };
-        let kept: Vec<usize> = (0..cols.source.len()).filter(|&e| cols.source[e] != cols.target[e]).collect();
+        let kept: Vec<usize> = (0..cols.source.len())
+            .filter(|&e| cols.source[e] != cols.target[e])
+            .collect();
         let mut offsets = vec![0u32; n + 1];
         for &e in &kept {
             offsets[ends(e).0 as usize + 1] += 1;
@@ -234,10 +252,24 @@ impl Drawing {
         let n = rows.order.len();
         let forward = Forward::of(topology, rows);
         let mut state = State {
-            pool: Pool { free: BinaryHeap::new(), width: 0, #[cfg(debug_assertions)] free_flag: Vec::new() },
-            reserved: Reserved { head: vec![NONE; n], next: Vec::new(), min: vec![NONE; n], #[cfg(debug_assertions)] held: Vec::new() },
+            pool: Pool {
+                free: BinaryHeap::new(),
+                width: 0,
+                #[cfg(debug_assertions)]
+                free_flag: Vec::new(),
+            },
+            reserved: Reserved {
+                head: vec![NONE; n],
+                next: Vec::new(),
+                min: vec![NONE; n],
+                #[cfg(debug_assertions)]
+                held: Vec::new(),
+            },
         };
-        let mut drawing = Self { lane: vec![NONE; n], carried: vec![NONE; topology.edges().source.len()] };
+        let mut drawing = Self {
+            lane: vec![NONE; n],
+            carried: vec![NONE; topology.edges().source.len()],
+        };
         for &v in &rows.order {
             drawing.place(v, forward.of_vertex(v), &mut state);
         }
