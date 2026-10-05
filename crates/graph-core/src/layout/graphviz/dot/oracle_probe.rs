@@ -15,10 +15,11 @@
 //! Determinism: each sweep is 1000 independent runs of a pure function, so its result is a
 //! measurement and not a sample.
 
-use super::fast::Fast;
+use super::fast::{Fast, Kind};
 use super::mincross::{self, crossings};
 use super::oracle_crossings::edge_crossings as crossings_of;
 use super::oracle_digest::{OracleRow, oracle_digest};
+use super::position::position;
 use super::rank::rank;
 use super::{add_edges, empty_graph};
 
@@ -54,6 +55,88 @@ pub fn ranked_and_ordered(count: u32, edges: &[(u32, u32)]) -> Fast {
 /// left to right. Rank 0 is the top row, so the first row is the first one printed.
 pub fn ordered(count: u32, edges: &[(u32, u32)]) -> Vec<Vec<u32>> {
     crossings::real_rows(&ranked_and_ordered(count, edges))
+}
+
+/// Every node's id as the oracle's fixtures name them: `n0`, `n1`, … `n{count - 1}`.
+///
+/// This is the one place the port turns a dense index into text, and it is why the size of a
+/// node's box is the measured table's rather than a constant: the reference sizes a node from
+/// its rendered label, and the label is the id.
+pub fn fixture_ids(count: u32) -> Vec<String> {
+    (0..count).map(|i| format!("n{i}")).collect()
+}
+
+/// Run all three passes over a graph whose nodes are named `n0`…`n{count - 1}`, and hand back
+/// the graph the position pass left: every node's centre, in the frame `-Tplain` prints.
+pub fn positioned(count: u32, edges: &[(u32, u32)]) -> Fast {
+    let ids: Vec<String> = fixture_ids(count);
+    let borrowed: Vec<&str> = ids.iter().map(String::as_str).collect();
+    positioned_over(super::build(&borrowed, edges))
+}
+
+/// The three passes over a graph already built, so the sized and the default-box variants differ
+/// in nothing but the box.
+fn positioned_over(mut g: Fast) -> Fast {
+    rank(&mut g).expect("the fixture graphs are connected and acyclic after the pass");
+    mincross::run(&mut g);
+    positioned_after(g)
+}
+
+/// The position pass alone, over a graph the rank and mincross passes have already run — the
+/// form the sweeps need, so the graph whose order they compare is the graph they place.
+pub fn positioned_after(mut g: Fast) -> Fast {
+    position(&mut g).expect("the fixture graphs are connected after the pass");
+    g
+}
+
+/// This crate's copy of the plain format's number formatter: `%g` at five significant digits,
+/// trailing zeros stripped (`lib/common/output.c`'s `printdouble`).
+///
+/// Reproducing the oracle's formatter rather than rounding to a chosen number of decimals is
+/// what makes "byte for byte" checkable: the grid moves with the magnitude, so a fixed decimal
+/// count is wrong at both ends of a drawing.
+pub fn plain_g(inches: f64) -> String {
+    let mut scaled = inches;
+    let mut exponent = 0i32;
+    while scaled < 1.0 {
+        scaled *= 10.0;
+        exponent -= 1;
+    }
+    while scaled >= 10.0 {
+        scaled /= 10.0;
+        exponent += 1;
+    }
+    let decimals = (4 - exponent).max(0) as usize;
+    let text = format!("{inches:.decimals$}");
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// A drawing's centres as the plain format would print them: the x column and the y column, each
+/// node's own five significant digits in inches, space separated.
+pub fn printed_columns(g: &Fast) -> (String, String) {
+    let column = |pick: fn(&(f64, f64)) -> f64| {
+        centres(g)
+            .iter()
+            .map(|p| plain_g(pick(p) / POINTS_PER_INCH))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    (column(|p| p.0), column(|p| p.1))
+}
+
+/// `POINTS_PER_INCH` (`lib/common/geom.h:58`): the layout computes in points and the plain
+/// format prints in inches.
+pub const POINTS_PER_INCH: f64 = 72.0;
+
+/// The centre of every **real** node, in the frame `-Tplain` prints, in dense-index order.
+///
+/// Chain dummies are dropped: the plain format prints no dummy, so there is nothing on the
+/// oracle's side to compare one against.
+pub fn centres(g: &Fast) -> Vec<(f64, f64)> {
+    let count = g.nodes.iter().filter(|n| n.kind == Kind::Normal).count() as u32;
+    (0..count)
+        .map(|n| (g.nodes[n as usize].coord.x, g.nodes[n as usize].coord.y))
+        .collect()
 }
 
 /// The 1000-seed rank agreement, which is what `docs/measurements/p13-gv2-dot.md` records.
@@ -245,3 +328,80 @@ impl Tally {
 const RECORDED_RANK_AGREEMENT: usize = 692;
 const RECORDED_ORDER_AGREEMENT: usize = 408;
 const RECORDED_CROSSING_AGREEMENT: usize = 446;
+
+/// The 1000-seed position agreement, the third half of the same measurement.
+///
+/// **The population is the seeds whose order already agrees in every rank**, which is the 408
+/// [`order_agreement_over_1000_seeds`] measures and not all 1000: a coordinate is only
+/// comparable when the row it sits on is the same row. The question it answers is the strictest
+/// one the oracle's own output allows — *every node's centre, printed*, five significant digits
+/// in inches — because `-Tplain` prints nothing finer and a comparison at a finer grid would be
+/// against digits it never printed.
+///
+/// Ignored by default because it needs the probe file; run it with `cargo test -p graph-core
+/// --lib -- --ignored position_agreement_over_1000_seeds` once `target/probe/dot1000.txt` exists.
+#[test]
+#[ignore = "needs target/probe/dot1000.txt, written by the oracle probe"]
+fn position_agreement_over_1000_seeds() {
+    let rows = oracle_digest();
+    let tally = sweep_position(&rows);
+    eprintln!(
+        "{} of {} seeds agree on every rank's order; of those {} print every node centre \
+         exactly as the oracle prints it",
+        tally.comparable,
+        rows.len(),
+        tally.exact
+    );
+    eprintln!("exact seeds: {:?}", tally.exact_seeds);
+    assert_eq!(
+        tally.comparable, RECORDED_ORDER_AGREEMENT,
+        "comparable seeds"
+    );
+    assert_eq!(tally.exact, RECORDED_POSITION_AGREEMENT, "exact placements");
+}
+
+/// The position sweep's two counts and the seeds behind the second.
+#[derive(Default)]
+struct PositionTally {
+    /// Seeds whose every rank's order already agrees: the only comparable ones.
+    comparable: usize,
+    /// Those that also place every node's centre exactly as the oracle prints it.
+    exact: usize,
+    /// Which seeds those are, so a regression names them.
+    exact_seeds: Vec<u32>,
+}
+
+impl PositionTally {
+    /// One seed whose order already agrees: place it, and compare the printed columns against
+    /// the oracle's own printed strings.
+    fn grade(&mut self, row: &OracleRow, g: Fast) {
+        self.comparable += 1;
+        let placed = positioned_after(g);
+        if printed_columns(&placed) == (row.xs.join(" "), row.ys.join(" ")) {
+            self.exact += 1;
+            self.exact_seeds.push(row.seed);
+        }
+    }
+}
+
+/// Count the position agreement over every row of the digest whose order already agrees.
+fn sweep_position(rows: &[OracleRow]) -> PositionTally {
+    let mut tally = PositionTally::default();
+    for row in rows {
+        let g = ranked_and_ordered(count_of(row), &row.edges);
+        if crossings::real_rows(&g) != row.rows() {
+            continue;
+        }
+        tally.grade(row, g);
+    }
+    tally
+}
+
+/// A row's node count, as the `u32` the passes take.
+fn count_of(row: &OracleRow) -> u32 {
+    u32::try_from(row.ranks.len()).expect("a node count fits u32")
+}
+
+/// How many of the order-agreeing seeds the position pass places exactly as the oracle prints
+/// them, as `docs/measurements/p13-gv2-dot.md`'s "Position" section records the run measuring.
+const RECORDED_POSITION_AGREEMENT: usize = 10;
