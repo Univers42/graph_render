@@ -144,10 +144,18 @@ pub fn from_db(err: tokio_postgres::Error) -> StoreError {
         "23505" => StoreError::Hub(graph_contract::hub::HubError::Conflict {
             what: "unique violation".to_string(),
         }),
-        _ => StoreError::Db(DbError {
-            code,
-            message: err.to_string(),
-        }),
+        _ => {
+            // `Display` for a driver error is the bare string "db error"; the detail is what
+            // names the statement that failed, so it is the message worth keeping.
+            let message = match err.as_db_error() {
+                Some(db) => match db.detail() {
+                    Some(detail) => format!("{db}: {detail}"),
+                    None => db.to_string(),
+                },
+                None => err.to_string(),
+            };
+            StoreError::Db(DbError { code, message })
+        }
     }
 }
 

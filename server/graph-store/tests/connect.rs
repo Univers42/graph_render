@@ -16,7 +16,7 @@ async fn connect_pings() {
 
 #[tokio::test]
 async fn the_database_is_utf8_with_a_c_collation() {
-    let mut client = support::db::open().await;
+    let client = support::db::open().await;
     let row = client
         .query_one(
             "SELECT pg_encoding_to_char(encoding), datcollate FROM pg_database \

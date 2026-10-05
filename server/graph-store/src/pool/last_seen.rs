@@ -31,12 +31,12 @@ impl LastSeen {
         }
     }
 
-    /// The workspace ids, in id order.
+    /// The whole map, in id order.
     ///
     /// §5.3 step 2 takes this *before* any read, so a workspace committed between this and the
     /// read is a bump rather than a silent miss.
-    pub fn snapshot(&mut self) -> Vec<String> {
-        self.map.keys().cloned().collect()
+    pub fn snapshot(&mut self) -> BTreeMap<String, Entry> {
+        self.map.clone()
     }
 
     /// Record `(epoch, seq)` for `ws`, if it rises above what is there.

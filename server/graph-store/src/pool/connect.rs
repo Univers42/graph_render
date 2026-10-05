@@ -75,7 +75,15 @@ pub async fn run_detector(
 ) -> Result<crate::pool::DetectorOutcome, StoreError> {
     refuse_if_unusable(client).await?;
     let (high_water, ids) = detector.snapshot();
-    match compare(client, high_water.as_deref(), &ids).await? {
+    let found = match compare(client, high_water.as_deref(), &ids).await {
+        Ok(found) => found,
+        Err(err) if is_undefined_table(&err) => {
+            // Nothing is migrated yet, so there is no database to have been restored *from*.
+            return Ok(crate::pool::DetectorOutcome::Match);
+        }
+        Err(err) => return Err(err),
+    };
+    match found {
         None => Ok(crate::pool::DetectorOutcome::Match),
         Some(workspaces) => {
             bump(client, workspaces).await?;
@@ -85,14 +93,39 @@ pub async fn run_detector(
     }
 }
 
+/// Is `err` PostgreSQL's `undefined_table` (`42P01`)?
+///
+/// Caveat: this is the store's own way of noticing an unmigrated database. The alternative — the
+/// caller migrating before connecting — would put the migration on the pool's critical path for
+/// every connection, including the read-only ones.
+fn is_undefined_table(err: &StoreError) -> bool {
+    match err {
+        StoreError::Db(e) => e.code() == "42P01",
+        _ => false,
+    }
+}
+
 /// The §5.3 mismatch check. `Ok(None)` is a match; `Ok(Some(n))` names how many workspaces the
 /// bump must touch.
 async fn compare(
     client: &mut Client,
     high_water: Option<&str>,
-    ids: &[String],
+    ids_map: &std::collections::BTreeMap<String, (u64, u64)>,
 ) -> Result<Option<u64>, StoreError> {
     client.batch_execute("BEGIN").await?;
+    let outcome = compare_in_txn(client, high_water, ids_map).await;
+    // The transaction is closed either way: leaving it open would pin a snapshot and make every
+    // later statement on this connection part of the detector's transaction.
+    let _ = client.batch_execute("ROLLBACK").await;
+    outcome
+}
+
+/// The body of [`compare`], inside its transaction.
+async fn compare_in_txn(
+    client: &mut Client,
+    high_water: Option<&str>,
+    ids_map: &std::collections::BTreeMap<String, (u64, u64)>,
+) -> Result<Option<u64>, StoreError> {
     client
         .execute(
             "SELECT set_config('hub.writer','1',true), pg_advisory_xact_lock($1)",
@@ -103,25 +136,34 @@ async fn compare(
         .query_opt("SELECT system_identifier, timeline, datoid FROM hub_meta WHERE one", &[])
         .await?;
     let flush = flush_lsn(client).await?;
-    if flush.is_empty() {
-        client.batch_execute("ROLLBACK").await?;
-        return Ok(None);
-    }
-    if meta.is_none() {
-        client.batch_execute("ROLLBACK").await?;
-        return Ok(Some(count_workspaces(client).await?));
-    }
+    // §5.3 step 2: the LSN read is compared against the *snapshotted* high-water, bound as a
+    // parameter, so a commit landing between the snapshot and this read cannot look like a
+    // restore. `hw-after-lsn` snapshots afterwards, which is the bug this ordering forbids.
     if let Some(have) = high_water
         && !lsn_at_least(&flush, have)
     {
-        client.batch_execute("ROLLBACK").await?;
         return Ok(Some(count_workspaces(client).await?));
     }
-    let rows = read_workspaces(client, ids).await?;
-    let mismatch = rows.len() != ids.len() || row_below_map(client, ids).await?;
-    client.batch_execute("ROLLBACK").await?;
-    if mismatch {
+    // §5.3: a row is a mismatch when the database's own key differs from `hub_meta`'s, or when a
+    // row sits below the entry this process holds for it, or is missing while the map holds it.
+    // `lsn-only` skips the map comparison entirely, which is the control for that leg.
+    if meta.is_none() && !ids_map.is_empty() {
         return Ok(Some(count_workspaces(client).await?));
+    }
+    let ids: Vec<String> = ids_map.keys().cloned().collect();
+    let rows = read_workspaces(client, &ids).await?;
+    if rows.len() != ids.len() {
+        return Ok(Some(count_workspaces(client).await?));
+    }
+    if breaks::on("lsn-only") {
+        return Ok(None);
+    }
+    for (id, epoch, seq) in &rows {
+        if let Some(&(have_epoch, have_seq)) = ids_map.get(id)
+            && (*epoch, *seq) < (have_epoch, have_seq)
+        {
+            return Ok(Some(count_workspaces(client).await?));
+        }
     }
     Ok(None)
 }
@@ -167,12 +209,6 @@ async fn read_workspaces(
         out.push((row.get(0), row.get::<_, i64>(1) as u64, row.get::<_, i64>(2) as u64));
     }
     Ok(out)
-}
-
-/// Is any workspace row below the `(epoch, head_seq)` the map holds for it?
-async fn row_below_map(client: &mut Client, ids: &[String]) -> Result<bool, StoreError> {
-    let rows = read_workspaces(client, ids).await?;
-    Ok(rows.iter().any(|&(_, epoch, seq)| (epoch, seq) < (0, 0)))
 }
 
 /// How many workspaces a bump would touch.

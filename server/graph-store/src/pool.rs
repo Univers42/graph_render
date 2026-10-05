@@ -69,17 +69,17 @@ impl Detector {
         }
     }
 
-    /// The high-water and the last-seen ids, snapshotted together before any read.
+    /// The high-water and the last-seen map, snapshotted together before any read.
     ///
     /// §5.3 step 2 requires both to be read *before* the LSN and the workspace rows, so that a
     /// write landing between the two reads cannot be mistaken for a restore.
-    pub fn snapshot(&self) -> (Option<String>, Vec<String>) {
+    pub fn snapshot(&self) -> (Option<String>, std::collections::BTreeMap<String, (u64, u64)>) {
         let high = self.high_water();
-        let ids = match self.seen.lock() {
+        let seen = match self.seen.lock() {
             Ok(mut guard) => guard.snapshot(),
             Err(poisoned) => poisoned.into_inner().snapshot(),
         };
-        (high, ids)
+        (high, seen)
     }
 
     /// Forget the high-water and the map, after a bump has committed.

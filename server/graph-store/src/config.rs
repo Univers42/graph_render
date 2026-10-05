@@ -98,16 +98,16 @@ impl StoreConfig {
 pub fn check(cfg: &StoreConfig) -> Result<(), crate::error::StoreError> {
     let max = cfg.max_change();
     if cfg.retain_bytes < max {
-        return Err(crate::error::StoreError::Db(crate::error::DbError {
-            code: "XX001".to_string(),
-            message: format!("retain_bytes {} < max_change {max}", cfg.retain_bytes),
-        }));
+        let message = format!("retain_bytes {} < max_change {max}", cfg.retain_bytes);
+        return Err(crate::error::StoreError::Db(
+            crate::error::DbError::store("XX001", message),
+        ));
     }
     if cfg.changes_bytes < max {
-        return Err(crate::error::StoreError::Db(crate::error::DbError {
-            code: "XX001".to_string(),
-            message: format!("changes_bytes {} < max_change {max}", cfg.changes_bytes),
-        }));
+        let message = format!("changes_bytes {} < max_change {max}", cfg.changes_bytes);
+        return Err(crate::error::StoreError::Db(
+            crate::error::DbError::store("XX001", message),
+        ));
     }
     Ok(())
 }
