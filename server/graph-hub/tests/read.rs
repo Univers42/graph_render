@@ -19,7 +19,13 @@ use support::*;
 async fn loaded(hub: &Hub, ws: &str, plugin: &str, count: usize) {
     ready(hub, ws, plugin).await;
     let upserts: Vec<(&str, &str, &str)> = (0..count)
-        .map(|i| ("task", Box::leak(format!("id{i:04}").into_boxed_str()) as &str, "note"))
+        .map(|i| {
+            (
+                "task",
+                Box::leak(format!("id{i:04}").into_boxed_str()) as &str,
+                "note",
+            )
+        })
         .collect();
     let reply = hub
         .post(
@@ -44,8 +50,14 @@ async fn graph_streams_the_document_with_an_e_tag() {
     );
     let cursor = etag.trim_matches('"');
     assert_eq!(cursor.split('.').count(), 2, "{cursor:?}");
-    assert!(reply.body().starts_with('{'), "a document, not a JSON refusal");
-    assert!(reply.body().contains("id0000"), "the records are in the document");
+    assert!(
+        reply.body().starts_with('{'),
+        "a document, not a JSON refusal"
+    );
+    assert!(
+        reply.body().contains("id0000"),
+        "the records are in the document"
+    );
 }
 
 /// A matching `If-None-Match` is a 304 with no body: §5.2's row, and the reason a client can poll
@@ -85,8 +97,16 @@ async fn the_same_cursor_gives_the_same_bytes() {
     loaded(&hub, "stable", "task", 5).await;
     let first = hub.get_with("/v1/workspaces/stable/graph").await;
     let second = hub.get_with("/v1/workspaces/stable/graph").await;
-    assert_eq!(first.header("etag"), second.header("etag"), "the same cursor");
-    assert_eq!(first.body(), second.body(), "the same bytes at the same cursor");
+    assert_eq!(
+        first.header("etag"),
+        second.header("etag"),
+        "the same cursor"
+    );
+    assert_eq!(
+        first.body(),
+        second.body(),
+        "the same bytes at the same cursor"
+    );
 }
 
 /// Streaming means the bytes arrive while the hub is still reading: a client that takes the first
@@ -169,9 +189,7 @@ async fn changes_after_a_cursor_are_in_seq_order() {
     loaded(&hub, "seqs", "task", 3).await;
     let path = "/v1/workspaces/seqs/plugins/task/batches";
     hub.post(path, upsert("task", "later", "n")).await;
-    let reply = hub
-        .get_with("/v1/workspaces/seqs/changes?since=0.1")
-        .await;
+    let reply = hub.get_with("/v1/workspaces/seqs/changes?since=0.1").await;
     assert_eq!(reply.code(), 200, "{}", reply.body());
     let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON page");
     let seqs: Vec<u64> = value["changes"]
@@ -180,7 +198,11 @@ async fn changes_after_a_cursor_are_in_seq_order() {
         .iter()
         .map(|change| change["seq"].as_u64().expect("a seq"))
         .collect();
-    assert_eq!(seqs, [2], "one change after 0.1, which is the manifest and the batch");
+    assert_eq!(
+        seqs,
+        [2],
+        "one change after 0.1, which is the manifest and the batch"
+    );
     assert!(value["next"].is_string(), "a page carries the next cursor");
 }
 
@@ -249,7 +271,10 @@ async fn a_changes_page_never_exceeds_the_byte_cap_but_holds_one_change() {
     assert_eq!(reply.code(), 200, "{}", reply.body());
     let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON page");
     let changes = value["changes"].as_array().expect("a changes array");
-    assert!(!changes.is_empty(), "a page always holds at least one change");
+    assert!(
+        !changes.is_empty(),
+        "a page always holds at least one change"
+    );
     assert_eq!(changes.len(), 1, "the byte cap cut the page at one change");
     assert!(
         value["bytes"].as_u64().expect("the page's bytes") <= 1024,
@@ -321,7 +346,9 @@ async fn the_workspaces_list_holds_only_what_the_key_may_read() {
     assert_eq!(names, ["mine"], "only the granted workspace");
     assert!(value["workspaces"][0]["epoch"].as_u64().is_some());
     assert!(value["workspaces"][0]["head_seq"].as_u64().is_some());
-    let stranger = hub.get_as(&add_key(&hub, "stranger"), "/v1/workspaces").await;
+    let stranger = hub
+        .get_as(&add_key(&hub, "stranger"), "/v1/workspaces")
+        .await;
     assert_eq!(stranger.code(), 200);
     let other: serde_json::Value = serde_json::from_str(&stranger.body()).expect("a JSON list");
     let names: Vec<&str> = other["workspaces"]

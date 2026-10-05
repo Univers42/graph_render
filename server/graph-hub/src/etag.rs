@@ -29,8 +29,9 @@ pub fn matches(headers: &HeaderMap, cursor: &Cursor) -> bool {
     }
     let values = headers.get_all(header::IF_NONE_MATCH);
     values.iter().any(|value| {
-        value
-            .to_str()
-            .is_ok_and(|text| text.split(',').any(|tag| tag.trim() == "*" || tag.trim() == wanted))
+        value.to_str().is_ok_and(|text| {
+            text.split(',')
+                .any(|tag| tag.trim() == "*" || tag.trim() == wanted)
+        })
     })
 }

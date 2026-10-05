@@ -14,8 +14,8 @@
 //! slowly is cut at `GRAPH_HUB_STREAM_DEADLINE_MS` from the first chunk. §5.3's own bound on the
 //! exchange is `GRAPH_HUB_MOTOR_TIMEOUT_MS`, which is shorter, so this cut is the backstop.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::body::{Body, Bytes};
 use futures_util::stream::{self, Stream};
@@ -220,13 +220,19 @@ pub fn document(
 /// never reads holds the permit until `GRAPH_HUB_STREAM_DEADLINE_MS` cuts the stream.
 pub fn held(body: Body, permit: OwnedSemaphorePermit) -> Body {
     let inner = BodyStream::new(body);
-    Body::from_stream(stream::unfold((inner, permit), |(mut body, permit)| async move {
-        let frame = futures_util::StreamExt::next(&mut body).await?;
-        match frame {
-            // A frame with no bytes is a trailer frame, which the hub's own streamed bodies never
-            // carry; it ends the stream rather than becoming an error in the middle of a snapshot.
-            Ok(frame) => frame.into_data().ok().map(|item| (Ok(item), (body, permit))),
-            Err(error) => Some((Err(std::io::Error::other(error)), (body, permit))),
-        }
-    }))
+    Body::from_stream(stream::unfold(
+        (inner, permit),
+        |(mut body, permit)| async move {
+            let frame = futures_util::StreamExt::next(&mut body).await?;
+            match frame {
+                // A frame with no bytes is a trailer frame, which the hub's own streamed bodies never
+                // carry; it ends the stream rather than becoming an error in the middle of a snapshot.
+                Ok(frame) => frame
+                    .into_data()
+                    .ok()
+                    .map(|item| (Ok(item), (body, permit))),
+                Err(error) => Some((Err(std::io::Error::other(error)), (body, permit))),
+            }
+        },
+    ))
 }

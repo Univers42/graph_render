@@ -107,7 +107,12 @@ pub async fn post(
     probe: Option<Arc<Probe>>,
 ) -> Result<RelayAnswer, HubApiError> {
     let deadline = tokio::time::Instant::now() + app.settings.limits.stream_deadline;
-    let sent = send(app, request, Body::from_stream(body::document(document, probe, deadline))).await;
+    let sent = send(
+        app,
+        request,
+        Body::from_stream(body::document(document, probe, deadline)),
+    )
+    .await;
     let response = match sent {
         Ok(response) => response,
         Err(fault) => {
@@ -185,7 +190,11 @@ fn motor_uri(app: &Arc<App>, request: &RelayReq) -> String {
             uri.push_str(&format!("&post={}", encode(post)));
         }
     }
-    uri.push_str(if request.layout.is_some() { "&source=contract" } else { "?source=contract" });
+    uri.push_str(if request.layout.is_some() {
+        "&source=contract"
+    } else {
+        "?source=contract"
+    });
     uri
 }
 

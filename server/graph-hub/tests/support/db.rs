@@ -168,9 +168,16 @@ async fn create(name: &str, options: &str) -> String {
 /// Caveat: the role is named in this file rather than read from the URL, so it is the hub-pg.sh
 /// spelling; a container with another role name would need this and `admin_url` changed together.
 pub async fn fresh_migrated(name: &str) -> String {
-    let url = owned(name, "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'").await;
+    let url = owned(
+        name,
+        "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'",
+    )
+    .await;
     let store = store_on(&url).await;
-    let mut client = store.client().await.expect("a connection for the migration");
+    let mut client = store
+        .client()
+        .await
+        .expect("a connection for the migration");
     graph_store::migrate::apply(&mut client)
         .await
         .expect("the store's migrations");
@@ -195,7 +202,9 @@ async fn owned(name: &str, options: &str) -> String {
         .batch_execute(&format!("DROP DATABASE IF EXISTS {database}"))
         .await;
     client
-        .batch_execute(&format!("CREATE DATABASE {database} {options} OWNER {ROLE}"))
+        .batch_execute(&format!(
+            "CREATE DATABASE {database} {options} OWNER {ROLE}"
+        ))
         .await
         .unwrap_or_else(|error| panic!("create {database}: {error}"));
     format!("{head}/{database}")

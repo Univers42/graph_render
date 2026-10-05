@@ -60,7 +60,10 @@ fn with_etag(body: Body, tag: &str) -> Response {
     (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, HeaderValue::from_static("application/json")),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
             (header::ETAG, value),
         ],
         body,

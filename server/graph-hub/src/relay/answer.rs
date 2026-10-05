@@ -13,8 +13,8 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
 use futures_util::stream;
 use graph_contract::hub::Cursor;
-use hyper::body::Incoming;
 use http_body_util::BodyExt;
+use hyper::body::Incoming;
 
 use crate::error::HubApiError;
 use crate::relay::RelayAnswer;
@@ -70,25 +70,28 @@ pub async fn read(
 /// route. Trailing headers are not relayed: graph-server sends none on `/v1/layout`, and a frame
 /// that carries them is skipped rather than turned into an error in the middle of a snapshot.
 fn streaming(body: Incoming, deadline: tokio::time::Instant) -> Body {
-    Body::from_stream(stream::unfold((body, deadline), |(mut body, deadline)| async move {
-        let data = async {
-            match tokio::time::timeout_at(deadline, body.frame()).await {
-                Ok(Some(Ok(frame))) => match frame.into_data() {
-                    Ok(data) => Some(Ok::<Bytes, std::io::Error>(data)),
-                    // A trailer frame carries no bytes this hub relays and ends the stream:
-                    // graph-server sends none on `/v1/layout`, and a wrong answer about the end
-                    // of a snapshot is worse than a short one the caller re-reads at its cursor.
-                    Err(_trailers) => None,
-                },
-                // The end of the body, a transport error and the deadline all end the stream the
-                // same way: the caller sees a short body and re-reads at its cursor.
-                Ok(Some(Err(error))) => Some(Err(std::io::Error::other(error))),
-                Ok(None) | Err(_) => None,
+    Body::from_stream(stream::unfold(
+        (body, deadline),
+        |(mut body, deadline)| async move {
+            let data = async {
+                match tokio::time::timeout_at(deadline, body.frame()).await {
+                    Ok(Some(Ok(frame))) => match frame.into_data() {
+                        Ok(data) => Some(Ok::<Bytes, std::io::Error>(data)),
+                        // A trailer frame carries no bytes this hub relays and ends the stream:
+                        // graph-server sends none on `/v1/layout`, and a wrong answer about the end
+                        // of a snapshot is worse than a short one the caller re-reads at its cursor.
+                        Err(_trailers) => None,
+                    },
+                    // The end of the body, a transport error and the deadline all end the stream the
+                    // same way: the caller sees a short body and re-reads at its cursor.
+                    Ok(Some(Err(error))) => Some(Err(std::io::Error::other(error))),
+                    Ok(None) | Err(_) => None,
+                }
             }
-        }
-        .await;
-        data.map(|item| (item, (body, deadline)))
-    }))
+            .await;
+            data.map(|item| (item, (body, deadline)))
+        },
+    ))
 }
 
 /// The `error` and `message` of a refusal body, whole.
