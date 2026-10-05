@@ -71,8 +71,14 @@ pub async fn run_detector(
     detector: &Detector,
     client: &mut Client,
 ) -> Result<crate::pool::DetectorOutcome, StoreError> {
+    if !detector.claim_run() {
+        return Ok(crate::pool::DetectorOutcome::Match);
+    }
     refuse_if_unusable(client).await?;
-    let (high_water, ids) = detector.snapshot();
+    // S2: the mutex is taken BEFORE the snapshot and released only after the high-water has been
+    // raised again, so two connections opening at once cannot both decide to bump.
+    let _held = detector.guard().await;
+    let (high_water, ids) = snapshot_for_run(detector, client).await;
     let found = match compare(client, high_water.as_deref(), &ids).await {
         Ok(found) => found,
         Err(err) if is_undefined_table(&err) => {
@@ -84,11 +90,31 @@ pub async fn run_detector(
     match found {
         None => Ok(crate::pool::DetectorOutcome::Match),
         Some(workspaces) => {
+            // Step 8: the high-water is raised to the flush LSN read on THIS connection, and only
+            // after the bump has committed. A failed commit leaves both the high-water and the map
+            // alone, so the next connection bumps again.
+            let lsn = flush_lsn(client).await?;
             bump(client, workspaces).await?;
             detector.clear();
+            detector.set_high_water(&lsn);
             Ok(crate::pool::DetectorOutcome::Bumped { workspaces })
         }
     }
+}
+
+/// The snapshot for one run, taken before any read.
+///
+/// `hw-after-lsn` reverses the order: it reads the flush LSN first and *then* snapshots. That is
+/// precisely the bug S2 forbids — a commit landing in between raises the high-water above the LSN
+/// this run holds, so the run reads as a restore and bumps a healthy database.
+async fn snapshot_for_run(
+    detector: &Detector,
+    client: &mut Client,
+) -> (Option<String>, std::collections::BTreeMap<String, (u64, u64)>) {
+    if breaks::on("hw-after-lsn") {
+        let _ = flush_lsn(client).await;
+    }
+    detector.snapshot()
 }
 
 /// Is `err` PostgreSQL's `undefined_table` (`42P01`)?
@@ -137,18 +163,20 @@ async fn compare_in_txn(
         )
         .await?;
     let flush = flush_lsn(client).await?;
-    // §5.3 step 2: the LSN read is compared against the *snapshotted* high-water, bound as a
-    // parameter, so a commit landing between the snapshot and this read cannot look like a
-    // restore. `hw-after-lsn` snapshots afterwards, which is the bug this ordering forbids.
+    // §5.3 step 2: the LSN read is compared against the *snapshotted* high-water, so a commit
+    // landing between the snapshot and this read cannot look like a restore.
     if let Some(have) = high_water
         && !lsn_at_least(&flush, have)
     {
         return Ok(Some(count_workspaces(client).await?));
     }
-    // §5.3: a row is a mismatch when the database's own key differs from `hub_meta`'s, or when a
-    // row sits below the entry this process holds for it, or is missing while the map holds it.
-    // `lsn-only` skips the map comparison entirely, which is the control for that leg.
-    if meta.is_none() && !ids_map.is_empty() {
+    // §5.3: a mismatch is a missing `hub_meta` row, a key in it that differs from the database's
+    // own, a row below the entry this process holds for it, or a row missing while the map holds
+    // it. `lsn-only` skips the map comparison, which is the control for that leg.
+    let Some(row) = meta else {
+        return Ok(Some(count_workspaces(client).await?));
+    };
+    if identity_differs(client, &row).await? {
         return Ok(Some(count_workspaces(client).await?));
     }
     let ids: Vec<String> = ids_map.keys().cloned().collect();
@@ -167,6 +195,64 @@ async fn compare_in_txn(
         }
     }
     Ok(None)
+}
+
+/// The database's own identity, in the same shape `hub_meta` stores it: a fresh cluster, a
+/// promotion and a logical restore each move a different one of these three, which is why all
+/// three are read rather than one.
+pub(crate) struct Identity {
+    /// `pg_control_system().system_identifier`: a fresh cluster has never seen it.
+    pub system_identifier: u64,
+    /// The WAL timeline: a promotion and a PITR change it at once.
+    pub timeline: String,
+    /// `pg_database.oid`: a logical restore into a new database has never seen it.
+    pub datoid: u32,
+}
+
+/// Read the database's own identity.
+pub(crate) async fn identity(client: &mut Client) -> Result<Identity, StoreError> {
+    let row = client
+        .query_one(
+            "SELECT (pg_control_system()).system_identifier, \
+             (SELECT oid FROM pg_database WHERE datname = current_database())",
+            &[],
+        )
+        .await?;
+    Ok(Identity {
+        system_identifier: row.get::<_, i64>(0) as u64,
+        timeline: timeline(client).await?,
+        datoid: row.get(1),
+    })
+}
+
+/// The WAL timeline, from the current WAL file's name.
+///
+/// WHY the WAL file and not the control file's checkpoint: a promotion changes the timeline at
+/// once, while `pg_control_checkpoint()` still names the old one until the next checkpoint. That
+/// lag is the whole reason §5.3 reads the former. `checkpoint-timeline` reads the latter, which is
+/// what makes a promotion invisible until the lag closes.
+pub(crate) async fn timeline(client: &mut Client) -> Result<String, StoreError> {
+    if breaks::on("checkpoint-timeline") {
+        let row = client
+            .query_one("SELECT (pg_control_checkpoint()).timeline_id::text", &[])
+            .await?;
+        return Ok(row.get::<_, String>(0));
+    }
+    let row = client
+        .query_one("SELECT substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8)", &[])
+        .await?;
+    Ok(row.get::<_, String>(0))
+}
+
+/// Does the database's own identity differ from the one `hub_meta` recorded?
+async fn identity_differs(
+    client: &mut Client,
+    row: &tokio_postgres::Row,
+) -> Result<bool, StoreError> {
+    let now = identity(client).await?;
+    Ok(row.get::<_, i64>(0) as u64 != now.system_identifier
+        || row.get::<_, String>(1) != now.timeline
+        || row.get::<_, u32>(2) != now.datoid)
 }
 
 /// The flush LSN on this connection.
@@ -225,6 +311,9 @@ async fn count_workspaces(client: &mut Client) -> Result<u64, StoreError> {
 }
 
 /// Give every workspace a fresh epoch and record the database's identity.
+///
+/// The transaction opens with the writer guard, so the bump moves no epoch from the triggers; the
+/// epoch it draws is the one `hub_next_epoch()` returns, one per workspace row.
 async fn bump(client: &mut Client, _workspaces: u64) -> Result<(), StoreError> {
     client.batch_execute("BEGIN").await?;
     client
@@ -233,20 +322,16 @@ async fn bump(client: &mut Client, _workspaces: u64) -> Result<(), StoreError> {
     client
         .batch_execute("UPDATE workspaces SET epoch = hub_next_epoch()")
         .await?;
+    let now = identity(client).await?;
     client
         .execute(
             "INSERT INTO hub_meta (one, system_identifier, timeline, datoid) \
-             VALUES (true, (pg_control_system()).system_identifier, \
-             substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8), \
-             (SELECT oid FROM pg_database WHERE datname = current_database())) \
+             VALUES (true, $1, $2, $3) \
              ON CONFLICT (one) DO UPDATE SET system_identifier = EXCLUDED.system_identifier, \
              timeline = EXCLUDED.timeline, datoid = EXCLUDED.datoid",
-            &[],
+            &[&(now.system_identifier as i64), &now.timeline, &now.datoid],
         )
         .await?;
     client.batch_execute("COMMIT").await?;
-    if breaks::on("hw-after-lsn") {
-        // Reserved for the control; see `flush_lsn`.
-    }
     Ok(())
 }

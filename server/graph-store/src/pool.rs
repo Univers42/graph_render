@@ -32,19 +32,44 @@ pub enum DetectorOutcome {
 /// which is what stops two connections opening at once from both deciding to bump.
 #[derive(Debug)]
 pub struct Detector {
+    /// Held from before the snapshot until after the high-water is raised again (S2).
+    ///
+    /// `tokio::sync::Mutex`, not `std::sync::Mutex`: the guard is held across `await` points, and
+    /// a `std` guard there would make the future non-`Send`, which every caller that is awaited
+    /// inside a spawned task requires.
+    guard: tokio::sync::Mutex<()>,
     /// The snapshotted high-water, `None` before this process has ever committed.
     high_water: Mutex<Option<String>>,
     /// The last-seen map. Never a `HashMap`: the §5.3 order is fixed and eviction is by recency.
     seen: Mutex<LastSeen>,
+    /// `detector-at-start` reads this: with the break on, only the first connection is checked.
+    started: std::sync::atomic::AtomicBool,
 }
 
 impl Detector {
     /// A detector with no high-water and an empty map, sized for `cap` entries.
     pub fn new(cap: usize) -> Detector {
         Detector {
+            guard: tokio::sync::Mutex::new(()),
             high_water: Mutex::new(None),
             seen: Mutex::new(LastSeen::new(cap)),
+            started: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// The lock held across one detector run.
+    pub(crate) async fn guard(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.guard.lock().await
+    }
+
+    /// Claim the right to run the detector, unless `detector-at-start` has already spent it.
+    ///
+    /// The break replaces "every new connection" with "the first one", which is what S1 forbids.
+    pub(crate) fn claim_run(&self) -> bool {
+        if !crate::breaks::on("detector-at-start") {
+            return true;
+        }
+        !self.started.swap(true, std::sync::atomic::Ordering::SeqCst)
     }
 
     /// The snapshotted high-water, or `None` before this process has committed.
@@ -52,6 +77,13 @@ impl Detector {
         match self.high_water.lock() {
             Ok(guard) => guard.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    /// Raise the high-water to `lsn` alone, after a bump has committed.
+    pub fn set_high_water(&self, lsn: &str) {
+        if let Ok(mut guard) = self.high_water.lock() {
+            *guard = Some(lsn.to_string());
         }
     }
 

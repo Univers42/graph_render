@@ -9,8 +9,9 @@
 # (scripts/orch/drun-check.sh). The image is built from deploy/postgres.Dockerfile; `docker build`
 # is not a run, so drun-check.sh stays green.
 #
-# Volumes: gm-hub-pg-data (the data directory) and gm-hub-pg-archive (WAL archive). Container
-# name: gm-hub-pg. Role: postgres owns it; the store connects as `hub`/`hub` on database `hub`.
+# Volumes: gm-hub-pg-data (the data directory), gm-hub-pg-archive (WAL archive) and
+# gm-hub-pg-snapshot (a tar of the data volume, used only by copy-data/restore-data).
+# Container name: gm-hub-pg. Role: postgres owns it; the store connects as `hub`/`hub` on database `hub`.
 #
 # Exit: 0 the verb did what it says · 1 it could not (docker or psql failed) · 2 usage
 #
@@ -28,6 +29,9 @@ name=gm-hub-pg
 image=gm-hub-pg:17
 data_vol=gm-hub-pg-data
 archive_vol=gm-hub-pg-archive
+# A third volume, used only by copy-data/restore-data: a volume snapshot belongs in its own
+# volume, and putting the tar in the archive volume would leave a multi-gigabyte file beside WAL.
+snap_vol=gm-hub-pg-snapshot
 
 image() {
   docker build -q -f deploy/postgres.Dockerfile -t "$image" deploy >/dev/null || return 1
@@ -44,7 +48,15 @@ url() {
   local addr
   addr=$(ip) || return 1
   [ -n "$addr" ] || return 1
-  printf 'postgres://hub:hub@%s:5432/hub' "$addr"
+  local u="postgres://hub:hub@$addr:5432/hub"
+  # WHY the URL is also written to a file: every container-level case (promotion, PITR, volume
+  # snapshot, kill/restart) replaces the container, and a replacement gets a NEW bridge IP. A test
+  # that read GM_HUB_PG_URL once would keep dialling the old address. `target/` is the same
+  # directory on the host and in the test container, so re-reading this file is how a test follows
+  # the server across a restore.
+  mkdir -p target
+  printf '%s' "$u" >target/hub-pg-url || return 1
+  printf '%s' "$u"
 }
 
 # Caveat: 90 polls of one second is a guess above a cold container on a loaded host. It is only
@@ -61,8 +73,22 @@ wait_ready() {
   return 1
 }
 
+prepare_volumes() {
+  # A named volume created by `docker run -v name:/path` is owned by root, and PostgreSQL runs as
+  # uid 999. Without this, `archive_command` cannot write the WAL archive — it fails every second
+  # with "Permission denied" — and a standby or a PITR has nothing to replay, so it comes up as a
+  # fresh primary. That failure is silent from the outside: the server is up and the data looks
+  # right, which is the worst shape for a detector test.
+  docker volume create "$data_vol" >/dev/null || return 1
+  docker volume create "$archive_vol" >/dev/null || return 1
+  docker volume create "$snap_vol" >/dev/null || return 1
+  "$drun" --rm --user 0 -v "$data_vol":/data -v "$archive_vol":/archive "$image" \
+    sh -c 'chown -R 999:999 /archive; chmod 1777 /archive'
+}
+
 start() {
   image || return 1
+  prepare_volumes || return 1
   if docker inspect "$name" >/dev/null 2>&1; then
     docker start "$name" >/dev/null || return 1
   else
@@ -100,7 +126,7 @@ stop() { docker stop "$name" >/dev/null 2>&1; return 0; }
 kill9() { docker kill "$name" >/dev/null 2>&1; return 0; }
 reset() {
   docker rm -f "$name" >/dev/null 2>&1
-  docker volume rm -f "$data_vol" "$archive_vol" >/dev/null 2>&1
+  docker volume rm -f "$data_vol" "$archive_vol" "$snap_vol" >/dev/null 2>&1
   return 0
 }
 
@@ -114,50 +140,84 @@ switch_wal() {
     -c "SELECT pg_switch_wal()" >/dev/null
 }
 
-# copy-data / restore-data: a tar through drun with both volumes mounted. Caveat: the copy is of a
-# STOPPED container's volume, so it is crash-consistent at best — that is exactly the case
-# `detector_bumps_on_a_small_gap_crash_consistent_copy` needs.
+# copy-data / restore-data: a tar through drun between the data volume and a third named volume.
+#
+# Caveat: the copy is taken from a STOPPED container's volume, so it is crash-consistent at best
+# and at worst a little behind the last commit. That is exactly the case
+# `detector_bumps_on_a_small_gap_crash_consistent_copy` needs, and it is why `hub-pg.sh
+# switch-wal` has to run BEFORE the copy: a segment still open is lost with the volume, while a
+# completed segment is in the archive.
 copy_data() {
   docker stop "$name" >/dev/null 2>&1
-  "$drun" --rm -v "$data_vol":/from:ro -v "$archive_vol":/to "$image" \
+  "$drun" --rm -v "$data_vol":/from:ro -v "$snap_vol":/to "$image" \
     sh -c 'cd /from && tar cf /to/hub-data.tar .'
 }
 restore_data() {
   docker rm -f "$name" >/dev/null 2>&1
-  "$drun" --rm -v "$data_vol":/to -v "$archive_vol":/from "$image" \
-    sh -c 'cd /to && rm -rf ./* && tar xf /from/hub-data.tar'
+  "$drun" --rm -v "$data_vol":/to -v "$snap_vol":/from "$image" \
+    sh -c 'cd /to && find . -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar xf /from/hub-data.tar'
 }
 
-# replica / replica-promote / pitr: recovery.signal and standby.signal written into the data
-# volume, then started (as a standby) or promoted. The recovery lines name the archive volume.
-recovery_lines() {
-  printf '%s\n' "restore_command = 'cp /archive/%f %p'" "recovery_target_timeline = 'latest'"
+# replica / replica-promote / pitr.
+#
+# WHY the recovery settings go into postgresql.conf and a bare `recovery.signal` is created:
+# PostgreSQL 12 removed `recovery.conf` entirely, so a file named that is silently ignored and the
+# server comes up as a fresh primary with no standby.signal — which would make a promotion test
+# pass for the wrong reason. `standby.signal` is what keeps it a standby.
+recovery_settings() {
+  printf '%s\n' \
+    "restore_command = 'cp /archive/%f %p'" \
+    "recovery_target_timeline = 'latest'" \
+    "hot_standby = on"
 }
-replica() {
-  recovery_lines >target/hub-recovery.conf || return 1
+
+# Write the recovery settings and the signal files into the data volume, then start.
+# $1 is 'standby' or 'target'; $2, when 'target', is the recovery target time.
+start_recovery() {
+  local mode=$1 target=${2-}
+  {
+    recovery_settings
+    # WHY an `if` and not `[ -n "$target" ] && printf ...`: the `&&` form returns 1 when the
+    # condition is false, which is this block's exit status, so the `|| return 1` below fired and
+    # `replica` returned before it had replaced the container — leaving the ORIGINAL primary
+    # running and the test dialling a server that was never a standby.
+    if [ -n "$target" ]; then printf "recovery_target_time = '%s'\n" "$target"; fi
+  } >target/hub-recovery.conf || return 1
   docker rm -f "$name" >/dev/null 2>&1
-  "$drun" --rm -v "$data_vol":/data -v "$archive_vol":/archive "$image" \
-    sh -c 'cp /w/target/hub-recovery.conf /data/recovery.conf && touch /data/standby.signal' || return 1
   image || return 1
-  "$drun" --name "$name" -d -e POSTGRES_PASSWORD=hub -e POSTGRES_DB=hub -v "$data_vol":/var/lib/postgresql/data \
-    -v "$archive_vol":/archive "$image" >/dev/null || return 1
+  # The settings are copied in before the server starts, and the signal file decides whether it
+  # comes up as a standby (waiting) or replays to the target and promotes itself.
+  "$drun" --rm -v "$data_vol":/data -v "$archive_vol":/archive -v "$PWD/target":/w \
+    "$image" sh -c "set -eu
+      cat /w/hub-recovery.conf >> /data/postgresql.conf
+      rm -f /data/standby.signal /data/recovery.signal /data/recovery.conf
+      [ '$mode' = standby ] && touch /data/standby.signal || touch /data/recovery.signal" || return 1
+  "$drun" --name "$name" -d -e POSTGRES_PASSWORD=hub -e POSTGRES_DB=hub \
+    -v "$data_vol":/var/lib/postgresql/data -v "$archive_vol":/archive "$image" >/dev/null || return 1
   wait_ready 90
 }
+
+# A standby on a copy of the data volume, following the archive.
+replica() {
+  start_recovery standby
+}
+
+# Promote the running standby, in place.
+#
+# `pg_promote` over SQL rather than `pg_ctl promote`: it reaches the server through the network
+# namespace, so it does not need the PGDATA path (which differs between PostgreSQL majors — 18
+# moved it to a `pgdata` subdirectory) and it cannot get that path wrong.
 replica_promote() {
   "$drun" --rm --network "container:$name" "$image" \
-    pg_ctl -D /var/lib/postgresql/data/pgdata promote -w
+    psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d hub \
+    -c "SELECT pg_promote(true, 60)" >/dev/null
+  wait_ready 90
 }
+
+# Replay the archive to a wall-clock time, then promote.
 pitr() {
   [ $# -eq 1 ] || { echo "hub-pg: pitr needs a target time" >&2; exit 2; }
-  recovery_lines >target/hub-recovery.conf || return 1
-  printf "recovery_target_time = '%s'\n" "$1" >>target/hub-recovery.conf || return 1
-  docker rm -f "$name" >/dev/null 2>&1
-  "$drun" --rm -v "$data_vol":/data -v "$archive_vol":/archive "$image" \
-    sh -c 'cp /w/target/hub-recovery.conf /data/recovery.conf && touch /data/standby.signal' || return 1
-  image || return 1
-  "$drun" --name "$name" -d -e POSTGRES_PASSWORD=hub -e POSTGRES_DB=hub -v "$data_vol":/var/lib/postgresql/data \
-    -v "$archive_vol":/archive "$image" >/dev/null || return 1
-  wait_ready 90
+  start_recovery target "$1"
 }
 
 run() {
