@@ -144,13 +144,17 @@ MILLION = [
     ("run", "appearance.glow", {"on": False}),
     ("run", "appearance.background", {"mode": "theme"}),
     ("run", "appearance.scale", {"factor": 0.3}),
+    ("run", "view.zoom", {"factor": 40}),
     ("chrome", False),
     ("roll",),
-    ("hold", 2.0),
-    ("still", "09-million"),
-    ("glide", {"zoom": 12, "ms": 6000}),
-    ("hold", 1.0),
-    ("still", "10-million-zoom"),
+    ("hold", 1.5),
+    ("still", "09-million-close"),
+    ("glide", {"zoom": 1 / 40, "ms": 7000}),
+    ("hold", 1.5),
+    ("still", "10-million"),
+    ("caption", "A million-node transition", "spiral to grid, tweened on the GPU"),
+    *layout("grid", 3.0),
+    ("still", "10b-million-grid"),
 ]
 
 OUTRO = [
