@@ -62,11 +62,8 @@ async fn changes_returns_410_for_a_cursor_below_what_is_kept() {
     // change, and `put_manifest` writes no seq for byte-identical content, so a reused name could
     // never register its plugin again and the case would fail in the fixture rather than here.
     let ws = db::unique("pruned");
-    eprintln!("DEBUG ws={ws}");
-    db::forget(&hub.app, &ws).await;
     loaded(&hub, &ws, "task", 3).await;
     let epoch = epoch_of(&hub, &ws).await;
-    eprintln!("DEBUG epoch={epoch}");
     db::drop_changes(&hub.app, &ws).await;
     let reply = hub
         .get_with(&format!("/v1/workspaces/{ws}/changes?since={epoch}.1"))
