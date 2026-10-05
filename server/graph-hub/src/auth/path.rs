@@ -91,9 +91,7 @@ pub fn ids_of(uri: &Uri) -> Result<Ids, HubApiError> {
             ..Ids::default()
         }),
         ["workspaces", ws, "plugins", plugin] => plugin_ids(ws, plugin),
-        ["workspaces", ws, "plugins", plugin, kind]
-            if *kind == "batches" || *kind == "records" =>
-        {
+        ["workspaces", ws, "plugins", plugin, kind] if *kind == "batches" || *kind == "records" => {
             plugin_ids(ws, plugin)
         }
         ["workspaces", ws, "records", plugin, collection, id] => {
@@ -134,7 +132,11 @@ fn split(path: &str) -> Result<Vec<String>, HubApiError> {
 
 /// A workspace id.
 fn workspace(value: &str) -> Result<String, HubApiError> {
-    check_segment(value, "workspace id", graph_contract::hub::check_workspace_id)
+    check_segment(
+        value,
+        "workspace id",
+        graph_contract::hub::check_workspace_id,
+    )
 }
 
 /// A plugin id.
@@ -144,7 +146,11 @@ fn plugin_id(value: &str) -> Result<String, HubApiError> {
 
 /// A collection id.
 fn collection_id(value: &str) -> Result<String, HubApiError> {
-    check_segment(value, "collection id", graph_contract::hub::check_collection_id)
+    check_segment(
+        value,
+        "collection id",
+        graph_contract::hub::check_collection_id,
+    )
 }
 
 /// A record id.

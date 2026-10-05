@@ -31,7 +31,10 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// Serves until `SIGTERM` or `SIGINT`, owning the runtime. Exit 0 after the loop ends, 1 when the
 /// listener could not start.
 pub fn run(addr: SocketAddr, limits: Connections, app: Arc<App>) -> ExitCode {
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
         Err(error) => return fail(&error),
     };
@@ -85,7 +88,11 @@ struct Acceptor {
 impl Acceptor {
     fn new(router: Router, limits: Connections) -> Self {
         let slots = Arc::new(Semaphore::new(limits.max_connections));
-        Self { router, limits, slots }
+        Self {
+            router,
+            limits,
+            slots,
+        }
     }
 
     /// The next connection once a slot is free; past the cap the kernel backlog holds it.

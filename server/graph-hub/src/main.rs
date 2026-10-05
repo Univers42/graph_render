@@ -41,7 +41,10 @@ fn serve_from_env() -> ExitCode {
         Ok(settings) => settings,
         Err(refused) => return refuse_config(&refused),
     };
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
         Ok(runtime) => runtime,
         Err(error) => return fail(&error.to_string()),
     };

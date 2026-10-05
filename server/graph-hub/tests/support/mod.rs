@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
+pub mod db;
 pub mod motor;
 pub use motor::*;
 
@@ -66,18 +67,17 @@ impl Reply {
 
     /// The body's `error` field.
     pub fn error(&self) -> String {
-        self field("error")
+        self.field("error")
     }
 
     /// The body's `message` field.
     pub fn message(&self) -> String {
-        self field("message")
+        self.field("message")
     }
 
     /// One field of a JSON body.
     fn field(&self, name: &str) -> String {
-        let body: serde_json::Value =
-            serde_json::from_slice(&self.body).expect("a JSON body");
+        let body: serde_json::Value = serde_json::from_slice(&self.body).expect("a JSON body");
         body[name].as_str().expect("a JSON string field").to_owned()
     }
 
@@ -121,8 +121,14 @@ pub fn hub_with_grants(grants: &str, env: &[(&str, &str)]) -> Hub {
     let keys_file = write_private(&dir.join("keys"), &format!("{}\n", minted.line));
     let grants_file = write_private(&dir.join("grants"), grants);
     let mut vars: BTreeMap<String, String> = BTreeMap::new();
-    vars.insert("GRAPH_HUB_KEYS_FILE".into(), keys_file.display().to_string());
-    vars.insert("GRAPH_HUB_GRANTS_FILE".into(), grants_file.display().to_string());
+    vars.insert(
+        "GRAPH_HUB_KEYS_FILE".into(),
+        keys_file.display().to_string(),
+    );
+    vars.insert(
+        "GRAPH_HUB_GRANTS_FILE".into(),
+        grants_file.display().to_string(),
+    );
     for (name, value) in env {
         vars.insert((*name).to_owned(), (*value).to_owned());
     }
@@ -162,7 +168,7 @@ fn hub_over(
     let lookup = |name: &str| vars.get(name).map(Into::into);
     let settings = graph_hub::config::Settings::from_env(&lookup).expect("the test settings");
     let (log, sink) = log_sink();
-    let app = Arc::new(App::from_settings(&settings, sink).expect("the test state"));
+    let app = App::from_settings(&settings, sink).expect("the test state");
     Hub {
         router: graph_hub::router(Arc::clone(&app)),
         app,
@@ -221,26 +227,42 @@ impl Hub {
 
     /// `GET path` with this fixture's key.
     pub async fn get_with(&self, path: &str) -> Reply {
-        self.send(self.request("GET", path).body(Body::empty()).expect("the request"))
-            .await
+        self.send(
+            self.request("GET", path)
+                .body(Body::empty())
+                .expect("the request"),
+        )
+        .await
     }
 
     /// `GET path` with `key`, which may be a key nobody minted or a name nobody holds.
     pub async fn get_as(&self, key: &str, path: &str) -> Reply {
-        self.send(self.request_as(key, "GET", path).body(Body::empty()).expect("the request"))
-            .await
+        self.send(
+            self.request_as(key, "GET", path)
+                .body(Body::empty())
+                .expect("the request"),
+        )
+        .await
     }
 
     /// `POST path` with this fixture's key and `body`.
     pub async fn post(&self, path: &str, body: impl Into<Body>) -> Reply {
-        self.send(self.request("POST", path).body(body.into()).expect("the request"))
-            .await
+        self.send(
+            self.request("POST", path)
+                .body(body.into())
+                .expect("the request"),
+        )
+        .await
     }
 
     /// `PUT path` with this fixture's key and `body`.
     pub async fn put(&self, path: &str, body: impl Into<Body>) -> Reply {
-        self.send(self.request("PUT", path).body(body.into()).expect("the request"))
-            .await
+        self.send(
+            self.request("PUT", path)
+                .body(body.into())
+                .expect("the request"),
+        )
+        .await
     }
 
     /// `GET path` with no credential, as `GET path` with a header this fixture did not set.

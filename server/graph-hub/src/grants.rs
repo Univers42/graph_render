@@ -99,7 +99,8 @@ impl Grants {
         let mut map: BTreeMap<String, Vec<Grant>> = Default::default();
         let mut lines = 0usize;
         for (index, raw) in text.split('\n').enumerate() {
-            let Some(grant) = parse_line(raw).map_err(|why| format!("line {}: {why}", index + 1))?
+            let Some(grant) =
+                parse_line(raw).map_err(|why| format!("line {}: {why}", index + 1))?
             else {
                 continue;
             };
@@ -126,9 +127,7 @@ impl Grants {
         if breaks::on("skip-grant") {
             return true;
         }
-        self.of(key)
-            .iter()
-            .any(|grant| grant.covers(ws, need))
+        self.of(key).iter().any(|grant| grant.covers(ws, need))
     }
 }
 
@@ -151,15 +150,25 @@ fn parse_line(raw: &str) -> Result<Option<(String, Grant)>, String> {
     let mut fields = line.split_whitespace();
     let name = fields.next().unwrap_or_default();
     check_name(name)?;
-    let ws = fields.next().ok_or_else(|| String::from("expected <key> <ws|*> <mode>"))?;
+    let ws = fields
+        .next()
+        .ok_or_else(|| String::from("expected <key> <ws|*> <mode>"))?;
     if ws != "*" {
         graph_contract::hub::check_workspace_id(ws).map_err(|error| error.to_string())?;
     }
-    let mode = fields.next().ok_or_else(|| String::from("expected <key> <ws|*> <mode>"))?;
+    let mode = fields
+        .next()
+        .ok_or_else(|| String::from("expected <key> <ws|*> <mode>"))?;
     if fields.next().is_some() {
         return Err(String::from("expected <key> <ws|*> <mode>"));
     }
-    Ok(Some((name.to_owned(), Grant { ws: ws.to_owned(), mode: parse_mode(mode)? })))
+    Ok(Some((
+        name.to_owned(),
+        Grant {
+            ws: ws.to_owned(),
+            mode: parse_mode(mode)?,
+        },
+    )))
 }
 
 /// `read`, `write:<plugin>` or `admin`.

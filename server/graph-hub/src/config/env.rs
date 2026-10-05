@@ -137,7 +137,12 @@ impl Env<'_> {
     }
 
     /// The value as a `usize` count of things a semaphore or a page holds.
-    pub fn count(&self, name: &'static str, default: usize, max: usize) -> Result<usize, ConfigError> {
+    pub fn count(
+        &self,
+        name: &'static str,
+        default: usize,
+        max: usize,
+    ) -> Result<usize, ConfigError> {
         self.number(name, default, 1..=max)
     }
 

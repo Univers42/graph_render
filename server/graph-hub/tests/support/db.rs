@@ -36,7 +36,8 @@ pub fn url() -> String {
 /// failure is "cannot be reached" and never a timeout. A case that wanted a *hanging* server would
 /// need a blackholed address, which this host does not offer; unreachable is what §6 checks.
 pub fn dead_url() -> String {
-    let (head, database) = url().rsplit_once('/').expect("GM_HUB_PG_URL has a database");
+    let base = url();
+    let (head, database) = base.rsplit_once('/').expect("GM_HUB_PG_URL has a database");
     let (scheme, _) = head.split_once('@').expect("GM_HUB_PG_URL has a role");
     format!("{scheme}@127.0.0.1:1/{database}")
 }
@@ -57,7 +58,11 @@ pub async fn store_on(url: &str) -> Store {
 
 /// The URL of a database of this test's own, created `C`-collated and UTF8 from `template0`.
 pub async fn fresh(name: &str) -> String {
-    create(name, "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'").await
+    create(
+        name,
+        "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'",
+    )
+    .await
 }
 
 /// The URL of a database of this test's own that is **LATIN1** rather than UTF8, which is what the
@@ -66,7 +71,11 @@ pub async fn fresh(name: &str) -> String {
 /// `TEMPLATE template0` is what makes it possible at all: the `hub` database's own encoding cannot be
 /// changed, and a template carrying the wrong encoding cannot hold a database with a different one.
 pub async fn fresh_latin1(name: &str) -> String {
-    create(name, "TEMPLATE template0 ENCODING 'LATIN1' LC_COLLATE 'C' LC_CTYPE 'C'").await
+    create(
+        name,
+        "TEMPLATE template0 ENCODING 'LATIN1' LC_COLLATE 'C' LC_CTYPE 'C'",
+    )
+    .await
 }
 
 /// The URL of a database of this test's own whose collation is not `C`.
@@ -91,7 +100,7 @@ pub async fn drop_database(url: &str) {
         return;
     };
     let admin = store_on(&admin_url(url)).await;
-    let Ok(mut client) = admin.client().await else {
+    let Ok(client) = admin.client().await else {
         return;
     };
     let _ = client
@@ -114,7 +123,7 @@ async fn create(name: &str, options: &str) -> String {
     let database = database_name(name);
     let base = url();
     let admin = store_on(&admin_url(&base)).await;
-    let mut client = admin.client().await.expect("an admin connection");
+    let client = admin.client().await.expect("an admin connection");
     let _ = client
         .batch_execute(&format!(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \

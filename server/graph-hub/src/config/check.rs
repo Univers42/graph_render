@@ -24,12 +24,12 @@ impl Settings {
     /// value that is legal here stays legal for the life of the process. The escape hatch for a
     /// wrong deployment is the variable itself.
     pub async fn check(&self, db: &Store) -> Result<(), ConfigError> {
-        self.check_numbers()?;
-        self.check_pool()?;
         if breaks::on("no-start-check") {
             self.log_skipped_checks();
             return Ok(());
         }
+        self.check_numbers()?;
+        self.check_pool()?;
         self.check_pages()?;
         self.check_motor()?;
         check_database(db).await
@@ -104,10 +104,16 @@ impl Settings {
     fn log_skipped_checks(&self) {
         let skipped = serde_json::json!({
             "event": "start-check",
-            "skipped": ["GRAPH_HUB_RETAIN_BYTES", "GRAPH_HUB_CHANGES_BYTES", "GRAPH_HUB_MOTOR_TIMEOUT_MS"],
+            "skipped": "every §6 refusal, including the two that read the database",
             "break": "no-start-check",
             "pool": self.store.pool,
             "permits": self.gates.writers + self.gates.readers + self.gates.layouts,
+            "changes_bytes": self.limits.changes_bytes,
+            "retain_bytes": self.limits.retain_bytes,
+            "motor_timeout_ms": self.motor_timeout.as_millis(),
+            "db_url": if self.db_url.is_empty() { "unset" } else { "set" },
+            "keys_file": if self.keys_file.as_os_str().is_empty() { "unset" } else { "set" },
+            "grants_file": if self.grants_file.as_os_str().is_empty() { "unset" } else { "set" },
         });
         eprintln!("graph-hub: {skipped}");
     }
@@ -128,9 +134,11 @@ pub async fn check_database(db: &Store) -> Result<(), ConfigError> {
         .await
         .map_err(|_| ConfigError::new("GRAPH_HUB_DB_URL", "cannot be reached"))?;
     let encoding: String = client
-        .query_one("SELECT pg_encoding_to_char(encoding) FROM pg_database \
+        .query_one(
+            "SELECT pg_encoding_to_char(encoding) FROM pg_database \
                     WHERE datname = current_database()",
-                   &[])
+            &[],
+        )
         .await
         .map_err(|_| ConfigError::new("GRAPH_HUB_DB_URL", "cannot be read"))?
         .get(0);
@@ -139,7 +147,10 @@ pub async fn check_database(db: &Store) -> Result<(), ConfigError> {
         return Err(ConfigError::new("GRAPH_HUB_DB_URL", reason));
     }
     let collation: String = client
-        .query_one("SELECT datcollate FROM pg_database WHERE datname = current_database()", &[])
+        .query_one(
+            "SELECT datcollate FROM pg_database WHERE datname = current_database()",
+            &[],
+        )
         .await
         .map_err(|_| ConfigError::new("GRAPH_HUB_DB_URL", "cannot be read"))?
         .get(0);

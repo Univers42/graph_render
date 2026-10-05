@@ -54,8 +54,11 @@ pub fn credential(pair: &Arc<Pair>, headers: &HeaderMap) -> Result<String, HubAp
     if values.next().is_some() {
         return Err(HubApiError::BadRequest("one Authorization header at most"));
     }
-    let value = first.to_str().map_err(|_| HubApiError::Unauthorized("missing or unknown API key"))?;
-    let token = App::credential_of(value).ok_or(HubApiError::Unauthorized("missing or unknown API key"))?;
+    let value = first
+        .to_str()
+        .map_err(|_| HubApiError::Unauthorized("missing or unknown API key"))?;
+    let token =
+        App::credential_of(value).ok_or(HubApiError::Unauthorized("missing or unknown API key"))?;
     pair.0
         .name_of(token)
         .map(str::to_owned)

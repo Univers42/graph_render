@@ -5,10 +5,16 @@
 //! hub's own copy and the store's copy. This file is what says the two copies are one number.
 
 use std::collections::BTreeMap;
+use std::os::unix::ffi::OsStringExt;
 
 use graph_hub::config::{NAMES, Settings};
 
-use crate::support;
+use crate::settings as read;
+
+/// §6's defaults over `env`, with a refusal a failure: this file tests the reader, not the checks.
+fn settings(env: &[(&str, &str)]) -> Settings {
+    read(env).expect("the settings under test")
+}
 
 /// §6's table, in its own order, every default a literal.
 #[test]
@@ -17,8 +23,16 @@ fn config_defaults_match_section_6() {
     let limits = settings.limits;
     assert_eq!(limits.max_body, 4 << 20, "GRAPH_HUB_MAX_BODY");
     assert_eq!(limits.max_batch, 10_000, "GRAPH_HUB_MAX_BATCH");
-    assert_eq!(limits.max_record_bytes, 1 << 20, "GRAPH_HUB_MAX_RECORD_BYTES");
-    assert_eq!(limits.max_plugin_bytes, 16 << 20, "GRAPH_HUB_MAX_PLUGIN_BYTES");
+    assert_eq!(
+        limits.max_record_bytes,
+        1 << 20,
+        "GRAPH_HUB_MAX_RECORD_BYTES"
+    );
+    assert_eq!(
+        limits.max_plugin_bytes,
+        16 << 20,
+        "GRAPH_HUB_MAX_PLUGIN_BYTES"
+    );
     assert_eq!(limits.max_doc_bytes, 64 << 20, "GRAPH_HUB_MAX_DOC_BYTES");
     assert_eq!(limits.retain, 100_000, "GRAPH_HUB_RETAIN");
     assert_eq!(limits.retain_bytes, 512 << 20, "GRAPH_HUB_RETAIN_BYTES");
@@ -26,8 +40,15 @@ fn config_defaults_match_section_6() {
     assert_eq!(settings.gates.writers, 2, "GRAPH_HUB_WRITERS");
     assert_eq!(settings.gates.readers, 2, "GRAPH_HUB_READS");
     assert_eq!(settings.gates.layouts, 1, "GRAPH_HUB_LAYOUTS");
-    assert_eq!(settings.gates.writers_per_key, 1, "GRAPH_HUB_WRITERS_PER_KEY");
-    assert_eq!(limits.body_timeout.as_millis(), 10_000, "GRAPH_HUB_BODY_TIMEOUT_MS");
+    assert_eq!(
+        settings.gates.writers_per_key, 1,
+        "GRAPH_HUB_WRITERS_PER_KEY"
+    );
+    assert_eq!(
+        limits.body_timeout.as_millis(),
+        10_000,
+        "GRAPH_HUB_BODY_TIMEOUT_MS"
+    );
     assert_eq!(
         settings.connections.max_connections, 256,
         "GRAPH_HUB_MAX_CONNECTIONS"
@@ -62,7 +83,10 @@ fn config_defaults_match_section_6() {
     );
     assert_eq!(limits.timeout.as_millis(), 30_000, "GRAPH_HUB_TIMEOUT_MS");
     assert_eq!(settings.sse_page, limits.sse_page, "lifted out of Limits");
-    assert_eq!(settings.motor_timeout, limits.motor_timeout, "lifted out of Limits");
+    assert_eq!(
+        settings.motor_timeout, limits.motor_timeout,
+        "lifted out of Limits"
+    );
     assert_eq!(settings.timeout, limits.timeout, "lifted out of Limits");
 }
 
@@ -70,10 +94,30 @@ fn config_defaults_match_section_6() {
 /// (Decision 5) and the two credential paths are unset (Decision 7).
 #[test]
 fn the_five_unbounded_names_match_decision_5_and_7() {
-    let settings = settings(&[]);
-    assert_eq!(settings.db_url, "", "GRAPH_HUB_DB_URL is empty in defaults()");
-    assert_eq!(settings.keys_file.as_os_str(), "", "GRAPH_HUB_KEYS_FILE unset");
-    assert_eq!(settings.grants_file.as_os_str(), "", "GRAPH_HUB_GRANTS_FILE unset");
+    // The five names are read as empty here, which is what "unset" means to `Env::text`: the shared
+    // fixture sets the credential files, so they are named empty to read their defaults.
+    let settings = read(&[
+        ("GRAPH_HUB_DB_URL", ""),
+        ("GRAPH_HUB_KEYS_FILE", ""),
+        ("GRAPH_HUB_GRANTS_FILE", ""),
+        ("GRAPH_HUB_MOTOR_KEY_FILE", ""),
+        ("GRAPH_HUB_MOTOR_URL", ""),
+    ])
+    .expect("the defaults");
+    assert_eq!(
+        settings.db_url, "",
+        "GRAPH_HUB_DB_URL is empty in defaults()"
+    );
+    assert_eq!(
+        settings.keys_file.as_os_str(),
+        "",
+        "GRAPH_HUB_KEYS_FILE unset"
+    );
+    assert_eq!(
+        settings.grants_file.as_os_str(),
+        "",
+        "GRAPH_HUB_GRANTS_FILE unset"
+    );
     assert_eq!(settings.motor_url, "http://127.0.0.1:8080");
     assert_eq!(settings.motor_key_file.as_os_str(), "");
     assert_eq!(settings.bind.to_string(), "127.0.0.1", "GRAPH_HUB_BIND");
@@ -111,9 +155,15 @@ fn the_store_config_carries_the_same_numbers() {
 #[test]
 fn every_hub_env_name_is_read() {
     assert_eq!(NAMES.len(), 31, "five unbounded names plus §6's twenty-six");
-    let text = ["GRAPH_HUB_DB_URL", "GRAPH_HUB_KEYS_FILE", "GRAPH_HUB_GRANTS_FILE"];
+    let text = [
+        "GRAPH_HUB_DB_URL",
+        "GRAPH_HUB_KEYS_FILE",
+        "GRAPH_HUB_GRANTS_FILE",
+        "GRAPH_HUB_MOTOR_KEY_FILE",
+        "GRAPH_HUB_MOTOR_URL",
+    ];
     for name in NAMES {
-        let refused = settings(&[(name, "not-a-number")]);
+        let refused = read(&[(name, "not-a-number")]);
         if text.contains(&name) {
             assert!(
                 refused.is_ok(),
@@ -135,24 +185,26 @@ fn every_hub_env_name_is_read() {
 #[test]
 fn the_three_refusal_messages_are_graph_servers_own() {
     assert_eq!(
-        settings(&[("GRAPH_HUB_MAX_BODY", "not-a-number")]).unwrap_err().reason,
+        read(&[("GRAPH_HUB_MAX_BODY", "not-a-number")])
+            .unwrap_err()
+            .reason,
         "is malformed"
     );
     assert_eq!(
-        settings(&[("GRAPH_HUB_MAX_BODY", "0")]).unwrap_err().reason,
+        read(&[("GRAPH_HUB_MAX_BODY", "0")]).unwrap_err().reason,
         "is out of range"
     );
     assert_eq!(
-        settings(&[("GRAPH_HUB_BIND", "not-an-address")]).unwrap_err().reason,
+        read(&[("GRAPH_HUB_BIND", "not-an-address")])
+            .unwrap_err()
+            .reason,
         "is malformed"
     );
     // A non-UTF-8 value: `OsString::from_vec` is the only way to build one, and it is unix-only,
     // which is the only platform this workspace builds for.
     let bytes = [0x66, 0x80];
     let bad = std::ffi::OsString::from_vec(bytes.to_vec());
-    let lookup = |name: &str| {
-        (name == "GRAPH_HUB_MAX_BODY").then(|| bad.clone())
-    };
+    let lookup = |name: &str| (name == "GRAPH_HUB_MAX_BODY").then(|| bad.clone());
     let refusal = Settings::from_env(&lookup).unwrap_err();
     assert_eq!(refusal.reason, "is not UTF-8");
     assert_eq!(refusal.name, "GRAPH_HUB_MAX_BODY");
@@ -172,25 +224,4 @@ fn the_start_line_names_every_variable_and_no_value() {
         assert_eq!(env[name], "unset", "{name} is unset in this fixture");
     }
     assert!(!line.contains("postgres://"), "{line}");
-}
-
-use std::os::unix::ffi::OsStringExt;
-
-/// The settings `env` describes, over a scratch credential pair so nothing here needs a database.
-///
-/// The credential files are written at 0640 because both loaders refuse anything wider, and they are
-/// not read: only `Settings::from_env` runs, and it reads names.
-pub(crate) fn settings(env: &[(&str, &str)]) -> Result<Settings, graph_hub::config::ConfigError> {
-    let dir = support::scratch();
-    let keys = support::write_private(&dir.join("keys"), "tester 0000\n");
-    let grants = support::write_private(&dir.join("grants"), "tester * admin\n");
-    let mut vars: BTreeMap<String, String> = BTreeMap::new();
-    vars.insert("GRAPH_HUB_KEYS_FILE".into(), keys.display().to_string());
-    vars.insert("GRAPH_HUB_GRANTS_FILE".into(), grants.display().to_string());
-    vars.insert("GRAPH_HUB_DB_URL".into(), String::from("postgres://hub:hub@127.0.0.1:5432/hub"));
-    for (name, value) in env {
-        vars.insert((*name).to_owned(), (*value).to_owned());
-    }
-    let lookup = |name: &str| vars.get(name).map(Into::into);
-    Settings::from_env(&lookup)
 }
