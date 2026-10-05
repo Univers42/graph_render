@@ -28,6 +28,7 @@
 
 pub mod batch;
 pub mod breaks;
+pub mod change;
 mod error;
 mod ids;
 pub mod manifest;
@@ -36,6 +37,7 @@ mod strict;
 #[cfg(test)]
 mod tests;
 
+pub use change::{ChangeHead, answer_json, change_json, check_change, manifest_change_json, max_change, notice_json};
 pub use error::HubError;
 pub use manifest::{Growth, Manifest, growth, manifest_json, read_manifest};
 pub use ids::{

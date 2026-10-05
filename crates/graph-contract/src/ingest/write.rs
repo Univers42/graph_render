@@ -126,19 +126,26 @@ fn link_json(link: &super::Link) -> String {
 }
 
 pub(crate) fn record(r: &super::Record) -> String {
-    let cells = cells(r);
     let mut out = String::new();
-    write_members(
-        &mut out,
-        &[
-            ("collection", quoted(&r.collection)),
-            ("deleted", r.deleted.to_string()),
-            ("id", quoted(&r.id)),
-            ("updatedAt", r.updated_at.to_string()),
-            ("values", members(&cells)),
-        ],
-    );
+    write_members(&mut out, &record_rows(r));
     out
+}
+
+/// The record's own members, already in key order, as `(key, value text)`.
+///
+/// The list rather than the joined text, because a second writer — the hub's change
+/// writer — needs to write the same record with one member *added* (`rev`). If it rebuilt
+/// the member table it would be a second list of a record's members to keep in step with
+/// this one; if it appended, its bytes would not be in key order. So the table is made
+/// once, here, and both writers join it.
+pub(crate) fn record_rows(r: &super::Record) -> Vec<(&'static str, String)> {
+    vec![
+        ("collection", quoted(&r.collection)),
+        ("deleted", r.deleted.to_string()),
+        ("id", quoted(&r.id)),
+        ("updatedAt", r.updated_at.to_string()),
+        ("values", members(&cells(r))),
+    ]
 }
 
 /// One `(field id, value text)` row per *distinct* field id, in the order the cells
@@ -168,7 +175,7 @@ fn cells(r: &super::Record) -> Vec<(&str, String)> {
 
 /// `{...}` from rows already in key order. The caller sorts; this only joins, so the
 /// two concerns cannot drift apart.
-fn members(rows: &[(&str, String)]) -> String {
+pub(crate) fn members(rows: &[(&str, String)]) -> String {
     let mut out = String::new();
     write_members(&mut out, rows);
     out

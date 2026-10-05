@@ -1,6 +1,7 @@
 //! The hub contract's own tests, one file per concern.
 
 mod batch;
+mod change;
 mod growth;
 mod manifest;
 mod support;
