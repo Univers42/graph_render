@@ -169,6 +169,15 @@ flock ~/goinfre/orch/bench.lock env DRUN_MEM=12g \
 git -C <repo> log --all --topo-order --graph --format=%H > target/git-lanes/<name>.graph
 scripts/orch/node-slim.sh node --experimental-strip-types examples/plugins/git/graph-width.mjs \
   target/git-lanes/<name>.graph
+
+# the width with the plugin on committer time, and git's own date order. Same motor, same tree;
+# only the plugin's format string differs. Times are unchanged, so this is one round, widths only.
+flock ~/goinfre/orch/bench.lock scripts/orch/node-slim.sh node --experimental-strip-types \
+  examples/plugins/git/bench.mjs \
+  target/wasm32-unknown-unknown/release/graph_wasm.wasm target/git-lanes/<name>.log   # -> layout.dag.lanes.width=<k>
+git -C <repo> log --all --date-order --graph --format=%H > target/git-lanes/<name>.date.graph
+scripts/orch/node-slim.sh node --experimental-strip-types examples/plugins/git/graph-width.mjs \
+  target/git-lanes/<name>.date.graph
 ```
 
 `bench.mjs` times `parseLog`, `toRows` + `rowsToIngest`, `JSON.stringify`, `motor.buildContract`,
@@ -184,17 +193,37 @@ the reference's own width: the maximum over lines of `(index of "*") / 2 + 1`, s
 Load before each run was printed by `bench.mjs`: **7.55**, **7.15**, **6.82** for the three rounds
 of the real histories and **6.12**, **5.95** for the synthetic's rounds. Times are wasm32 only.
 
-| input | n | m | build ms | lanes ms (wasm32) | sugiyama ms (wasm32) | lanes width | `git log --graph` width | note 5 | note 4 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| contributor-stats | 488 | 490 | 2.2 | 0.1 | 0.8 | 2 | 2 | 0 | 0 |
-| activitywatch | 1 271 | 1 356 | 5.7 | 0.2 | 28.1 | 6 | 4 | 0 | 0 |
-| aw-server-rust | 989 | 1 014 | 4.7 | 0.1 | 3.5 | 14 | 3 | 0 | 0 |
-| graph_render | 2 175 | 2 860 | 9.3 | 0.4 | 224.9 | 40 | 26 | 0 | 0 |
-| git/git | 85 928 | 107 694 | 570.1 | 14.7 | 111.3 | 364 | 106 | 0 | 0 |
-| synthetic (n = 10⁶, seed 1) | 1 000 000 | 1 049 603 | 5 917.6 | 186.7 | 763.8 | 75 | n/a | 0 | 0 |
+| input | n | m | build ms | lanes ms (wasm32) | sugiyama ms (wasm32) | lanes width (author time) | lanes width (committer time) | `git log --graph` width | `git log --graph --date-order width` | note 5 | note 4 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| contributor-stats | 488 | 490 | 2.2 | 0.1 | 0.8 | 2 | 2 | 2 | 2 | 0 | 0 |
+| activitywatch | 1 271 | 1 356 | 5.7 | 0.2 | 28.1 | 6 | 6 | 4 | 4 | 0 | 0 |
+| aw-server-rust | 989 | 1 014 | 4.7 | 0.1 | 3.5 | 14 | 8 | 3 | 4 | 0 | 0 |
+| graph_render | 2 175 | 2 860 | 9.3 | 0.4 | 224.9 | 40 | 40 | 26 | 36 | 0 | 0 |
+| git/git | 85 928 | 107 694 | 570.1 | 14.7 | 111.3 | 364 | 281 | 106 | 181 | 0 | 0 |
+| synthetic (n = 10⁶, seed 1) | 1 000 000 | 1 049 603 | 5 917.6 | 186.7 | 763.8 | 75 | n/a | n/a | n/a | 0 | 0 |
 
-The synthetic has no `git log --graph` width: it is not from a repository. `lanes width` is the
-lane count it drew; `git log --graph` width is the reference's, on the real histories.
+The synthetic has no `git log --graph` width in any column: it is not from a repository.
+The `lanes width` columns are the lane count it drew; the two `git log --graph` width columns are
+the reference's own, on the real histories, once in git's topo order and once in git's
+`--date-order`. Times do not depend on the plugin's format, so the time columns and the topo-order
+`git log --graph` width are from the first run and were not re-taken; only the two new columns were
+re-measured.
+
+### Why the two `lanes width` columns differ
+
+`lanes width (author time)` and `lanes width (committer time)` are the **same motor, the same tree,
+the same log, one round each** — they differ only in the plugin's format string, `%at` against
+`%ct`. The plugin feeds that field to the records as `updatedAt`, which the SDK's rows adapter maps
+onto `version`, and `layout.dag.lanes` orders rows by version. A rebased or cherry-picked commit
+keeps its old author time, so ordering by author time interleaves branches and spends more lanes
+than the history needs. Committer time is the time the commit was written, and is what git's own
+`--date-order` sorts on. On aw-server-rust the gap is 14 lanes to 8, on git/git 364 to 281.
+
+The `git log --graph --date-order width` column is the floor to read those against: git's own
+drawing in git's own date order. The committer-time column still sits above it (40 against 36 on
+graph_render, 281 against 181 on git/git), so switching the format recovers a large part of the
+overdraw but does not close it — the residual is the motor's greedy lane assignment, cause 1 of
+`docs/decisions/dag-lanes-merge.md`, not the plugin's time field.
 
 ### Targets
 
@@ -215,9 +244,16 @@ there — and on graph_render the gap is 224.9 ms against 0.4 ms.
 > **Caveat: the host is shared (1-minute load 4.9 to 7.6 throughout), so every median here is an
 > upper bound.** Container start-up (`node-slim`, `gr`) is outside all of them. Only the layout
 > time is a motor number; `build ms` is dominated by `JSON.stringify`/`buildContract` over a
-> 224 MB contract at 1M and is not part of either target. The synthetic's shape is the plugin's
-> own model (`synthetic.mjs`): no octopus merges, no cherry-picks, no clock skew, and its `%at` is
-> strictly increasing where a real history's is not.
+> 224 MB contract at 1M and is not part of either target. The two `lanes width` columns differ
+> **only in the plugin's format**: the same motor, the same tree, the same log, one round each, and
+> nothing under `crates/` differs between them — so the only variable is whether the plugin feeds
+> author time or **committer time**. The synthetic's shape is the plugin's own model
+> (`synthetic.mjs`): no octopus merges, no cherry-picks, no clock skew, and its committer time
+> (`%ct`) is strictly increasing where a real history's is not. The `graph_render` rows are the
+> one input that did not reproduce exactly: the author-time run read this tree at 2 175 commits,
+> the committer-time run at 2 212, so its two widths come from slightly different inputs. The
+> committer-time and date-order widths are single rounds, not medians of three, because times were
+> not re-taken; treat them as one sample, not a distribution.
 
 ## What it does not do
 
