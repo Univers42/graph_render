@@ -193,7 +193,7 @@ the reference's own width: the maximum over lines of `(index of "*") / 2 + 1`, s
 Load before each run was printed by `bench.mjs`: **7.55**, **7.15**, **6.82** for the three rounds
 of the real histories and **6.12**, **5.95** for the synthetic's rounds. Times are wasm32 only.
 
-| input | n | m | build ms | lanes ms (wasm32) | sugiyama ms (wasm32) | lanes width (author time) | lanes width (committer time) | `git log --graph` width | `git log --graph --date-order width` | note 5 | note 4 |
+| input | n | m | build ms | lanes ms (wasm32) | sugiyama ms (wasm32) | lanes width (author time) | lanes width (committer time) | `git log --graph` width | `git log --graph --date-order` width | note 5 | note 4 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | contributor-stats | 488 | 490 | 2.2 | 0.1 | 0.8 | 2 | 2 | 2 | 2 | 0 | 0 |
 | activitywatch | 1 271 | 1 356 | 5.7 | 0.2 | 28.1 | 6 | 6 | 4 | 4 | 0 | 0 |
