@@ -81,8 +81,8 @@ impl Drop for Motor {
 /// The real motor in process: graph-server's own `Settings`, key store, `App` and router, served
 /// by `axum::serve` on `127.0.0.1:0`, with its log lines in an in-memory buffer. Caveat: this
 /// panics rather than returning a half-built fixture, which is the right shape for a fixture: a
-/// motor that answered on a later failure would blame the wrong line, and the message always
-/// names [`PATIENCE`].
+/// motor that answered on a later failure would blame the wrong line. The readiness panic names
+/// [`PATIENCE`].
 pub async fn real() -> Motor {
     let (router, _key) = real_parts().await;
     serve(router, |status| status == StatusCode::OK).await
@@ -194,16 +194,6 @@ async fn healthz(addr: SocketAddr) -> Result<StatusCode, HyperError> {
     Ok(client.request(request).await?.status())
 }
 
-/// Readiness for the real motor: its own `/healthz` answers `200 ok` (`graph_server::router`).
-fn ok(status: StatusCode) -> bool {
-    status == StatusCode::OK
-}
-
-/// Readiness for the stub, whose every other path is its JSON 404: an answer is an answer.
-fn missing(status: StatusCode) -> bool {
-    status == StatusCode::NOT_FOUND
-}
-
 /// One scripted answer for [`stub`]. `body` wins when it is not empty; otherwise the
 /// `{"error","message"}` shape is written. Caveat: `content-type` is `application/json` either
 /// way, so a verbatim body is expected to be JSON text.
@@ -221,22 +211,12 @@ pub struct StubReply {
 impl StubReply {
     /// The JSON error shape: `status` carrying `error` and `message`.
     pub fn new(status: u16, error: &str, message: &str) -> Self {
-        Self {
-            status,
-            error: error.to_owned(),
-            message: message.to_owned(),
-            body: String::new(),
-        }
+        Self { status, error: error.into(), message: message.into(), body: String::new() }
     }
 
     /// A verbatim body, for the arms §5.2 relays unchanged.
     pub fn with_body(status: u16, body: &str) -> Self {
-        Self {
-            status,
-            error: String::new(),
-            message: String::new(),
-            body: body.to_owned(),
-        }
+        Self { status, error: String::new(), message: String::new(), body: body.into() }
     }
 
     /// The bytes this answer writes: `body` when it is set, else the `{"error","message"}` shape.
@@ -250,7 +230,7 @@ impl StubReply {
 
     /// The response this answer becomes. A status outside 1xx-5xx cannot be written, so it
     /// becomes a 500: the fixture's script is wrong, and the answer must still be a response.
-    fn into_response(self) -> Response {
+    fn into_reply(self) -> Response {
         let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         (status, [("content-type", "application/json")], self.text()).into_response()
     }
@@ -267,19 +247,19 @@ pub async fn stub(answers: Vec<StubReply>) -> Motor {
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .with_state(script);
-    serve(router, missing).await
+    serve(router, |status| status == StatusCode::NOT_FOUND).await
 }
 
 /// The next scripted answer, once the request body has been drained.
 async fn scripted(State(script): State<Arc<Mutex<Script>>>, body: Body) -> Response {
     discard(body).await;
     let reply = script.lock().expect("the stub's script lock").take();
-    reply.into_response()
+    reply.into_reply()
 }
 
 /// The stub's own 404, in the same `{"error","message"}` shape every other refusal uses.
 async fn not_found() -> Response {
-    StubReply::new(404, "NotFound", "the stub has no such method and path").into_response()
+    StubReply::new(404, "NotFound", "the stub has no such method and path").into_reply()
 }
 
 /// Reads the request body to its end and drops every frame. A peer streaming an upload blocks in
