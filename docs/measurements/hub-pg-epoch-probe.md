@@ -1,8 +1,9 @@
 # graph-hub: PostgreSQL 17 epoch triggers, restore, and `/changes` isolation
 
 Measured 2026-10-05 for the revision 3 verdict on `docs/decisions/graph-hub.md`, defects N1, N2 and
-N12. The verdict listed each PostgreSQL fact as UNKNOWN because none had been run. This record runs
-them. The sources and raw outputs are in `hub-pg-epoch-probe/`.
+N12, and for the revision 4 verdict, defect R3 (`run3.sh`). Each verdict listed the PostgreSQL facts
+it rested on as UNKNOWN because none had been run. This record runs them. The sources and raw outputs
+are in `hub-pg-epoch-probe/`.
 
 ## Conditions
 
@@ -20,6 +21,7 @@ them. The sources and raw outputs are in `hub-pg-epoch-probe/`.
 | 1 | `docker build -t gm-pg-probe:17 docs/measurements/hub-pg-epoch-probe` | 0 | |
 | 2 | `scripts/orch/drun --memory 1g --memory-swap 1g --rm -v "$PWD/docs/measurements/hub-pg-epoch-probe:/probe:ro" gm-pg-probe:17 bash /probe/run.sh` | 0 | `out.txt` |
 | 3 | the same with `run2.sh` | 0 | `out2.txt` |
+| 4 | the same with `run3.sh` | 0 | `out3.txt` |
 
 ## Results
 
@@ -59,6 +61,8 @@ Further facts from the same runs:
   `lc_collate` setting; the start check reads `pg_database.datcollate`.
 - **The restore detector inputs are readable without superuser** (`out2.txt`, as role `hub`):
   `pg_control_system().system_identifier`, `pg_control_checkpoint().timeline_id` and `pg_database.oid`.
+  `out3.txt` adds `pg_walfile_name(pg_current_wal_lsn())` and `pg_current_wal_lsn()`, also as `hub`.
+  The detector reads the timeline from the WAL file name, not from the checkpoint: see the next section.
 - **`pg_restore` bypasses the triggers.**
   - `pg_restore -l` lists the table data (`3418; 0 16386 TABLE DATA public t hub`) before the trigger
     (`3272; 2620 16390 TRIGGER public t tr hub`). The trigger exists only after the rows are loaded.
@@ -66,12 +70,43 @@ Further facts from the same runs:
     fresh database printed no notice, and `restored rows: 1`.
   - The restored database has a new oid (16391 against 16385). That is what the restore detector keys on.
 
+## Physical restores
+
+Measured for the revision 4 verdict, defect R3. `run3.sh` starts one primary with WAL archiving,
+takes a cold copy of its data directory (a volume snapshot) and two base backups, writes, then starts
+each copy on its own socket. Each row reads the detector's keys as role `hub`. "Below" compares the
+copy's `pg_current_wal_lsn()` with the primary's last LSN before the copies started (`0/6000000`),
+which is the high-water a running hub would hold.
+
+| Case | System id | Checkpoint timeline | WAL file timeline | Database oid | LSN below the high-water |
+|---|---|---|---|---|---|
+| primary, after the writes | 7693046474762506256 | 1 | `00000001` | 16385 | no |
+| standby promoted, at once | same | 1 | `00000002` | same | no |
+| standby promoted, after `CHECKPOINT` | same | 2 | `00000002` | same | no |
+| volume snapshot started on its own | same | 1 | `00000001` | same | yes (`0/20000A0`) |
+| base backup started without `recovery.signal` | same | 1 | `00000001` | same | yes (`0/40000A0`) |
+| point-in-time recovery to an earlier LSN, promoted | same | 3 | `00000003` | same | yes (`0/550DC80`) |
+
+- No physical restore changes the system id or the database oid. Those two keys catch only a logical
+  restore into a new database (the `pg_restore` facts above) or a fresh cluster.
+- After a promotion, `pg_control_checkpoint().timeline_id` still reads the old timeline until the
+  next checkpoint. The WAL file name changes at once, so the detector reads the timeline from
+  `substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8)`.
+- A volume snapshot or a base backup started without recovery keeps every key. Only the LSN
+  high-water sees it, and only while the hub that holds the high-water keeps running.
+- The point-in-time recovery took timeline 3, not 2: the promoted standby had archived
+  `00000002.history` into the shared archive.
+
 ## What this does not show
 
 - `ALTER TABLE ... DISABLE TRIGGER`, `pg_restore --disable-triggers`, and `pg_restore --clean` into the
   same database all bypass the triggers without changing the database oid. Only the runbook's manual
   bump catches them.
+- A volume snapshot or base backup restored while the hub is also restarted keeps every key and loses
+  the in-memory high-water. Only the runbook's manual bump catches it.
 - A point-in-time recovery whose host clock is also stepped back can reissue an epoch. Step 13 rewound
   only `epoch_clock`.
-- The probe ran the reduced schema, not the hub's. Slice 2's `hub-epoch` row reruns every case against
-  the real schema.
+- The promoted standby was caught up. A lagging standby promotes at an LSN below the primary's, which
+  the high-water also sees; that case was not run.
+- The probe ran the reduced schema and SQL by hand, not the hub. Slice 2's `hub-epoch` row reruns every
+  case against the real schema, with the detector running on each new pool connection.
