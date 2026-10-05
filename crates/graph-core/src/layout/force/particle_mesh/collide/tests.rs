@@ -204,15 +204,23 @@ fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
 }
 
 /// Offsets on the filter's own boundary: for a `dx` one ulp under the diameter, the largest
-/// `dy` whose `dx * dx + dy * dy` is still under `d2`, then one ulp past it. A `<` swapped
-/// for a `<=`, or a `d2` rounded the other way, shows on these and nowhere in a coarse grid.
+/// `dy` whose `dx * dx + dy * dy` is still under `d2`, then the next one up, which `d2` rounds
+/// onto. A `<` swapped for a `<=`, or a `d2` read the other way, shows on these and nowhere
+/// in a coarse grid. Bisected on the bit pattern, because stepping one ulp at a time up from
+/// zero walks every subnormal whose square underflows to zero — about 2^500 of them.
 fn edge_of_the_diameter() -> Vec<(f64, f64)> {
     let dx = f64::from_bits(CONTACT.reach.to_bits() - 1);
-    let mut dy = 0.0;
-    while dx * dx + dy * dy < CONTACT.d2 {
-        dy = f64::from_bits(dy.to_bits() + 1);
+    let (mut lo, mut hi) = (0.0f64.to_bits(), CONTACT.reach.to_bits());
+    while hi - lo > 1 {
+        let mid = (lo + hi) / 2;
+        if dx * dx + f64::from_bits(mid) * f64::from_bits(mid) < CONTACT.d2 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
     }
-    vec![(dx, dy), (dy, dx), (dx, f64::from_bits(dy.to_bits() + 1))]
+    let (under, over) = (f64::from_bits(lo), f64::from_bits(hi));
+    vec![(dx, under), (under, dx), (dx, over)]
 }
 
 /// The gather's hit-only push is `resolve`'s own half: the filter already decided the test,
