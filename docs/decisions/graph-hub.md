@@ -1,6 +1,6 @@
 # ADR — graph-hub: a stateful service that plugins feed
 
-- Status: **proposed**, revision 3 re-submitted to the `devil` on 2026-10-05. No hub code
+- Status: **proposed**, revision 4 re-submitted to the `devil` on 2026-10-05. No hub code
   before a verdict of PROCEED or PROCEED-WITH-CONDITIONS is recorded here.
 - Date: 2026-10-05
 - Design: `docs/superpowers/specs/2026-10-05-graph-service-plugins-design.md`
@@ -56,7 +56,17 @@ graph-server at the `server/` virtual root (D13). Auth reuse was accepted on fou
 a second header and the uniform 401; `pub fn bearer` with its first caller, slice confirmed by 4f;
 D13 resolved. Spec §13 maps every condition and defect to where revision 3 meets it.
 
-**Revision 3: pending.** Its verdict is recorded here when it comes.
+**Revision 3: BLOCK (2026-10-05).** Axes: blast radius 3, reversibility 3, cost on failure 4,
+confidence 3; the worst is cost on failure. Three defects carry the block: N1, the multi-event
+trigger DDL that PostgreSQL refuses, with `TRUNCATE`, the replica role and a restore bypassing the
+epoch, and a sweeper that would move it; N2, `/changes` reading headers and operations in two
+`READ COMMITTED` statements, so a prune between them loses operations silently; N6, a memory bound
+that does not cover every route. Thirteen more: N3–N5, N7–N16. Revision 2 conditions met: 1, 2, 3,
+6, 7, 11, 14, 16, 17, 18; partly met: 4, 5, 8, 9, 10, 12, 13, 15. The claim that H12 guarantees a
+readable document was refuted by `motor.rs:18-19`: a 422 also comes from the caller's layout. The
+PostgreSQL facts are measured in `docs/measurements/hub-pg-epoch-probe.md`; spec §14 maps every fix.
+
+**Revision 4: pending.** Its verdict is recorded here when it comes.
 
 ## Agreements before slice 2
 
