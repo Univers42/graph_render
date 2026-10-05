@@ -7,6 +7,8 @@
 
 #[path = "limits/gates.rs"]
 mod gates;
+#[path = "limits/refusals.rs"]
+mod refusals;
 #[path = "limits/reader.rs"]
 mod reader;
 mod support;

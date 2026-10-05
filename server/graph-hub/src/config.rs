@@ -17,6 +17,7 @@ pub use check::check_database;
 pub use env::{ConfigError, Env, Lookup, NAMES};
 
 use crate::breaks;
+use env::{read_connections, read_gates, read_limits, read_store, read_subscribers};
 use graph_store::StoreConfig;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -237,12 +238,12 @@ impl Settings {
             bind: env.bind(IpAddr::from([127, 0, 0, 1]))?,
             port: env.number("GRAPH_HUB_PORT", 8080, 0..=u16::MAX)?,
             db_url: env.text("GRAPH_HUB_DB_URL")?.unwrap_or_default(),
-            keys_file: path(&env, "GRAPH_HUB_KEYS_FILE")?,
-            grants_file: path(&env, "GRAPH_HUB_GRANTS_FILE")?,
+            keys_file: env::path(&env, "GRAPH_HUB_KEYS_FILE")?,
+            grants_file: env::path(&env, "GRAPH_HUB_GRANTS_FILE")?,
             motor_url: env
                 .text("GRAPH_HUB_MOTOR_URL")?
                 .unwrap_or_else(|| String::from("http://127.0.0.1:8080")),
-            motor_key_file: path(&env, "GRAPH_HUB_MOTOR_KEY_FILE")?,
+            motor_key_file: env::path(&env, "GRAPH_HUB_MOTOR_KEY_FILE")?,
             store,
             limits,
             connections: read_connections(&env)?,

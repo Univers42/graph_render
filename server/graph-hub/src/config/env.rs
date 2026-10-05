@@ -171,7 +171,7 @@ fn refuse(name: &'static str, reason: &'static str) -> ConfigError {
 }
 
 /// The byte caps and every duration, in §6's order. Each default is a literal.
-fn read_limits(env: &Env<'_>) -> Result<Limits, ConfigError> {
+pub(super) fn read_limits(env: &Env<'_>) -> Result<Limits, ConfigError> {
     Ok(Limits {
         max_body: capped(env.bytes("GRAPH_HUB_MAX_BODY", 4 << 20)?),
         max_batch: capped(env.number("GRAPH_HUB_MAX_BATCH", 10_000, 1..=1_000_000)?),
@@ -192,7 +192,7 @@ fn read_limits(env: &Env<'_>) -> Result<Limits, ConfigError> {
 }
 
 /// The connection limits, in §6's order.
-fn read_connections(env: &Env<'_>) -> Result<Connections, ConfigError> {
+pub(super) fn read_connections(env: &Env<'_>) -> Result<Connections, ConfigError> {
     Ok(Connections {
         max_connections: capped(env.count("GRAPH_HUB_MAX_CONNECTIONS", 256, 65_536)? as u64)
             as usize,
@@ -203,7 +203,7 @@ fn read_connections(env: &Env<'_>) -> Result<Connections, ConfigError> {
 }
 
 /// The four semaphore sizes, in §6's order.
-fn read_gates(env: &Env<'_>) -> Result<Gates, ConfigError> {
+pub(super) fn read_gates(env: &Env<'_>) -> Result<Gates, ConfigError> {
     Ok(Gates {
         writers: capped(env.count("GRAPH_HUB_WRITERS", 2, 1024)? as u64) as usize,
         readers: capped(env.count("GRAPH_HUB_READS", 2, 1024)? as u64) as usize,
@@ -213,7 +213,7 @@ fn read_gates(env: &Env<'_>) -> Result<Gates, ConfigError> {
 }
 
 /// The two subscriber caps, in §6's order.
-fn read_subscribers(env: &Env<'_>) -> Result<Subscribers, ConfigError> {
+pub(super) fn read_subscribers(env: &Env<'_>) -> Result<Subscribers, ConfigError> {
     Ok(Subscribers {
         max: capped(env.count("GRAPH_HUB_MAX_SUBSCRIBERS", 64, 65_536)? as u64) as usize,
         per_key: capped(env.count("GRAPH_HUB_MAX_SUBSCRIBERS_PER_KEY", 8, 65_536)? as u64) as usize,
@@ -223,7 +223,7 @@ fn read_subscribers(env: &Env<'_>) -> Result<Subscribers, ConfigError> {
 /// The store's own configuration, built from the reads already made plus the three variables only
 /// the store names. The three it shares (`max_body`, `max_batch`, `max_record_bytes`) come from
 /// [`Limits`], so a spec change that moves one moves both.
-fn read_store(env: &Env<'_>, limits: Limits) -> Result<StoreConfig, ConfigError> {
+pub(super) fn read_store(env: &Env<'_>, limits: Limits) -> Result<StoreConfig, ConfigError> {
     let mut store = StoreConfig::defaults();
     store.pool = env.number("GRAPH_HUB_DB_POOL", 8, 1..=1024)?;
     store.max_body = limits.max_body;
@@ -243,6 +243,6 @@ fn read_store(env: &Env<'_>, limits: Limits) -> Result<StoreConfig, ConfigError>
 
 /// A variable's value as a path. An unset or empty value is an empty path, which the start check
 /// refuses by name (Decision 7).
-fn path(env: &Env<'_>, name: &'static str) -> Result<PathBuf, ConfigError> {
+pub(super) fn path(env: &Env<'_>, name: &'static str) -> Result<PathBuf, ConfigError> {
     Ok(env.text(name)?.map_or_else(PathBuf::new, PathBuf::from))
 }
