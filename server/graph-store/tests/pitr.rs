@@ -20,7 +20,7 @@
 
 mod support;
 
-use graph_store::pool::{Detector, DetectorOutcome};
+use graph_store::pool::Detector;
 use support::case;
 
 /// The phase-state file this case's two phases share.
@@ -72,11 +72,12 @@ async fn pitr_phase_write() {
 #[ignore = "container-level: row hub-pitr runs this phase between hub-pg.sh verbs"]
 async fn pitr_phase_assert() {
     let mut client = case::hub().await;
-    assert!(
-        !case::in_recovery(&mut client).await,
+    case::assert_out_of_recovery(
+        &mut client,
         "a named recovery target whose action is not `promote` leaves the server read-only and IN \
-         RECOVERY, and §5.3 refuses that before it ever compares a key"
-    );
+         RECOVERY, and §5.3 refuses that before it ever compares a key",
+    )
+    .await;
     assert_eq!(
         case::wal_timeline(&mut client).await,
         "00000002",
@@ -88,30 +89,11 @@ async fn pitr_phase_assert() {
         "A was committed before the restore point and B after it: the archive must replay one and \
          not the other, and replaying B would mean the target did not hold"
     );
-    let before = case::num(CASE, "epoch");
-    let outcome = case::hub_detector(CASE)
-        .run(&mut client)
-        .await
-        .expect("the detector runs on the recovered server");
-    assert_eq!(
-        outcome,
-        DetectorOutcome::Bumped { workspaces: 1 },
-        "a PITR changes the WAL timeline and rewinds head_seq, so two of §5.3's five mismatch \
-         rules fire and the bump is not optional"
-    );
-    assert!(
-        case::head(&mut client).await.0 > before,
-        "the bump draws a fresh epoch, and every workspace must hold it"
-    );
-    let (sysid, stored, datoid) = case::stored_identity(&mut client).await;
+    case::assert_bump(CASE, &mut client).await;
+    let stored = case::assert_same_identity(CASE, &mut client).await;
     assert_eq!(
         stored, "00000002",
-        "hub_meta carries the timeline it was compared against"
-    );
-    assert_eq!(
-        (sysid, datoid),
-        (case::num(CASE, "sysid"), case::num(CASE, "datoid") as u32),
-        "a PITR restores the same database on the same cluster, so the other two keys do not move \
-         and the timeline is what caught it"
+        "a PITR moves the WAL timeline and rewinds head_seq, so hub_meta carries the timeline the \
+         detector compared against"
     );
 }

@@ -19,7 +19,7 @@
 
 mod support;
 
-use graph_store::pool::{Detector, DetectorOutcome};
+use graph_store::pool::Detector;
 use support::case;
 
 /// The phase-state file this case's two phases share.
@@ -57,41 +57,23 @@ async fn promotion_phase_write() {
 #[ignore = "container-level: row hub-promotion runs this phase between hub-pg.sh verbs"]
 async fn promotion_phase_assert() {
     let mut client = case::hub().await;
-    assert!(
-        !case::in_recovery(&mut client).await,
+    case::assert_out_of_recovery(
+        &mut client,
         "replica-promote must leave the server out of recovery: §5.3 refuses a database in \
-         recovery, so a case that ended its row here would have proved the refusal, not the bump"
-    );
+         recovery, so a case that ended its row there would have proved the refusal, not the bump",
+    )
+    .await;
     let timeline = case::wal_timeline(&mut client).await;
     assert_eq!(
         timeline, "00000002",
-        "a promotion picks the next timeline, and it is the timeline key that carries it"
+        "a promotion picks the next timeline, and the timeline key is what carries it"
     );
-    let before = case::num(CASE, "epoch");
-    let outcome = case::hub_detector(CASE)
-        .run(&mut client)
-        .await
-        .expect("the detector runs on the promoted server");
-    assert_eq!(
-        outcome,
-        DetectorOutcome::Bumped { workspaces: 1 },
-        "a promotion moves the WAL timeline, so hub_meta's key is stale and §5.3 must bump"
-    );
-    assert!(
-        case::head(&mut client).await.0 > before,
-        "the bump draws a fresh epoch, and every workspace must hold it"
-    );
-    let (sysid, stored, datoid) = case::stored_identity(&mut client).await;
+    case::assert_bump(CASE, &mut client).await;
+    let stored = case::assert_same_identity(CASE, &mut client).await;
     assert_eq!(
         stored, timeline,
         "hub_meta.timeline must be the WAL-file timeline key: the break `checkpoint-timeline` \
          reads pg_control_checkpoint(), which lags a promotion and prints the id unpadded, so the \
          key the detector compares with is not the key it stores"
-    );
-    assert_eq!(
-        (sysid, datoid),
-        (case::num(CASE, "sysid"), case::num(CASE, "datoid") as u32),
-        "a promotion changes neither the system identifier nor the database oid, so those two \
-         keys cannot be what caught it"
     );
 }

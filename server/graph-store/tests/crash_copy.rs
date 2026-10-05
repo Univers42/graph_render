@@ -24,8 +24,9 @@
 
 mod support;
 
-use graph_store::pool::{Detector, DetectorOutcome};
+use graph_store::pool::Detector;
 use support::case;
+use tokio_postgres::Client;
 
 /// The phase-state file this case's three phases share.
 const CASE: &str = "crash-copy";
@@ -89,41 +90,30 @@ async fn crash_copy_phase_assert() {
         seq, 1,
         "the restored copy predates the hub's second batch, so its head_seq is below the map entry"
     );
-    let hw = case::get(CASE, "hw");
-    let flush = case::flush(&mut client).await;
-    println!("crash-copy: restored flush LSN {flush} against the hub's high-water {hw}");
-    println!(
-        "crash-copy: the {} leg fired; the map leg is exact whenever the LSN leg does not",
-        if flush < hw {
-            "high-water"
-        } else {
-            "last-seen map"
-        }
-    );
-    let before = case::num(CASE, "epoch");
-    let outcome = case::hub_detector(CASE)
-        .run(&mut client)
-        .await
-        .expect("the detector runs on the restored crash copy");
+    report_the_leg(&mut client).await;
+    case::assert_bump(CASE, &mut client).await;
+    let stored = case::assert_same_identity(CASE, &mut client).await;
     assert_eq!(
-        outcome,
-        DetectorOutcome::Bumped { workspaces: 1 },
-        "a row below its last-seen entry is one of §5.3's five mismatch rules, and an LSN below \
-         the high-water is another; either is enough"
-    );
-    assert!(
-        case::head(&mut client).await.0 > before,
-        "the bump draws a fresh epoch, and every workspace must hold it"
-    );
-    let (sysid, stored, datoid) = case::stored_identity(&mut client).await;
-    assert_eq!(
-        (sysid, datoid, stored.as_str()),
-        (
-            case::num(CASE, "sysid"),
-            case::num(CASE, "datoid") as u32,
-            case::get(CASE, "timeline").as_str()
-        ),
+        stored,
+        case::get(CASE, "timeline"),
         "a crash-consistent copy is the same cluster, the same database and the same timeline, so \
          none of §5.3's three identity keys moved and only the high-water or the map can catch it"
     );
+}
+
+/// Print which of §5.3's two non-identity signals caught the restore, for the gate log.
+///
+/// Caveat: which one fires is a property of the gap, not of the code — a gap wider than one WAL
+/// segment lets the high-water see it. The assertions do not read this: the bump and the
+/// `head_seq` check stand on their own, and this line is the measurement beside them.
+async fn report_the_leg(client: &mut Client) {
+    let hw = case::get(CASE, "hw");
+    let flush = case::flush(client).await;
+    let leg = if flush < hw {
+        "high-water"
+    } else {
+        "last-seen map"
+    };
+    println!("crash-copy: restored flush LSN {flush} against the hub's high-water {hw}");
+    println!("crash-copy: the {leg} leg fired; the map leg is exact whenever the LSN leg does not");
 }

@@ -1,0 +1,58 @@
+# The exact hub-pg.sh invocation of each container-level detector case, run in this worktree
+# on 2026-10-05 against instance gm-hub-pg-hub-store-pg. Each block is one gate row
+# (hub-promotion, hub-pitr, hub-snapshot, hub-crash-copy) of
+# scripts/orch/rows/hub-store.rows, unwrapped; the exit code after it is the real one.
+
+=== hub-promotion ===
+{ 
+    scripts/orch/hub-pg.sh reset > /dev/null && scripts/orch/hub-pg.sh start > /dev/null && scripts/orch/hub-pg.sh run --test promotion -- --ignored --exact promotion_phase_write && scripts/orch/hub-pg.sh replica && scripts/orch/hub-pg.sh replica-promote && scripts/orch/hub-pg.sh run --test promotion -- --ignored --exact promotion_phase_assert
+}
+test promotion_phase_write ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.04s
+postgres://hub:hub@172.17.0.8:5432/hub
+test promotion_phase_assert ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.04s
+exit=0
+
+=== hub-pitr ===
+{ 
+    scripts/orch/hub-pg.sh reset > /dev/null && scripts/orch/hub-pg.sh start > /dev/null && scripts/orch/hub-pg.sh copy-data && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test pitr -- --ignored --exact pitr_phase_write && scripts/orch/hub-pg.sh switch-wal && scripts/orch/hub-pg.sh restore-data && scripts/orch/hub-pg.sh pitr hub_pitr && scripts/orch/hub-pg.sh run --test pitr -- --ignored --exact pitr_phase_assert
+}
+postgres://hub:hub@172.17.0.8:5432/hub
+test pitr_phase_write ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.08s
+postgres://hub:hub@172.17.0.8:5432/hub
+test pitr_phase_assert ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.04s
+exit=0
+
+=== hub-snapshot ===
+{ 
+    scripts/orch/hub-pg.sh reset > /dev/null && scripts/orch/hub-pg.sh start > /dev/null && scripts/orch/hub-pg.sh run --test snapshot -- --ignored --exact snapshot_phase_write && scripts/orch/hub-pg.sh copy-data && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test snapshot -- --ignored --exact snapshot_phase_after_copy && scripts/orch/hub-pg.sh restore-data && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test snapshot -- --ignored --exact snapshot_phase_assert
+}
+test snapshot_phase_write ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.04s
+postgres://hub:hub@172.17.0.8:5432/hub
+test snapshot_phase_after_copy ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.03s
+postgres://hub:hub@172.17.0.8:5432/hub
+test snapshot_phase_assert ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.03s
+exit=0
+
+=== hub-crash-copy ===
+{ 
+    scripts/orch/hub-pg.sh reset > /dev/null && scripts/orch/hub-pg.sh start > /dev/null && scripts/orch/hub-pg.sh run --test crash_copy -- --ignored --exact crash_copy_phase_write && scripts/orch/hub-pg.sh kill && scripts/orch/hub-pg.sh copy-data && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test crash_copy -- --ignored --exact crash_copy_phase_commit && scripts/orch/hub-pg.sh restore-data && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh switch-wal && scripts/orch/hub-pg.sh run --test crash_copy -- --ignored --exact crash_copy_phase_assert --nocapture
+}
+test crash_copy_phase_write ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.12s
+postgres://hub:hub@172.17.0.8:5432/hub
+test crash_copy_phase_commit ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.04s
+postgres://hub:hub@172.17.0.8:5432/hub
+crash-copy: restored flush LSN 0/3000000 against the hub's high-water 0/2001568
+crash-copy: the last-seen map leg fired; the map leg is exact whenever the LSN leg does not
+test crash_copy_phase_assert ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.03s
+exit=0
+

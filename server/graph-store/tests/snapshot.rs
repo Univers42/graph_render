@@ -23,7 +23,7 @@
 
 mod support;
 
-use graph_store::pool::{Detector, DetectorOutcome};
+use graph_store::pool::Detector;
 use support::case;
 
 /// The phase-state file this case's three phases share.
@@ -95,28 +95,11 @@ async fn snapshot_phase_assert() {
         vec!["a".to_string()],
         "the restored volume predates the batch the hub committed after the copy"
     );
-    let before = case::num(CASE, "epoch");
-    let outcome = case::hub_detector(CASE)
-        .run(&mut client)
-        .await
-        .expect("the detector runs on the restored volume");
+    case::assert_bump(CASE, &mut client).await;
+    let stored = case::assert_same_identity(CASE, &mut client).await;
     assert_eq!(
-        outcome,
-        DetectorOutcome::Bumped { workspaces: 1 },
-        "every identity key survives a volume snapshot, so §5.3's LSN rule is the only one left"
-    );
-    assert!(
-        case::head(&mut client).await.0 > before,
-        "the bump draws a fresh epoch, and every workspace must hold it"
-    );
-    let (sysid, stored, datoid) = case::stored_identity(&mut client).await;
-    assert_eq!(
-        (sysid, datoid, stored.as_str()),
-        (
-            case::num(CASE, "sysid"),
-            case::num(CASE, "datoid") as u32,
-            case::get(CASE, "timeline").as_str()
-        ),
+        stored,
+        case::get(CASE, "timeline"),
         "a volume snapshot changes none of §5.3's three identity keys — that is why the \
          high-water and the map are what catch it"
     );

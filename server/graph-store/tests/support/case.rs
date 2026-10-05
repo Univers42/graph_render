@@ -230,3 +230,49 @@ pub async fn quiesce() {
         .await
         .expect("switch the WAL");
 }
+
+/// Assert the server is a primary, `why` naming what a promotion that never happened would mean.
+///
+/// A standby or a paused recovery is refused by §5.3 before any key is compared, so a case whose
+/// row ended in recovery would prove the refusal and not the bump.
+pub async fn assert_out_of_recovery(client: &mut Client, why: &str) {
+    assert!(!in_recovery(client).await, "{why}");
+}
+
+/// Run the detector a hub under `case` still holds, and assert §5.3's bump.
+///
+/// Two things, because one is not the other: the outcome is a bump of every workspace, and the
+/// bump actually moved the epoch the hub last knew.
+pub async fn assert_bump(case: &str, client: &mut Client) {
+    let before = num(case, "epoch");
+    let outcome = hub_detector(case)
+        .run(client)
+        .await
+        .expect("the detector runs on this server");
+    assert_eq!(
+        outcome,
+        DetectorOutcome::Bumped { workspaces: 1 },
+        "§5.3 lists five mismatch rules and this case stages one of them, so the run must bump"
+    );
+    assert!(
+        head(client).await.0 > before,
+        "the bump draws a fresh epoch, and every workspace must hold it"
+    );
+}
+
+/// Assert none of §5.3's three identity keys moved since `case` recorded them, and return the
+/// timeline `hub_meta` now holds.
+///
+/// This is what makes the high-water or the last-seen map the only signal left: if the three keys
+/// are the ones the hub wrote, nothing about the database's identity changed, so §5.3's identity
+/// rules cannot be what caught it.
+pub async fn assert_same_identity(case: &str, client: &mut Client) -> String {
+    let (sysid, timeline, datoid) = stored_identity(client).await;
+    assert_eq!(
+        (sysid, datoid),
+        (num(case, "sysid"), num(case, "datoid") as u32),
+        "the system identifier and the database oid are unchanged by every verb these four rows \
+         run, so a difference here means the case staged the wrong thing"
+    );
+    timeline
+}
