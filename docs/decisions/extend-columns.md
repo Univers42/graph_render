@@ -315,3 +315,11 @@ byte-identical, pinned by a literal and a SHA-256 with a verified negative contr
 `encode` ~5 ms, GMX1 bytes unchanged (the "never joined" test became "one `encodeInto` over the
 join", deliberately). Against `75c885b6` at load 4–7: wasm BH 33.42 → 28.86, PM 38.05 → 28.36 ms —
 met on a quiet host, 1.1–2.4 ms headroom, missed under load. The arena hash stays (probe 70 % of `find`).
+
+## Result (P4h)
+
+[`perf-p4h-wasm.md`](../measurements/perf-p4h-wasm.md): **missed.** The JS encoder (52 % of wasm
+`extend`) is a floor: four lookup arrangements land within 3 %. One arena probe per new id instead
+of two was **reverted**: native columns 7.9 % slower over 3/3 interleaved rounds (an untouched
+control flat), wasm ~0.2–0.6 ms faster. Shipped: `relink` computes each edge once, output-neutral,
+effect below this host's ~4.4 ms noise (one base binary: wasm BH 27.98 then 32.38 ms).

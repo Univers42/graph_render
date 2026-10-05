@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 
 import { C20_PAIR, c20Plan, parseSeedCount, Refusal, SHIM_LAYOUT } from "./wasm-run/lib.mjs";
 import { missingExports, expectedExports } from "./wasm-run/module.mjs";
+import { parseShard, seedStride, WHOLE_SHARD } from "./wasm-run/hash.mjs";
 
 const HARNESS = dirname(fileURLToPath(import.meta.url));
 const ARM = join(HARNESS, "wasm-run.mjs");
@@ -45,6 +46,26 @@ function refused(...args) {
   assert.doesNotMatch(run.stderr, /TypeError| at Object| at Module/, `a stack, not a refusal:\n${run.stderr}`);
   return run.stderr;
 }
+
+// --- hg-shard: `--shard i/K` refuses what `hashgate/shard.rs` refuses ------------------------
+
+test("a shard that cannot exist is refused by name, on the Rust side's table", () => {
+  // The table of `a_shard_that_cannot_exist_is_refused_by_name` (`hashgate/shard/tests.rs`).
+  for (const text of ["1/0", "0/0", "1/1", "7/2", "x/2", "2/x", "2", "2/", "", "1/2/3", "-1/2"]) {
+    const named = (err) => err instanceof Refusal && err.message.includes(`bad shard ${JSON.stringify(text)}`);
+    assert.throws(() => parseShard(text), named, `${text} should be refused by name`);
+  }
+  assert.throws(() => parseShard("0/0"), /K is 0/);
+  assert.throws(() => parseShard("7/2"), /i is 7, so it is not one of the 2 shards/);
+  assert.deepEqual(parseShard("0/1"), WHOLE_SHARD);
+  assert.deepEqual(parseShard("2/3"), { index: 2, count: 3 });
+});
+
+test("the shards of a run stride its seeds and cover each one once", () => {
+  assert.deepEqual([...seedStride({ index: 2, count: 3 }, 11)], [2, 5, 8]);
+  const seen = [0, 1, 2].flatMap((index) => [...seedStride({ index, count: 3 }, 7)]);
+  assert.deepEqual(seen.sort((a, b) => a - b), [0, 1, 2, 3, 4, 5, 6]);
+});
 
 // --- U4 / m37: `hash 0` was a vacuous pass -------------------------------------------------
 

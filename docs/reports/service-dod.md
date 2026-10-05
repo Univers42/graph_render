@@ -2,7 +2,8 @@
 
 Written on the `service-report` branch. develop's tip at the time of writing: `830c3413`
 (`git rev-parse --short origin/develop`). Every `file:line` below was read on that tree; every
-command was run on it. Steps 2 and 5 were updated at `9f000ace`, when `loadColumns` landed.
+command was run on it. Steps 2 and 5 were updated at `9f000ace`, when `loadColumns` landed; §5, §6 and the `review-svc-r3.md` rows at `77b68d9b`, when the full
+gate ran green.
 
 Landing commits: the first-parent subjects on `origin/develop` are all the literal string
 `updated` (80 of the first 80), so a branch name is not greppable from the log. Where no landing
@@ -30,7 +31,7 @@ measurement files do carry the branch commits they measured (`perf-open-synth-co
 | SDK remote mode | met | landing commit not found | `sdk-remote.rows`: `negctl-svc-sdk` `:15` (renamed name → typed 429), `negctl-svc-sdk-key` `:16` (wrong key → 401) | `createRemote` at `crates/graph-sdk-js/src/remote.ts:123`; options and the key check `crates/graph-sdk-js/src/remote/options.ts:40`, `:76-92`; the key is sent as `Authorization: Bearer` `remote.ts:57` |
 | `docs/contract/service-api.md` | met | landing commit not found | its Gates table names only rows that exist (re-checked by `review-svc-r3.md` R2-7) | Versioned `Service API v1` `service-api.md:1`, `api:1` `:29`. Status line `:3` reads "blocked, 2026-10-04 (round 2); round 3 pending" — superseded by `review-svc-r3.md:1` `PROCEED-WITH-CONDITIONS` |
 | Review `review-svc-r2.md` | met, superseded | `verdict: BLOCK` `review-svc-r2.md:1` | R2-1 `service-limits.rows:22-23`; R2-3 `service-limits.rows:26-27`; R2-4 `service.rows:48,53,60,67`; R2-6 `service-image.rows:14`; R2-8 the `Caveat:` sites `serve.rs:26,31`, `health.rs:10,16`, `observe.rs:20`, `error.rs:12`, `keys.rs:18,22,26,30,35`; R2-9 `src/config/tests.rs:81-85`; R2-2 and R2-7 resolved in docs, `scripts/service.sh:22,108` and `service-api.md:29,30` | All 9 re-checked as met in `review-svc-r3.md:89-97`. R2-5 stayed *partly* and became R3 condition 5 |
-| Review `review-svc-r3.md` | met, one condition open | `verdict: PROCEED-WITH-CONDITIONS` `review-svc-r3.md:1` | C1 `svc-max-body` `service-limits.rows:24` (`negctl-svc-max-body` `:25`); C2 `svc-limits` `:22-23` (`negctl-svc-limits` `:23`); C3 `#gate:image` `service-image.rows:11`; C4 `svc-test` `svc-floor.rows:4` with the four hook rows `service.rows:48,53,60,67`; C5 `develop-full.rows` | C1–C4 landed: `per_slot_bytes` recomputed from the effective body (`src/config/slots.rs:12-21`, `src/config.rs:183-186`), the ceiling row at `service-caps.md:288`; peak 1,620,025,344 B against M 4,647,288,832 B = 34.9% (`service-caps.md:304-307`); `Hooks::before_run` behind `#[cfg(feature = "test-hooks")]` `src/app.rs:42-47`. C5 is open — §5 below |
+| Review `review-svc-r3.md` | met | `verdict: PROCEED-WITH-CONDITIONS` `review-svc-r3.md:1` | C1 `svc-max-body` `service-limits.rows:24` (`negctl-svc-max-body` `:25`); C2 `svc-limits` `:22-23` (`negctl-svc-limits` `:23`); C3 `#gate:image` `service-image.rows:11`; C4 `svc-test` `svc-floor.rows:4` with the four hook rows `service.rows:48,53,60,67`; C5 `develop-full.rows` | C1–C4 landed: `per_slot_bytes` recomputed from the effective body (`src/config/slots.rs:12-21`, `src/config.rs:183-186`), the ceiling row at `service-caps.md:288`; peak 1,620,025,344 B against M 4,647,288,832 B = 34.9% (`service-caps.md:304-307`); `Hooks::before_run` behind `#[cfg(feature = "test-hooks")]` `src/app.rs:42-47`. C5 met: the full gate 114/114 on `77b68d9b` — §5 below |
 | Supply-chain audit | met | landing commit not found | `audit.rows`: `cargo-deny-motor` `:26`, `cargo-deny-server` `:29`, `npm-audit-app` `:33`; controls `negctl-cargo-deny-advisory` `:37` (injects `time =0.1.44`, expects RUSTSEC-2020-0071), `negctl-cargo-deny-license` `:41` (deletes `"MIT"` from the allow list). Plus `service-supply.rows`: `negctl-svc-digest`, `negctl-svc-digest-wasm`, `negctl-svc-features`, `negctl-lock-parity-version`, `negctl-lock-parity-feature` | `deny.toml`: `[advisories]` `:25`, `[licenses]` `:27` with a 7-entry allow list `:31-40`, `[bans]` `:41` with `multiple-versions = "warn"` `:42`, `[sources]` `:44` with `unknown-registry`/`unknown-git` both `deny` `:45-46`. No measurement file records an audit result |
 
 ## 3. Resolved questions
@@ -51,7 +52,7 @@ process conditions** that no code change can close.
 | Review | Verdict | Id | Severity | Finding |
 |---|---|---|---|---|
 | `docs/reviews/review-host-api.md` | `BLOCK` (`:1`) | F-table, LOW row, `packages/graph-studio/src/host/lru.ts` | low | The cache has no dispose hook; eviction is a bare `entries.delete`. Read at `lru.ts:29-33`: the interface offers `get/set/delete/clear/size` and no `onEvict`. Harmless today — the only holder is `createLru<NodePreview>` and in-flight calls are aborted elsewhere — but the cache would leak any resource it were handed. The file has since gained a `Caveat:` (`lru.ts:6-8`), which the review did not ask for; the hook it did ask for is absent. The orchestrator declined it as YAGNI when it landed `host-api-lows` (`830c3413`): one holder, and nothing it caches owns a resource |
-| `docs/reviews/review-svc-r3.md` | `PROCEED-WITH-CONDITIONS` (`:1`) | condition 5 / Round-2 finding 7 | process | `develop-full.rows` and `hashgate --seeds 1000` on the landing commit. `review-svc-r3.md:175-179` states it, `:194-196` records that no summary existed in `target/evidence/`, and `target/evidence/` is empty on this tree. No negctl: a gate, not a break. §5 below |
+| `docs/reviews/review-svc-r3.md` | `PROCEED-WITH-CONDITIONS` (`:1`) | condition 5 / Round-2 finding 7 | met | `develop-full.rows` and `hashgate --seeds 1000` on the landing commit. `review-svc-r3.md:175-179` states it, `:194-196` records that no summary existed in `target/evidence/`. Both ran green on develop `77b68d9b`: 114/114, `hashgate-1000` `4-way equal on 1000/1000 seeds`. The summary is host-local (§5); `target/` is not versioned. No negctl: a gate, not a break |
 | `docs/reviews/review-bundle-unify.md` | `PROCEED-WITH-CONDITIONS` (`:254`) | condition 1 (`:271-280`) | not binding | The condition holds "before any of (a) lands", and (a) has not landed: `docs/decisions/two-bundles.md` (accepted 2026-10-04) takes option (c), keeps both bundles and rules (a) BLOCK (`:13-17`). The question is written down there with both choices (`:44-59`) and a reopen trigger (`:61-62`). The (ii) test and the `host-api.md` warning are owed only if (a) is reopened |
 | `docs/reviews/review-bundle-unify.md` | `PROCEED-WITH-CONDITIONS` (`:254`) | condition 5 (`:305-308`) | met | Both rows run on their own, 2026-10-04, `scripts/orch/gate.sh` over `service-image.rows` + `host-api.rows` (19 rows): on `050715b6`, `svc-image` PASS in 88 s (`image=graph-motor:6058a3011c55a9f6`) with `negctl-svc-image`, `negctl-svc-image-leak`, `svc-sdk-live` and `negctl-svc-sdk-live` PASS; `studio-pack-embed` and `studio-embed` FAIL, because `embed-replay-refused` saw `ColumnsRefusedError` after `00c22161` routed `applyDeltas` through `extendColumns` (`docs/contract/delta.md:206`). Repaired in `61216613` (`deploy/nav/embedreplay.py` `REFUSAL_NAME`, `host-api.md` replay paragraph): `studio-embed`, `negctl-studio-embed`, `studio-pack`, `studio-pack-embed`, `negctl-studio-pack-embed` PASS on that tree |
 
@@ -65,11 +66,23 @@ at `packages/graph-studio/src/studio/pipeline.ts:63-66,130-131,136,142,212,258`,
 
 ## 5. The full gate
 
-`scripts/orch/rows/develop-full.rows` ran once on develop `178cef49` (worktree `full-gate`,
-2026-10-04): **110 rows, 102 PASS, 8 FAIL — not green.** The summary is kept host-local at
-`$GM_SCRATCH/orch/evidence/svc-evidence/summary-full-gate-178cef49.txt`. Every repair below is
-on develop or landing, but none has been re-run on one tree, so this section reads red until the
-gate runs again.
+`scripts/orch/rows/develop-full.rows` ran on develop `77b68d9b` (worktree `gate-full`, held frozen,
+2026-10-04 23:05 → 2026-10-05 03:54, under `timed.lock`): **114 rows, 114 PASS — green.** The summary
+and the logs of the rows below are kept host-local at
+`$GM_SCRATCH/orch/evidence/svc-evidence/summary-full-gate-77b68d9b.txt` and
+`full-gate-77b68d9b-<row>.log`.
+
+| Row | Time | Line it ends on |
+|---|---:|---|
+| `hashgate-1000` | 2792 s | `4-way equal on 1000/1000 seeds`, 8 shards per arm |
+| `hashgate-1000-tiers-all` | 6550 s | `10-way equal on 1000/1000 seeds` |
+| `negctl-hashgate-release` | 1 s | exit 1, expected non-zero |
+| `roundtrip-1000` | 2885 s | PASS |
+| `capabilities-check` | 0 s | `84 rows, 0 problems`; `ceilings measured: 4 of 84 rows; 80 still reasoned` |
+| `bench-p9-campaign` | 146 s | PASS; the regenerated `phase09-bench.md` moved by timing noise only and was not committed |
+
+The first run, on `178cef49` (2026-10-04), was **110 rows, 102 PASS, 8 FAIL**
+(`summary-full-gate-178cef49.txt`). Each red row below passed on `77b68d9b`:
 
 | Red row | Exit | Cause (its log) | Repair |
 |---|---|---|---|
@@ -77,9 +90,9 @@ gate runs again.
 | `ink-hairball` | 1 | the row as written on 178c | rewritten with `negctl-ink-hairball` |
 | `capabilities-ceilings-measured` | 1 | 20 problems: 8-seed hashgate and missing oracle records on this tree | folded into `capabilities-check`, which now passes `--ceilings-measured` |
 | `forbidden-constructs` | 1 | `libm::sqrtf` in `post/separate` (`radii.rs:51`, `sweep/pairs.rs:79`, `:95`) | `f32::sqrt` (42703172) |
-| `hashgate-1000`, `hashgate-1000-tiers-all` | 2 | one arm ran past `CHILD_TIMEOUT` (2700 s): debug on `178cef49`, and again in `--release` on `6785e607` (exit 2 at 2700 s and 2710 s; `negctl-hashgate-release` PASS). 67 stages per seed on one core: the layouts alone take 2.8 s per seed at n=300, `layout.force.davidson_harel` 1.04 s of it | shard every arm's seeds across concurrent children and merge them into the order `compare::diverged` validates (job `hg-shard`), then re-run on its own |
+| `hashgate-1000`, `hashgate-1000-tiers-all` | 2 | one arm ran past `CHILD_TIMEOUT` (2700 s): debug on `178cef49`, and again in `--release` on `6785e607` (exit 2 at 2700 s and 2710 s; `negctl-hashgate-release` PASS). 67 stages per seed on one core: the layouts alone take 2.8 s per seed at n=300, `layout.force.davidson_harel` 1.04 s of it | shard every arm's seeds across concurrent children and merge them into the order `compare::diverged` validates (`hashgate/shard.rs`, landed `de9ca3a7`) |
 | `bench-p9-campaign` | 137 | killed at 6854 s: the campaign ran spectral (ceiling 700) and ForceAtlas2 (ceiling 14 000) at 10⁶, because it skipped the `scale_ceiling` refusal plain `bench` makes | the campaign refuses past the ceiling unless `--past-ceiling` is passed (`crates/graph-cli/src/bench/campaign.rs`, `refused`), and a test pins it (`bench/tests/plan.rs`). Re-run on its own on `0c1f32eb`, 2026-10-04: PASS in 160 s (host load about 5, one OpenCode job alongside), `docs/measurements/phase09-bench.md` regenerated |
-| `capabilities-check` | 1 | 19 problems: the 1000-seed hashgate and oracle records are not on this tree | follows from the rows above, on one tree |
+| `capabilities-check` | 1 | 19 problems: the 1000-seed hashgate and oracle records are not on this tree | follows from the rows above, on one tree: 0 problems on `77b68d9b` |
 
 The repairs since 178c: `git log 178cef49..origin/develop -- scripts/orch/rows/develop-full.rows`.
 
@@ -89,7 +102,7 @@ The repairs since 178c: `git log 178cef49..origin/develop -- scripts/orch/rows/d
 |---|---|---|
 | Step 2, the host contract | met, with two ruled deviations | Versioned (`hostApi: 2`, `host-api.md:27`), typed, with a devil verdict (`PROCEED-WITH-CONDITIONS`, `:95-97`). Deviation 1, the spelling: `focus(id)` cannot exist on an `HTMLElement` subclass — it fails `tsc` with TS2430 against `HTMLElement.focus(options?)` — so verdict condition 1 renames it `focusNode(id)` (`:111-115`), and row `host-api-types` (`packages/graph-studio/tests/host-types.test.ts`, its break `tests/breaks/focus-name.ts`, run by `studio-check`) keeps the native `focus()` callable; `load(columns)` is `loadColumns(rows)` beside `loadGraph(doc)` (`:29`). Deviation 2: `applyDeltas(batch)` is typed and documented (`:175-180`, `docs/contract/delta.md`) and gated by the embed replay rows, but labelled outside the v1 promise (verdict condition 8) until Step 3 meets its 30 ms target |
 | Step 3, P4 live growth end to end | met on a quiet host, not robustly | The sum per 10k batch at 1M, median of 3 medians, against a 30 ms target. Pair 1 at load 4–7, base `75c885b6` → final (`docs/measurements/perf-p4g-wasm.md:104-107`, per pair `:111-114`): native Barnes-Hut 15.50 ms and particle mesh 16.00 ms (met at every load), wasm32 Barnes-Hut 28.86 ms and particle mesh 28.36 ms. The quiet round (load ≤ 2.7) reads 28.37 / 27.62 ms. The wasm32 headroom is 1.1–2.4 ms, smaller than one loaded round's spread: 31.93 ms at load 5–7 and 41–43 ms at load ≥ 11 (`:363-371`), so a run at load ≥ 7 can read red on the same tree. Landed `c28ac2d1`. `gm_force_session_apply` does not exist — the exports are `gm_graph_extend` and `gm_force_session_grow` (`docs/contract/delta.md:156`). The SDK carries no `applyDeltas` and no per-animation-frame coalescing; coalescing is in the studio (`packages/graph-studio/src/motor/deltas.ts:3`) and `host-api.md:147` forbids coalescing across calls, so the two halves of the step cannot both hold as written |
-| Step 6, the full gate | ran, red | 8 of 110 rows red on `178cef49` (§5). The repairs are on develop or landing, but the gate has not run again on one tree, so `review-svc-r3.md` conditions R2-5 and 13 stay *partly* |
+| Step 6, the full gate | met | 114 of 114 rows PASS on `77b68d9b` (§5), after 8 of 110 red on `178cef49`. `hashgate-1000` and `hashgate-1000-tiers-all` both ran inside `CHILD_TIMEOUT` once sharded |
 | `review-host-api.md` LOW, LRU dispose hook | won't fix (YAGNI) | The review calls it harmless today: the one holder caches frozen plain data (`previews.ts:162`). No hook without a caller; the limit is now the `Caveat:` at `packages/graph-studio/src/host/lru.ts:5-9`, which names the trigger for `onEvict` |
-| `review-svc-r3.md` condition 5 | open | `hashgate --seeds 1000` and the full gate, owed on develop |
+| `review-svc-r3.md` condition 5 | met | `hashgate --seeds 1000` (2792 s) and the full gate (114/114) green on develop `77b68d9b` (§5) |
 | Merge to main | not attempted | The merge to main needs the user's go-ahead. This job wrote one file and changed nothing else under version control |
