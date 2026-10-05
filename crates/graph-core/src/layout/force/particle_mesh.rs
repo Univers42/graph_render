@@ -117,25 +117,18 @@ impl ParticleMesh {
     }
 }
 
-/// Barnes-Hut's tick order with the mesh passes in place of the tree passes: decay, link,
-/// many-body, center, collide, gravity, integrate.
-pub(in crate::layout::force) fn tick<R: Runner>(
-    sim: &mut Sim,
-    mesh: &mut Mesh,
-    how: &mut How<'_, R>,
-) {
-    sim.alpha += (sim.alpha_target - sim.alpha) * sim.params.alpha_decay;
-    let split = how.split.splits(Split::Link);
-    link::pass_with(sim, how.runner, how.workers, &mut mesh.link);
-    // The field is a function of the positions and the params (`Mesh::solve` takes `&Sim`
-    // and reads no velocity), so the link deltas can wait in `mesh.link` while it runs and
-    // both merges become one pass over `vx`/`vy`. `false` from the read means no field: the
-    // link merge alone runs, as it did before.
+/// The tick's link merge and charge merge, in one [`motion::Velocity`] run per axis.
+///
+/// The mesh field is a function of the positions and the params — [`Mesh::solve`] takes
+/// `&Sim` and reads no velocity — so the link deltas can sit in `mesh.link` while it runs
+/// and both merges become one pass over `vx`/`vy`. `false` from the read means no field to
+/// read, and then the link merge alone runs, as it did before.
+fn merge_both<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_, R>) {
     let charged = charge::read(&*sim, mesh, how);
     let linked = Gathered {
         deltas: &mesh.link,
         slot: None,
-        split,
+        split: how.split.splits(Split::Link),
     };
     if charged {
         let charge_deltas = Gathered {
@@ -147,6 +140,18 @@ pub(in crate::layout::force) fn tick<R: Runner>(
     } else {
         motion::merge(sim, linked, (how.runner, how.workers));
     }
+}
+
+/// Barnes-Hut's tick order with the mesh passes in place of the tree passes: decay, link,
+/// many-body, center, collide, gravity, integrate.
+pub(in crate::layout::force) fn tick<R: Runner>(
+    sim: &mut Sim,
+    mesh: &mut Mesh,
+    how: &mut How<'_, R>,
+) {
+    sim.alpha += (sim.alpha_target - sim.alpha) * sim.params.alpha_decay;
+    link::pass_with(sim, how.runner, how.workers, &mut mesh.link);
+    merge_both(sim, mesh, how);
     motion::center(sim, (how.runner, how.workers));
     let collided = collide::apply(sim, &mut mesh.grid, how);
     // Skipped at zero as in `barnes_hut/sim.rs`: `(0 - x) * 0.0` is a signed zero that

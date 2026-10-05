@@ -1,5 +1,7 @@
 //! The mesh a run owns: the FFT plan, the two `P × P` buffers the convolution runs in, the
-//! kernel spectrum, and the collide grid whose node order the deposit reuses.
+//! kernel spectrum, the collide grid whose node order the deposit reuses, and `link`, the
+//! one column that is not the mesh's: the link pass's deltas, parked here so the tick can
+//! fuse its merge with the charge one.
 //!
 //! One tick's field is: bound the nodes and place the frame, deposit every node's unit charge with CIC weights,
 //! refresh the kernel if the rung moved, transform, multiply by the kernel, transform back,
