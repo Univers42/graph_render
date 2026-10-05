@@ -51,7 +51,10 @@ async fn prune_committed(client: &Client, retain: u64, retain_bytes: u64) -> u64
     let gone = retention::prune(client, "ws", retain, retain_bytes)
         .await
         .expect("prune");
-    client.batch_execute("COMMIT").await.expect("commit the prune");
+    client
+        .batch_execute("COMMIT")
+        .await
+        .expect("commit the prune");
     gone
 }
 
@@ -68,7 +71,11 @@ async fn prune_by_count_keeps_the_newest() {
         "the batch's own step 6 keeps the newest three of seqs 1..=6"
     );
     let orphans = "SELECT count(*) FROM change_ops WHERE ws = 'ws' AND seq < 4";
-    assert_eq!(count(&client, orphans).await, 0, "a pruned change keeps no operation");
+    assert_eq!(
+        count(&client, orphans).await,
+        0,
+        "a pruned change keeps no operation"
+    );
 }
 
 #[tokio::test]
@@ -76,7 +83,10 @@ async fn prune_by_bytes_keeps_the_newest() {
     let (store, client, _, _) = ready("retention_bytes").await;
     write_tasks(&store, &["a", "b", "c", "d"]).await;
     let bytes: Vec<i64> = client
-        .query("SELECT bytes FROM change_headers WHERE ws = 'ws' ORDER BY seq DESC", &[])
+        .query(
+            "SELECT bytes FROM change_headers WHERE ws = 'ws' ORDER BY seq DESC",
+            &[],
+        )
         .await
         .expect("read the sizes")
         .iter()
@@ -86,8 +96,16 @@ async fn prune_by_bytes_keeps_the_newest() {
     assert_eq!(prune_committed(&client, 100, newest_two).await, 3);
     assert_eq!(seqs(&client).await, [4, 5], "exactly the newest two fit");
     assert_eq!(prune_committed(&client, 100, newest_two - 1).await, 1);
-    assert_eq!(seqs(&client).await, [5], "one byte less and only the newest fits");
-    assert_eq!(prune_committed(&client, 1, u64::MAX).await, 0, "both bounds hold: nothing goes");
+    assert_eq!(
+        seqs(&client).await,
+        [5],
+        "one byte less and only the newest fits"
+    );
+    assert_eq!(
+        prune_committed(&client, 1, u64::MAX).await,
+        0,
+        "both bounds hold: nothing goes"
+    );
 }
 
 #[tokio::test]
@@ -101,17 +119,26 @@ async fn prune_never_runs_in_its_own_transaction() {
         .expect("open the writer transaction");
     let txid = "SELECT txid_current()";
     let before: i64 = client.query_one(txid, &[]).await.expect("txid").get(0);
-    let gone = retention::prune(&client, "ws", 1, u64::MAX).await.expect("prune");
+    let gone = retention::prune(&client, "ws", 1, u64::MAX)
+        .await
+        .expect("prune");
     let after: i64 = client.query_one(txid, &[]).await.expect("txid").get(0);
     assert_eq!(gone, 3, "seqs 1..=3 go and seq 4 stays");
-    assert_eq!(before, after, "prune returns inside the caller's transaction");
+    assert_eq!(
+        before, after,
+        "prune returns inside the caller's transaction"
+    );
     assert_eq!(
         seqs(&other).await,
         [1, 2, 3, 4],
         "a second session sees nothing pruned before the caller commits"
     );
     client.batch_execute("ROLLBACK").await.expect("roll back");
-    assert_eq!(seqs(&other).await, [1, 2, 3, 4], "a rolled-back batch prunes nothing");
+    assert_eq!(
+        seqs(&other).await,
+        [1, 2, 3, 4],
+        "a rolled-back batch prunes nothing"
+    );
 }
 
 #[tokio::test]
@@ -127,7 +154,10 @@ async fn a_pruned_cursor_is_gone() {
         max_bytes: 1 << 30,
     };
     let below = graph_store::changes::page(&store, &page(2)).await;
-    assert!(matches!(below, Err(StoreError::Gone)), "seq 3 is pruned: {below:?}");
+    assert!(
+        matches!(below, Err(StoreError::Gone)),
+        "seq 3 is pruned: {below:?}"
+    );
     let edge = graph_store::changes::page(&store, &page(3)).await;
     assert!(edge.is_ok(), "low - 1 is still a valid cursor: {edge:?}");
 }
@@ -166,7 +196,11 @@ async fn the_sweeper_moves_no_epoch() {
     seed_keys(&client, "old", 10, "25 hours").await;
     let epoch = epoch_of(&client).await;
     assert_eq!(sweeper::run(&store, DAY_MS, 1000).await.expect("sweep"), 10);
-    assert_eq!(epoch_of(&client).await, epoch, "the sweeper is a hub write path");
+    assert_eq!(
+        epoch_of(&client).await,
+        epoch,
+        "the sweeper is a hub write path"
+    );
 }
 
 #[tokio::test]
@@ -176,6 +210,10 @@ async fn the_sweeper_never_deletes_a_fresh_row() {
     seed_keys(&client, "new", 10, "23 hours").await;
     assert_eq!(sweeper::run(&store, DAY_MS, 1000).await.expect("sweep"), 10);
     let fresh = "SELECT count(*) FROM idempotency WHERE ws = 'ws' AND key LIKE 'new%'";
-    assert_eq!(count(&client, fresh).await, 10, "a key under a day old stays");
+    assert_eq!(
+        count(&client, fresh).await,
+        10,
+        "a key under a day old stays"
+    );
     assert_eq!(count(&client, KEYS).await, 10, "and only the old ones went");
 }

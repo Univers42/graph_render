@@ -46,7 +46,11 @@ pub async fn prune(
         return Ok(0);
     };
     let cut: i64 = row.get(0);
-    own_transaction_break(client, "COMMIT; BEGIN; SELECT set_config('hub.writer','1',true)").await?;
+    own_transaction_break(
+        client,
+        "COMMIT; BEGIN; SELECT set_config('hub.writer','1',true)",
+    )
+    .await?;
     client
         .execute(
             "DELETE FROM change_ops WHERE ws = $1 AND seq <= $2",
