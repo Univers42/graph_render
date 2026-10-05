@@ -25,8 +25,9 @@
  * screen-space declutter pass run on a projection that changes every frame would have to be
  * re-planned per frame, and the 2D planner reads the 2D camera), glow and impostor spheres
  * (a per-node shading pass with no depth cue of its own — the painter's order is the cue, and
- * a shaded disc would read as nearer than it is), arrows and the edge gradient (edge paths
- * are 2D in the contract, so there is no 3D path to put a head on or a gradient along), the
+ * a shaded disc would read as nearer than it is), arrows and the edge ramp (edge paths are
+ * 2D in the contract, so there is no 3D path to put a head on or a ramp along: the gradient
+ * mode's mixed edges take the mean of their two colours, `edges3d.ts`), the
  * `edges.curve` bend of a straight `Line` (a 2D AUTO control point over a 2D camera, with
  * no depth to bend through) and the lit/dim passes of a focus (one global alpha is set here
  * rather than two fills and two strokes per palette entry). Each is ordinary work on top of
@@ -34,6 +35,8 @@
  */
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import type { Drawn } from "./projection.ts";
+import { paintGround } from "../canvas2d/ground.ts";
+import { paintEdges3d } from "./edges3d.ts";
 
 const TAU = Math.PI * 2;
 /** A node smaller than this on screen is a square, as in the 2D painter. */
@@ -129,82 +132,6 @@ function paintNodes(input: PaintInput, drawn: Drawn, counts: PaintCounts): void 
   }
 }
 
-/** The interior points of one edge's path, with the two columns they are read from. */
-interface Interior {
-  readonly input: PaintInput;
-  readonly drawn: Drawn;
-}
-
-/**
- * The interior points as control points when the count fits the degree, else as a polyline:
- * the 2D painter's own split (`canvas2d/edges.ts:62-78`) over projected points. True when a
- * control point went down, which is what `counts.curves` is.
- */
-function traceInterior(trace: Interior, edge: number, bx: number, by: number): boolean {
-  const { ctx, frame } = trace.input;
-  const pts = trace.drawn.points;
-  const from = frame.offsets?.[edge] ?? 0;
-  const to = frame.offsets?.[edge + 1] ?? 0;
-  const curved = frame.edgeKind === "Curve" && to - from === frame.curveDegree - 1;
-  if (curved && frame.curveDegree === 2) {
-    ctx.quadraticCurveTo(pts[2 * from] ?? 0, pts[2 * from + 1] ?? 0, bx, by);
-    return true;
-  }
-  if (curved && frame.curveDegree === 3) {
-    ctx.bezierCurveTo(pts[2 * from] ?? 0, pts[2 * from + 1] ?? 0, pts[2 * from + 2] ?? 0, pts[2 * from + 3] ?? 0, bx, by);
-    return true;
-  }
-  for (let p = from; p < to; p += 1) ctx.lineTo(pts[2 * p] ?? 0, pts[2 * p + 1] ?? 0);
-  ctx.lineTo(bx, by);
-  return false;
-}
-
-/**
- * The stroke width: the look's own width in world units over the 3D scale, or the floor the
- * 3D painter has always used when the look carries none, both times by `edges.scale` — the
- * 2D painter's two inputs at `canvas2d/edges.ts:223-227`, over the 3D pixels-per-unit
- * (`drawn.ppu` here) instead of `camera.scale`.
- *
- * Ponytail: the no-look branch keeps the old `max(1 / dpr, 1)` rather than the 2D zoom curve
- * `edgeWidth()` takes, so a lookless 3D frame's stroke does not thin out as the orbit pulls
- * away and does not thicken with one either. It fails for a lookless 3D drawing far larger
- * than its nodes, whose edges read heavier than the 2D view's. The escape hatch is the
- * look's own `edgeWidth`, which this branch reads when it is there.
- */
-export function strokeWidth(input: PaintInput, ppu: number): number {
-  const carried = input.style.edgeWidth;
-  const scale = input.style.edges.scale;
-  if (carried !== null && carried > 0) return carried * ppu * scale;
-  return Math.max(1 / input.dpr, 1) * scale;
-}
-
-/** The edges, one stroke for the whole set: their own paths, in the frame's own kinds. */
-function paintEdges(input: PaintInput, drawn: Drawn, counts: PaintCounts): void {
-  const { ctx, frame, theme } = input;
-  if (frame.edgeCount === 0) return;
-  ctx.strokeStyle = theme.edge;
-  ctx.lineWidth = strokeWidth(input, drawn.ppu);
-  ctx.globalAlpha = 1;
-  ctx.beginPath();
-  const interior: Interior = { input, drawn };
-  for (let edge = 0; edge < frame.edgeCount; edge += 1) {
-    const s = frame.source[edge] ?? 0;
-    const t = frame.target[edge] ?? 0;
-    if (skipped(input, s) || skipped(input, t)) continue;
-    if ((drawn.depth[s] ?? 0) <= 0 || (drawn.depth[t] ?? 0) <= 0) continue;
-    const bx = drawn.x[t] ?? 0;
-    const by = drawn.y[t] ?? 0;
-    ctx.moveTo(drawn.x[s] ?? 0, drawn.y[s] ?? 0);
-    if (frame.edgeKind === "Line" || !input.settled) ctx.lineTo(bx, by);
-    else if (traceInterior(interior, edge, bx, by)) counts.curves += 1;
-    counts.edges += 1;
-  }
-  ctx.stroke();
-  counts.strokes += 1;
-  counts.edgeStyles += 1;
-  counts.stroke = ctx.lineWidth;
-}
-
 /** The selection ring: which node, and how thick. One width per node, as the 2D ring has. */
 interface Ring {
   readonly node: number;
@@ -250,23 +177,14 @@ export function paintRings(input: PaintInput, locate: Locate, counts: PaintCount
   input.ctx.globalAlpha = 1;
 }
 
-/** The ground of a 3D frame: the theme's own background, flat, under everything. */
-export function paintGround3d(input: PaintInput): void {
-  const { ctx, dpr, viewport, theme } = input;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = theme.background;
-  ctx.fillRect(0, 0, viewport.width, viewport.height);
-}
-
 /**
  * One 3D frame: the WebGL2 3D layer's when the view's bulk hook takes it whole
  * (`webgl2/hook3d.ts`), else the ground, then the edges, then the nodes furthest-first.
  */
 export function paint3d(input: PaintInput, drawn: Drawn, counts: PaintCounts): PaintCounts {
   if (input.bulk?.(input, counts) === true) return counts;
-  paintGround3d(input);
-  paintEdges(input, drawn, counts);
+  paintGround(input);
+  paintEdges3d(input, drawn, counts);
   paintNodes(input, drawn, counts);
   paintRings(input, spotsOf(drawn), counts);
   return counts;

@@ -22,7 +22,7 @@ import type { Store } from "../state/store.ts";
 import { neighboursOf } from "./adjacency.ts";
 import { fitResults } from "./fitResults.ts";
 import { type Before, type Held, beforeOf, clear } from "./pipeline/clear.ts";
-import { planOf } from "./plan.ts";
+import { heldBack, heldNote, planOf } from "./plan.ts";
 import { summaryOf } from "./runSummary.ts";
 import { schemaOf } from "./schema.ts";
 
@@ -201,12 +201,23 @@ function forget(rig: Rig): void {
   patch(rig, (state) => ({ analysis: null, settings: withSettings(state.settings, { analysis: null }) }));
 }
 
-async function measure(rig: Rig, token: number, next: Settings): Promise<Part> {
+/** A carried super-linear analysis on a graph past its ceiling is forgotten, not awaited (`plan.ts`). */
+function holdBack(rig: Rig, next: Settings, analysisId: string): Part | null {
+  const nodes = rig.store.get().graph?.nodeCount ?? 0;
+  if (!heldBack(analysisId, nodes)) return null;
+  forget(rig);
+  restyle(rig, next);
+  return { message: `${analysisId} not re-run`, notes: [heldNote(analysisId, nodes)] };
+}
+
+async function measure(rig: Rig, token: number, next: Settings, carried: boolean): Promise<Part> {
   if (next.analysis === null) {
     forget(rig);
     restyle(rig, next);
     return { message: "analysis off", notes: [] };
   }
+  const held = carried ? holdBack(rig, next, next.analysis) : null;
+  if (held !== null) return held;
   try {
     const analysis = await rig.client.analysis(next.analysis);
     guard(rig, token);
@@ -249,7 +260,7 @@ async function drawOut(rig: Rig, token: number, next: Settings): Promise<Outcome
   if ((plan.load || plan.layout || plan.analysis) && rig.running > 0) rig.client.cancel();
   if (plan.load) parts.push(await load(rig, token, next.source));
   if (plan.layout) parts.push(await arrange(rig, token, next, { fresh: plan.load, before }));
-  if (plan.analysis) parts.push(await measure(rig, token, next));
+  if (plan.analysis) parts.push(await measure(rig, token, next, plan.carried));
   // One turn of the queue before the answer. A host that calls `loadGraph` from inside the
   // `graph-load` handler it was just given re-enters on the next turn, not inside this frame, and
   // the token is only raised once that call reaches `apply`: without the turn this call would

@@ -15,8 +15,10 @@ echo $$ >"$wf/$label.pid"; rm -f "$wf/$label.rc"
 cd "$wt" || exit 1
 # A resume appends, so the journal keeps the first run's subagent calls for the orchestrator's count.
 [[ -n ${OC_SESSION-} ]] || : >"$j"
+# stdin is /dev/null: `opencode run` reads a non-tty stdin into the prompt, so a launcher whose stdin
+# is an open socket (a backgrounded tool shell) blocked it before it reached the server (2026-10-05).
 timeout "${OC_TIMEOUT:-14400}" "$OC" run -m "$MODEL" --agent "$agent" --format json --auto \
-  --title "$label" ${OC_SESSION:+--session "$OC_SESSION"} "$(cat "$prompt")" >>"$j" 2>>"$wf/$label.stderr"
+  --title "$label" ${OC_SESSION:+--session "$OC_SESSION"} "$(cat "$prompt")" </dev/null >>"$j" 2>>"$wf/$label.stderr"
 rc=$?
 echo "$rc" >"$wf/$label.rc"
 jq -r '.. | .sessionID? // empty' "$j" 2>/dev/null | head -1 >"$wf/$label.session-id"

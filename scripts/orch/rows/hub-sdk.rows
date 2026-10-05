@@ -1,0 +1,27 @@
+# Rows for graph-hub slice 4 (hub-sdk). The unit rows need no hub: they run the SDK
+# tests against an in-process fake `fetch`. The two LIVE rows need slice 3's
+# containers (graph-hub, PostgreSQL, graph-server) and are marked as such.
+# Run: scripts/orch/gate.sh <logdir> scripts/orch/rows/hub-sdk.rows
+#
+# negctl-*: each break must turn exactly one named test red, checked by grepping its
+# TAP line, so a red run that fails anywhere else (a missing build, a decode error)
+# turns the control red too.
+#
+# wasm-release is first, copied verbatim from sdk-remote.rows:remote.test.mjs's parity cases
+# load the release wasm and a fresh worktree has none. Recorded deviation (a).
+wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hub-sdk-types|0|scripts/orch/node-slim.sh bash -c 'node node_modules/typescript/bin/tsc -p crates/graph-sdk-js/tsconfig.json --noEmit'
+hub-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'node node_modules/eslint/bin/eslint.js crates/graph-sdk-js --max-warnings=0'
+hub-sdk-unit|0|scripts/orch/node-slim.sh node --test --experimental-strip-types crates/graph-sdk-js/test/hub-cursor.test.mjs crates/graph-sdk-js/test/hub-call.test.mjs crates/graph-sdk-js/test/hub-sse.test.mjs crates/graph-sdk-js/test/hub-subscribe.test.mjs crates/graph-sdk-js/test/hub-subscribe-loop.test.mjs crates/graph-sdk-js/test/hub-graph.test.mjs crates/graph-sdk-js/test/hub-example.test.mjs crates/graph-sdk-js/test/plugin-batch.test.mjs crates/graph-sdk-js/test/plugin-push.test.mjs crates/graph-sdk-js/test/plugin-sync.test.mjs crates/graph-sdk-js/test/plugin-records.test.mjs
+negctl-hub-sdk-cursor|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=parsefloat node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/hub-cursor.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "^not ok 8 - hub_cursor_accepts_the_ceiling_and_refuses_one_past_it" <<<"$out"'
+negctl-hub-sdk-gap|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=no-gap-check node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/hub-subscribe.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "^not ok 1 - hub_subscribe_resyncs_on_an_injected_gap" <<<"$out"'
+negctl-hub-sdk-key|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=new-key-per-retry node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/plugin-push.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "^not ok 8 - plugin_push_reuses_the_idempotency_key" <<<"$out"'
+negctl-hub-sdk-ifmatch|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=head-seq-if-match node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/plugin-sync.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "^not ok 5 - plugin_sync_if_match_is_per_plugin" <<<"$out"'
+hub-sdk-example|0|scripts/orch/node-slim.sh node --test --experimental-strip-types crates/graph-sdk-js/test/hub-example.test.mjs
+negctl-hub-sdk-example|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=1 node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/hub-example.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "the example pushed a record that is not in the rows file" <<<"$out"'
+sdk-remote-regression|0|scripts/orch/node-slim.sh node --test --experimental-strip-types crates/graph-sdk-js/test/remote.test.mjs crates/graph-sdk-js/test/snapshot.test.mjs
+# ---- LIVE rows: these run once slice 3 (hub-api) lands. They need
+# scripts/orch/hub.sh up, plus its PostgreSQL and the existing graph-server. ----
+# Uncommented by slice 3 (hub-api), which writes hub-sync.rows and hub-sdk-live.rows.
+# hub-sync|0|scripts/orch/timed scripts/orch/gate.sh <logdir>/hub-sync scripts/orch/rows/hub-sync.rows
+# hub-sdk|0|scripts/orch/timed scripts/orch/gate.sh <logdir>/hub-sdk scripts/orch/rows/hub-sdk-live.rows

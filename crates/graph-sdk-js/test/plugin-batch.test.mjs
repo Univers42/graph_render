@@ -1,0 +1,180 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { DEFAULT_MAX_BATCH, batchOf, chunkOps, deleteOps, desiredOps, opKey } from "../src/plugin/batch.ts";
+import { rowsToIngest } from "../src/adapters/rows.ts";
+
+const NUL = "\0";
+
+/** An `Ingest` the way `src/adapters/rows.ts:149` spells it, built literally so the test does
+ * not depend on the rows adapter's own mapping. */
+function ingestOf(records) {
+  return { version: 1, source: "ops", collections: [], records };
+}
+
+function record(collection, id, extra = {}) {
+  return { collection, id, deleted: false, updatedAt: 1, values: {}, ...extra };
+}
+
+test("plugin_batch_names_no_op_for_a_deleted_record", () => {
+  // §7 and N14: a `deleted: true` row is a delete only when the hub still holds the id, and the
+  // stored set is known in `syncOnce`. So `desiredOps` never names it, and `deleteOps` is what
+  // turns it into one.
+  assert.deepEqual(desiredOps(ingestOf([record("issue", "1", { deleted: true })])), []);
+  const deleted = deleteOps([{ collection: "issue", id: "1" }], new Set());
+  assert.deepEqual(deleted, [{ kind: "delete", collection: "issue", id: "1" }]);
+  // A delete carries nothing but its identity: no cells and no version, so there is nothing for
+  // a store to reconcile (§5.2's `DeleteWire`).
+  assert.equal("updatedAt" in deleted[0], false);
+  assert.equal("values" in deleted[0], false);
+});
+
+test("plugin_batch_drops_a_deleted_record_when_the_hub_does_not_hold_it", () => {
+  // "Dropped otherwise" is the whole of N14: no delete for an id the hub never had, so a run
+  // over an already-converged source adds no seq.
+  const desired = desiredOps(ingestOf([record("issue", "1", { deleted: true })]));
+  const deletes = deleteOps([{ collection: "other", id: "1" }], new Set(desired.map(opKey)));
+  assert.deepEqual([...desired, ...deletes].filter((op) => op.collection === "issue"), []);
+});
+
+test("plugin_batch_never_names_one_id_in_both_upserts_and_deletes", () => {
+  const desired = desiredOps(ingestOf([record("issue", "1"), record("issue", "2", { deleted: true })]));
+  const stored = [{ collection: "issue", id: "1" }, { collection: "issue", id: "2" }, { collection: "issue", id: "3" }];
+  const batch = batchOf([...desired, ...deleteOps(stored, new Set(desired.map(opKey)))]);
+  const upserted = new Set(batch.upserts.map((up) => `${up.collection} ${up.id}`));
+  for (const del of batch.deletes) assert.equal(upserted.has(`${del.collection} ${del.id}`), false, `${del.id} twice`);
+  // `1` is still wanted, `2` was marked deleted and `3` is simply gone: one upsert, two deletes.
+  assert.equal(batch.upserts.length, 1);
+  assert.deepEqual(batch.deletes, [{ collection: "issue", id: "2" }, { collection: "issue", id: "3" }]);
+});
+
+test("plugin_batch_upserts_every_other_record_with_its_own_updated_at_and_values", () => {
+  const ops = desiredOps(
+    ingestOf([record("issue", "1", { updatedAt: 7, values: { title: "Crash" } }), record("issue", "2", { updatedAt: 9 })]),
+  );
+  assert.deepEqual(ops, [
+    { kind: "upsert", collection: "issue", id: "1", updatedAt: 7, values: { title: "Crash" } },
+    { kind: "upsert", collection: "issue", id: "2", updatedAt: 9, values: {} },
+  ]);
+});
+
+test("plugin_batch_orders_ops_by_collection_then_id_in_byte_order", () => {
+  // "A" before "a" and "a-b" before "a.b": byte order, the same order the hub's `COLLATE "C"`
+  // scan reads, so a diff of two hubs' documents is empty when they stored the same change.
+  const ops = desiredOps(ingestOf([record("a", "a.b"), record("A", "z"), record("B", "y"), record("a", "a-b")]));
+  assert.deepEqual(
+    ops.map((op) => `${op.collection}/${op.id}`),
+    ["A/z", "B/y", "a/a-b", "a/a.b"],
+  );
+  assert.deepEqual(ops.map(opKey), [`A${NUL}z`, `B${NUL}y`, `a${NUL}a-b`, `a${NUL}a.b`]);
+});
+
+test("plugin_batch_orders_a_delete_among_its_upserts", () => {
+  // Both kinds come out in the same byte order, so a batch interleaves them the way the hub's
+  // own change log would.
+  const desired = desiredOps(ingestOf([record("b", "1"), record("a", "2"), record("b", "3", { deleted: true })]));
+  const stored = [{ collection: "b", id: "3" }, { collection: "c", id: "0" }];
+  const ops = [...desired, ...deleteOps(stored, new Set(desired.map(opKey)))];
+  assert.deepEqual(
+    ops.map((op) => `${op.kind} ${op.collection}/${op.id}`),
+    ["upsert a/2", "upsert b/1", "delete b/3", "delete c/0"],
+  );
+});
+
+test("plugin_batch_deletes_the_stored_ids_that_are_no_longer_wanted", () => {
+  const stored = [
+    { collection: "issue", id: "1" },
+    { collection: "issue", id: "2" },
+    { collection: "other", id: "9" },
+  ];
+  assert.deepEqual(deleteOps(stored, new Set([`issue${NUL}1`])), [
+    { kind: "delete", collection: "issue", id: "2" },
+    { kind: "delete", collection: "other", id: "9" },
+  ]);
+});
+
+test("plugin_batch_deletes_nothing_when_everything_is_still_wanted", () => {
+  assert.deepEqual(deleteOps([{ collection: "issue", id: "1" }], new Set([`issue${NUL}1`])), []);
+});
+
+test("plugin_batch_chunks_at_max_batch_without_reordering", () => {
+  const ops = desiredOps(ingestOf([record("c", "5"), record("c", "1"), record("a", "9"), record("a", "2")]));
+  assert.deepEqual(
+    chunkOps(ops, 2).map((chunk) => chunk.map(opKey)),
+    [
+      [`a${NUL}2`, `a${NUL}9`],
+      [`c${NUL}1`, `c${NUL}5`],
+    ],
+  );
+});
+
+test("plugin_batch_splits_ten_thousand_and_one_ops_at_the_hubs_own_limit", () => {
+  const records = Array.from({ length: 10001 }, (_, i) => record("issue", String(i)));
+  const chunks = chunkOps(desiredOps(ingestOf(records)), DEFAULT_MAX_BATCH);
+  assert.deepEqual(chunks.map((chunk) => chunk.length), [10000, 1]);
+  assert.equal(DEFAULT_MAX_BATCH, 10000, "GRAPH_HUB_MAX_BATCH of §6");
+});
+
+test("plugin_batch_writes_the_collection_unqualified", () => {
+  // §5.2: a batch is the write path and the hub qualifies every collection itself, so a
+  // qualified id here would be qualified twice. The SDK passes what the adapter declared.
+  const batch = batchOf(desiredOps(ingestOf([record("ops:issue", "1", { updatedAt: 3 })])));
+  assert.deepEqual(batch, { deletes: [], upserts: [{ collection: "ops:issue", id: "1", updatedAt: 3, values: {} }] });
+});
+
+test("plugin_batch_drops_updated_at_and_values_from_a_delete", () => {
+  const batch = batchOf([
+    { kind: "delete", collection: "issue", id: "1", updatedAt: 7, values: { title: "x" } },
+    { kind: "upsert", collection: "issue", id: "2", updatedAt: 8, values: { title: "y" } },
+  ]);
+  assert.deepEqual(batch.deletes, [{ collection: "issue", id: "1" }]);
+  assert.deepEqual(batch.upserts, [{ collection: "issue", id: "2", updatedAt: 8, values: { title: "y" } }]);
+});
+
+test("plugin_batch_writes_a_batch_in_canonical_key_order", () => {
+  // Every document the contract writes has its object keys sorted by bytes, so two hubs that
+  // stored the same change agree byte for byte and an idempotency replay hashes the same text.
+  const batch = batchOf([
+    { kind: "upsert", collection: "issue", id: "1", updatedAt: 2, values: { title: "T", author: "A", id: "Z" } },
+  ]);
+  assert.equal(
+    JSON.stringify(batch),
+    '{"deletes":[],"upserts":[{"collection":"issue","id":"1","updatedAt":2,"values":{"author":"A","id":"Z","title":"T"}}]}',
+  );
+});
+
+test("plugin_batch_key_separates_the_collection_from_the_id", () => {
+  // One string for both byte order and set membership. The NUL is below every id character, so
+  // ("ab", "c") and ("a", "bc") cannot collide.
+  assert.notEqual(opKey({ collection: "ab", id: "c" }), opKey({ collection: "a", id: "bc" }));
+  assert.equal(opKey({ collection: "a", id: "b" }), `a${NUL}b`);
+});
+
+test("plugin_batch_reads_the_rows_adapter_deleted_flag", () => {
+  // The one place `deleted: true` enters the SDK: `rowsToIngest` keeps the row
+  // (`src/adapters/rows.ts:232`), and this is what turns it into a delete.
+  const source = {
+    source: "ops",
+    tables: [
+      {
+        id: "issue",
+        titleColumn: "title",
+        columns: [{ name: "title", role: "title" }],
+        rows: [
+          { id: "1", values: { title: "Crash" } },
+          { id: "2", values: { title: "Gone" }, deleted: true },
+        ],
+      },
+    ],
+  };
+  // `rowsToIngest` keeps a `deleted: true` row in `ingest.records` (`src/adapters/rows.ts:232`),
+  // so this is where the flag is read: the row is left out of the desired set, and the stored
+  // set below is what turns its id into a delete.
+  const ingest = rowsToIngest(source);
+  assert.equal(ingest.records.length, 2, "the adapter keeps both rows");
+  const desired = desiredOps(ingest);
+  assert.deepEqual(desired.map((op) => [op.kind, op.id]), [["upsert", "1"]]);
+  assert.deepEqual(deleteOps([{ collection: "issue", id: "2" }], new Set(desired.map(opKey))), [
+    { kind: "delete", collection: "issue", id: "2" },
+  ]);
+  assert.deepEqual(deleteOps([], new Set(desired.map(opKey))), [], "dropped when the hub does not hold it");
+});
