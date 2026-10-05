@@ -9,11 +9,11 @@
 //!
 //! ```text
 //! doc_bytes = frame_bytes(ws, collections, records)
-//!           + Σ collection_piece(c).len() over every manifest of the workspace
+//!           + Σ collection_piece(c).len() over every manifest's collections, ids qualified
 //!           + Σ text_bytes over every record of the workspace
 //! ```
 
-use graph_contract::hub::{HubError, Manifest};
+use graph_contract::hub::{HubError, Manifest, qualify};
 use graph_contract::ingest::{collection_piece, frame_bytes};
 
 use crate::error::{DbError, StoreError};
@@ -35,15 +35,21 @@ pub(crate) fn frame_delta(ws: &str, from: (u64, u64), to: (u64, u64)) -> i64 {
     frame(ws, to.0, to.1) as i64 - frame(ws, from.0, from.1) as i64
 }
 
-/// The bytes one manifest's declarations add to the document, separators excluded.
+/// The bytes `plugin`'s declarations add to the document, separators excluded.
 ///
-/// The separators between collections are in [`frame_delta`], counted over the whole workspace, so
+/// The document declares each collection under its qualified id (`plugin.collection`), so that is
+/// the id measured here; the bare id would undercount by `plugin.len() + 1` per collection. The
+/// separators between collections are in [`frame_delta`], counted over the whole workspace, so
 /// counting them here as well would count them twice.
-pub(crate) fn decl(manifest: &Manifest) -> u64 {
+pub(crate) fn decl(plugin: &str, manifest: &Manifest) -> u64 {
     manifest
         .collections
         .iter()
-        .map(|c| collection_piece(c).len() as u64)
+        .map(|c| {
+            let mut declared = c.clone();
+            declared.id = qualify(plugin, &c.id);
+            collection_piece(&declared).len() as u64
+        })
         .sum()
 }
 

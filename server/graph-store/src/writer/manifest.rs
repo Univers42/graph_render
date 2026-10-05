@@ -57,6 +57,8 @@ struct Stored {
     text: String,
     /// How many collections it declares, for the frame delta.
     collections: u64,
+    /// The bytes its declarations added to `doc_bytes`, which a growth replaces.
+    decl_bytes: u64,
 }
 
 /// Register or grow `req.plugin`'s manifest in `req.ws`.
@@ -144,10 +146,7 @@ async fn grow(
     doc_bytes: u64,
     old: Option<&Stored>,
 ) -> Result<u64, StoreError> {
-    let from = old.map_or((0, 0), |stored| (stored.collections, 0));
-    let to = (req.manifest.collections.len() as u64, 0);
-    let delta = bytes::frame_delta(&req.ws, from, to) + bytes::decl(&req.manifest) as i64;
-    let doc_bytes = bytes::add(doc_bytes, delta)?;
+    let doc_bytes = bytes::add(doc_bytes, growth_delta(client, req, old).await?)?;
     bytes::cap("document", doc_bytes, caps.doc_bytes)?;
     let stamp = step::bump_seq(client, &req.ws).await?;
     let head = ChangeHead {
@@ -177,6 +176,32 @@ async fn grow(
     Ok(stamp.seq)
 }
 
+/// How much `doc_bytes` moves when `req` replaces `old`: the declarations, and the separators
+/// between collections counted over the **whole workspace**.
+///
+/// The workspace total, not this plugin's own count: `frame_bytes` drops one separator only
+/// for the first collection of the document, so a second plugin's first collection adds one
+/// separator per declaration, where a per-plugin count would have dropped one of them.
+async fn growth_delta(
+    client: &mut Client,
+    req: &ManifestWrite,
+    old: Option<&Stored>,
+) -> Result<i64, StoreError> {
+    let others = client
+        .query_one(
+            "SELECT COALESCE(sum(json_array_length((text::json) -> 'collections')), 0)::bigint \
+             FROM manifests WHERE ws = $1 AND plugin <> $2",
+            &[&req.ws, &req.plugin],
+        )
+        .await?
+        .get::<_, i64>(0) as u64;
+    let from = (others + old.map_or(0, |stored| stored.collections), 0);
+    let to = (others + req.manifest.collections.len() as u64, 0);
+    let replaced = old.map_or(0, |stored| stored.decl_bytes as i64);
+    let declared = bytes::decl(&req.plugin, &req.manifest) as i64;
+    Ok(bytes::frame_delta(&req.ws, from, to) + declared - replaced)
+}
+
 /// The manifest row itself. `plugin_bytes` is the plugin's records and is left alone: a manifest's
 /// own text is capped by `MAX_MANIFEST_BYTES` at the reader and by the document cap here.
 async fn write_manifest(
@@ -198,7 +223,7 @@ async fn write_manifest(
                 &(req.manifest.version as i32),
                 &text,
                 &(text.len() as i64),
-                &(bytes::decl(&req.manifest) as i64),
+                &(bytes::decl(&req.plugin, &req.manifest) as i64),
                 &(seq as i64),
             ],
         )
@@ -225,7 +250,7 @@ async fn read_stored(
 ) -> Result<Option<Stored>, StoreError> {
     let row = client
         .query_opt(
-            "SELECT text FROM manifests WHERE ws = $1 AND plugin = $2",
+            "SELECT text, decl_bytes FROM manifests WHERE ws = $1 AND plugin = $2",
             &[&ws, &plugin],
         )
         .await?;
@@ -234,6 +259,7 @@ async fn read_stored(
         let declared = read_manifest(&text, plugin).expect("a stored manifest reads back");
         Stored {
             collections: declared.collections.len() as u64,
+            decl_bytes: row.get::<_, i64>(1) as u64,
             text,
         }
     }))
