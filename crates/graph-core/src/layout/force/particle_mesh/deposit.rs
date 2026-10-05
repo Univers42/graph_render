@@ -78,6 +78,7 @@ impl Rows {
     /// Regroups the slots of `at` by the row of their lower-left cell in `frame`; a
     /// non-finite slot is in no row.
     pub(super) fn sort(&mut self, at: &[Scaled], frame: &Frame) {
+        let _span = crate::pmprobe::Span::new(2);
         self.starts.fill(0);
         for &(_, uy) in at.iter().filter(|u| !u.0.is_nan()) {
             self.starts[frame::cell(frame, uy) + 1] += 1;

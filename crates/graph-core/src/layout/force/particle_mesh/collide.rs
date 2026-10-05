@@ -132,21 +132,27 @@ impl Grid {
         };
         let hash = self.hash;
         runner.run(&Buckets { hash, xy }, workers, &mut self.slot);
-        self.start.fill(0);
-        for &b in &self.slot {
-            self.start[b as usize + 2] += 1;
-        }
-        for b in 1..self.start.len() {
-            self.start[b] += self.start[b - 1];
+        {
+            let _span = crate::pmprobe::Span::new(0);
+            self.start.fill(0);
+            for &b in &self.slot {
+                self.start[b as usize + 2] += 1;
+            }
+            for b in 1..self.start.len() {
+                self.start[b] += self.start[b - 1];
+            }
         }
         // `start[b + 1]` is bucket `b`'s start and its cursor; it ends as bucket `b`'s
         // end, which is bucket `b + 1`'s start.
-        for (i, slot) in self.slot.iter_mut().enumerate() {
-            let next = &mut self.start[*slot as usize + 1];
-            let k = *next;
-            *next += 1;
-            self.order[k as usize] = i as u32;
-            *slot = k;
+        {
+            let _span = crate::pmprobe::Span::new(1);
+            for (i, slot) in self.slot.iter_mut().enumerate() {
+                let next = &mut self.start[*slot as usize + 1];
+                let k = *next;
+                *next += 1;
+                self.order[k as usize] = i as u32;
+                *slot = k;
+            }
         }
         let sorted = Sorted {
             order: &self.order,

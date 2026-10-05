@@ -194,6 +194,10 @@ fn time_ticks(plan: &Plan, session: &mut Stepper) -> Vec<f64> {
     if plan.passes {
         let total = std::time::Duration::from_secs_f64(samples.iter().sum::<f64>() / 1e3);
         eprintln!("{}\n", timed.table(plan.ticks, total));
+        eprintln!(
+            "| segment | calls/tick | ms/tick |\n|---|---:|---:|\n{}",
+            graph_core::pmprobe::rows(u64::from(plan.ticks)).join("\n")
+        );
     }
     samples
 }
