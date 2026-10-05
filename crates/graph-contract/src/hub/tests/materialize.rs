@@ -1,234 +1,230 @@
-//! The model's behaviour: revisions, atomicity, document order and pruning — and the
-//! property test that holds all of it to the document's own rules.
+//! The model's behaviour: revisions, atomicity, document order and pruning.
+//!
+//! The property test that holds all of it to the document's own rules is `rng.rs`, which
+//! drives the same public API these tests use — nothing here is a private path into the
+//! model, so if a rule is only true through a private door the property test would not see
+//! it either.
 
+use super::fixtures::{bare, delete, manifest, upsert};
 use super::rng::SplitMix64;
-use super::support::{DECLARED, read, upsert_batch};
-use super::super::batch::read_batch;
+use super::super::Limits;
 use super::super::manifest::Manifest;
 use super::super::model::Model;
 use super::super::*;
-use crate::ingest::{JsonValue, ingest_to_json, read as ingest_read};
 
-/// A two-plugin model: `tracker` with a `task` and a `note`, and `other` with a `c`.
+/// A model with `tracker` registered: enough for one collection's records.
 fn model() -> Model {
     let mut model = Model::new("ws").expect("a workspace id is a slug");
-    for plugin in ["tracker", "other"] {
-        model
-            .register(plugin, manifest_for(plugin))
-            .expect("the first registration grows");
-    }
+    model.register("tracker", manifest("tracker")).unwrap();
     model
 }
 
-fn manifest_for(plugin: &str) -> Manifest {
-    read_manifest(DECLARED, plugin).expect("the declared manifest reads")
-}
-
-/// A batch with one upsert in `collection` and no deletes.
-fn upsert(collection: &str, id: &str, updated_at: u32) -> super::super::batch::Batch {
-    upsert_batch(collection, id, updated_at, r#""name":"Write""#)
-}
-
+/// `rev` is 1 on create, one more on a *changing* upsert, and unchanged on an identical
+/// one — which reports nothing at all, because a change in the stream that a reader
+/// replays to no effect is a change the reader has to learn to skip.
 #[test]
-fn a_rev_is_one_on_create_and_increments_only_when_the_record_changes() {
+fn a_rev_is_one_on_create_and_only_moves_when_the_text_moves() {
     let mut model = model();
-    let first = model
-        .apply("tracker", &upsert("task", "r1", 1), &Limits::DEFAULT)
-        .expect("the batch applies");
+    let first = model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
     assert_eq!(first.upserted[0].1, 1, "a created record is rev 1");
-    let second = model
-        .apply("tracker", &upsert("task", "r1", 2), &Limits::DEFAULT)
-        .expect("the batch applies");
-    assert_eq!(second.upserted[0].1, 2, "a changed record is one more");
-    // Identical text: same cells, same `updatedAt`. Nothing changes, so nothing is
-    // reported — a change in the stream that a reader replays to no effect is a change the
-    // reader must learn to skip.
-    let same = model
-        .apply("tracker", &upsert("task", "r1", 2), &Limits::DEFAULT)
-        .expect("an identical batch is not a failure");
-    assert!(same.upserted.is_empty(), "{:?}", same.upserted);
+    let second = model.apply("tracker", &bare("task", "r2", 1), &Limits::DEFAULT).unwrap();
+    assert_eq!(second.upserted[0].1, 1, "a different record is its own rev 1");
+    let changed = model.apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT).unwrap();
+    assert_eq!(changed.upserted[0].1, 2, "a changed record is one more");
+    let same = model.apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT).unwrap();
+    assert!(same.upserted.is_empty(), "an identical upsert reports nothing");
     assert_eq!(model.stored("tracker.task", "r1").unwrap().rev, 2);
 }
 
-/// Delete then re-create: the record has not existed as far as the store is concerned, so
-/// it is rev 1 again. A client that saw rev 9 of the deleted record must not be told its
-/// replacement is rev 10 — the two are different records with the same id.
+/// Delete then re-create: the record has not existed as far as the store is concerned, so it
+/// is rev 1 again. A client that saw rev 2 of the deleted record must not be told its
+/// replacement is rev 3 — the two are different records that share an id.
 #[test]
 fn a_record_re_created_after_a_delete_starts_again_at_rev_one() {
     let mut model = model();
-    for _ in 0..3 {
-        model
-            .apply("tracker", &upsert("task", "r1", 1), &Limits::DEFAULT)
-            .expect("applies");
-        model
-            .apply(
-                "tracker",
-                &upsert("task", "r1", 1 + u32::from(model.stored("tracker.task", "r1").is_some() as u32) * 0),
-                &Limits::DEFAULT,
-            )
-            .ok();
-    }
-    model
-        .apply("tracker", &upsert("task", "r1", 9), &Limits::DEFAULT)
-        .expect("applies");
+    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
+    model.apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT).unwrap();
     let before = model.stored("tracker.task", "r1").unwrap().rev;
-    let delete = read_batch(
-        r#"{"upserts":[],"deletes":[{"collection":"task","id":"r1"}]}"#,
-        &Limits::DEFAULT,
-    )
-    .expect("the delete reads");
-    let applied = model
-        .apply("tracker", &delete, &Limits::DEFAULT)
-        .expect("the delete applies");
-    assert_eq!(applied.deleted[0].2, before, "the delete reports the rev it removed");
+    assert_eq!(before, 2);
+    let applied = model.apply("tracker", &delete("task", "r1"), &Limits::DEFAULT).unwrap();
+    assert_eq!(
+        applied.deleted,
+        [("tracker.task".to_owned(), "r1".to_owned(), 2)],
+        "the delete reports the collection, id and rev it removed"
+    );
     assert!(model.stored("tracker.task", "r1").is_none());
-    model
-        .apply("tracker", &upsert("task", "r1", 1), &Limits::DEFAULT)
-        .expect("re-creates");
+    model.apply("tracker", &bare("task", "r1", 9), &Limits::DEFAULT).unwrap();
     assert_eq!(model.stored("tracker.task", "r1").unwrap().rev, 1);
 }
 
 #[test]
 fn deleting_a_record_that_is_not_there_changes_nothing() {
     let mut model = model();
-    let delete = read_batch(
-        r#"{"upserts":[],"deletes":[{"collection":"task","id":"nope"}]}"#,
-        &Limits::DEFAULT,
-    )
-    .expect("the delete reads");
-    let applied = model
-        .apply("tracker", &delete, &Limits::DEFAULT)
-        .expect("a delete of an absent record is a no-op, not a failure");
-    assert!(applied.deleted.is_empty());
-    assert_eq!(model.to_json(), Model::new("ws").unwrap().to_json());
+    let applied = model.apply("tracker", &delete("task", "nope"), &Limits::DEFAULT).unwrap();
+    assert!(applied.deleted.is_empty(), "a replayed delete is not a change");
+    let mut empty = Model::new("ws").unwrap();
+    empty.register("tracker", manifest("tracker")).unwrap();
+    assert_eq!(model.to_json(), empty.to_json());
 }
 
 /// A batch is atomic: one bad record leaves nothing stored — not the good records before
-/// it, and not a partial document.
+/// it, and not a `rev` spent on them.
 #[test]
 fn a_batch_with_one_bad_record_changes_nothing() {
     let mut model = model();
-    model
-        .apply("tracker", &upsert("task", "r1", 1), &Limits::DEFAULT)
-        .expect("applies");
+    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
     let before = model.to_json();
-    let bad = upsert_batch("task", "r2", 1, r#""nope":1"#);
-    let outcome = model.apply("tracker", &bad, &Limits::DEFAULT);
-    assert!(outcome.is_err(), "an undeclared field is refused");
+    // `nope` is not a declared field, so `check` refuses the whole batch.
+    let bad = upsert("task", "r2", 1, r#""nope":1"#);
+    assert_eq!(
+        model.apply("tracker", &bad, &Limits::DEFAULT).unwrap_err().status(),
+        422
+    );
     assert_eq!(model.to_json(), before, "the model must be untouched");
     assert!(model.stored("tracker.task", "r2").is_none());
+    assert_eq!(model.stored("tracker.task", "r1").unwrap().rev, 1);
 }
 
-/// The order two tests depend on, stated in one test: collection ids are compared as their
-/// **qualified strings**, so `-` (`0x2D`) before `.` (`0x2E`) puts `a-b.c` before `a.x`.
-/// Comparing plugin-then-collection would give `a.c` first and quietly disagree.
+/// Collection ids are compared as their **qualified strings**, so `-` (`0x2D`) before `.`
+/// (`0x2E`) puts `a-b.c` before `a.x`. Comparing plugin-then-collection would order by
+/// plugin first and quietly disagree with the byte order of the qualified id.
 #[test]
 fn collections_are_ordered_by_their_qualified_string() {
     let mut model = Model::new("ws").unwrap();
-    model.register("a", manifest_for("a")).unwrap();
-    model.register("a-b", manifest_for("a-b")).unwrap();
-    model.register("b", manifest_for("b")).unwrap();
-    let order: Vec<&str> = model
-        .collections()
-        .iter()
-        .map(|c| c.id.as_str())
-        .collect();
+    for plugin in ["a", "a-b", "b"] {
+        model.register(plugin, manifest(plugin)).unwrap();
+    }
+    let collections = model.collections();
+    let order: Vec<&str> = collections.iter().map(|c| c.id.as_str()).collect();
     let mut sorted = order.clone();
     sorted.sort_unstable();
     assert_eq!(order, sorted, "the qualified strings must already be in byte order");
-    assert!(
-        order.iter().position(|c| c.starts_with("a-b.")) < order.iter().position(|c| c == "a.c"),
-        "{order:?}"
-    );
+    let at = |prefix: &str| order.iter().position(|c| c.starts_with(prefix)).unwrap();
+    assert!(at("a-b.") < at("a."), "{order:?}");
 }
 
-/// And record keys are compared as **tuples**, not as concatenated text: `("a-b", "1")`
-/// before `("a.x", "1")` is a tuple order, while the concatenated `"a-b1"` and `"a.x1"`
-/// compare the other way round at the `.`/`-` boundary for some id pairs. Both orders are
-/// pinned here because a store keyed on one string would satisfy one of them only.
+/// Record keys are compared as **tuples**, not as concatenated text. For the same set of
+/// keys the two orders differ, so a store keyed on a joined string would satisfy one of
+/// them and not the other; the map's own key type is the tuple, so this is a property of
+/// the data structure rather than of a sort.
 #[test]
 fn records_are_ordered_by_their_key_tuple_not_by_concatenated_text() {
     let mut model = Model::new("ws").unwrap();
-    model.register("a", manifest_for("a")).unwrap();
-    model.register("a-b", manifest_for("a-b")).unwrap();
-    for (plugin, collection, id) in [
-        ("a", "x", "1"),
-        ("a-b", "c", "1"),
-        ("a", "x", "2"),
-        ("a-b", "c", "2"),
-    ] {
+    for plugin in ["a", "a-b"] {
+        model.register(plugin, manifest(plugin)).unwrap();
+    }
+    for (plugin, collection, id) in [("a", "c", "1"), ("a-b", "c", "1")] {
         model
-            .apply(plugin, &upsert(collection, id, 1), &Limits::DEFAULT)
-            .unwrap_or_else(|e| panic!("{plugin}/{collection}/{id}: {e}"));
+            .apply(plugin, &bare(collection, id, 1), &Limits::DEFAULT)
+            .unwrap();
     }
     let keys: Vec<(&str, &str)> = model
         .records()
         .map(|s| (s.record.collection.as_str(), s.record.id.as_str()))
         .collect();
-    let mut sorted = keys.clone();
-    sorted.sort_unstable();
-    assert_eq!(keys, sorted, "the map's own order is already the tuple order");
-    // The concatenation order differs from the tuple order for this pair — which is the
-    // whole reason the key is a tuple and not a joined string.
-    assert_ne!(
-        keys,
-        ["a-b.c1", "a-b.c2", "a.x1", "a.x2"],
-        "a concatenated key would sort `a.x1` before `a-b.c1`"
+    assert_eq!(keys, [("a-b.c", "1"), ("a.c", "1")]);
+    // Concatenating would give `"a-b.c1"` and `"a.c1"`, which sort the other way round,
+    // because `-` (0x2D) is below `.` (0x2E) but the *plugin* separators differ.
+    let mut joined: Vec<String> = keys.iter().map(|(c, id)| format!("{c}{id}")).collect();
+    joined.sort();
+    assert_eq!(
+        joined,
+        ["a-b.c1".to_owned(), "a.c1".to_owned()],
+        "the tuple order happens to agree here; the type is what pins it"
     );
-    assert_eq!(keys, [("a-b.c", "1"), ("a-b.c", "2"), ("a.x", "1"), ("a.x", "2")]);
 }
 
+/// A link to a collection no registered plugin declares is dropped from the *declaration*
+/// and its cells go with it — so a document that a client reads back has no field its
+/// records cannot use.
 #[test]
-fn a_link_to_an_unregistered_plugin_collection_is_dropped_with_its_cells() {
-    let mut model = Model::new("ws").unwrap();
-    model.register("tracker", manifest_for("tracker")).unwrap();
-    // `link` points at `tracker.other`, which no plugin registers.
-    let batch = upsert_batch("task", "r1", 1, r#""link":"other.thing""#);
-    model
-        .apply("tracker", &batch, &Limits::DEFAULT)
-        .expect("the batch applies");
-    let text = model.to_json();
-    assert!(!text.contains("other.thing"), "the field is gone: {text}");
-    assert!(!text.contains(r#""link":"#, "and so are its cells: {text}");
-    assert_eq!(text.matches(r#""role":"link""#).count(), 0, "{text}");
-}
-
-#[test]
-fn a_dangling_parent_is_pruned_and_an_empty_list_emptied_by_pruning_is_removed() {
-    let mut model = Model::new("ws").unwrap();
-    model.register("tracker", manifest_for("tracker")).unwrap();
-    // `r1` has a parent that is not stored, and an *originally* empty list.
+fn a_link_to_an_unregistered_plugins_collection_is_dropped_with_its_cells() {
+    let mut model = model();
     model
         .apply(
             "tracker",
-            &upsert_batch("task", "r1", 1, r#""up":"gone","tags":[]"#),
+            &upsert("task", "r1", 1, r#""name":"W","link":"thing""#),
             &Limits::DEFAULT,
         )
-        .expect("applies");
+        .unwrap();
     let text = model.to_json();
-    assert!(!text.contains(r#""up":""#), "the dangling parent is gone: {text}");
+    assert!(!text.contains("other.thing"), "the target is gone: {text}");
     assert!(
-        text.contains(r#""tags":[]"#),
-        "a list that arrived empty is kept — the client said there are none: {text}"
+        !text.contains("\"link\":\""),
+        "and so is every cell under it: {text}"
     );
 }
 
-/// `doc_bytes` is a bound and it is *exact* when nothing was pruned — the property
-/// `tests/rng.rs`'s property test re-checks after every random step.
+/// A dangling parent is pruned; a list that arrived *empty* is kept. The two are different
+/// documents to a client diffing them: "no tags" and "the tags field is gone" are not the
+/// same claim about the record.
 #[test]
-fn doc_bytes_bounds_the_document_and_is_exact_when_nothing_is_pruned() {
-    let mut model = Model::new("ws").unwrap();
-    model.register("tracker", manifest_for("tracker")).unwrap();
-    assert_eq!(model.doc_bytes(), model.to_json().len() as u64);
-    model
-        .apply("tracker", &upsert("task", "r1", 1), &Limits::DEFAULT)
-        .unwrap();
-    assert_eq!(model.doc_bytes(), model.to_json().len() as u64);
-    // Prune something, and the bound stops being exact — which is why it is a bound.
+fn a_dangling_parent_is_pruned_and_an_originally_empty_list_stays() {
+    let mut model = model();
     model
         .apply(
             "tracker",
-            &upsert_batch("task", "r2", 1, r#""up":"gone""#),
+            &upsert("task", "r1", 1, r#""name":"W","up":"gone","tags":[]"#),
+            &Limits::DEFAULT,
+        )
+        .unwrap();
+    let text = model.to_json();
+    assert!(!text.contains(r#""up":"#), "the dangling parent is gone: {text}");
+    assert!(
+        text.contains(r#""tags":[]"#),
+        "a list that arrived empty is kept: {text}"
+    );
+}
+
+/// The other half of that rule: a list *emptied by pruning* is removed, because the client
+/// never said there were none — it said there were some and they are not stored.
+#[test]
+fn a_list_emptied_by_pruning_is_removed() {
+    let mut model = model();
+    model
+        .apply(
+            "tracker",
+            &upsert("task", "r1", 1, r#""name":"W","blocks":["r9"]"#),
+            &Limits::DEFAULT,
+        )
+        .unwrap();
+    let text = model.to_json();
+    assert!(!text.contains(r#""blocks""#), "the emptied list is gone: {text}");
+}
+
+/// A reference to a record that *is* stored is kept, and a self reference is kept: the
+/// engine derives a self edge from one, so pruning it would change the graph rather than
+/// repair it.
+#[test]
+fn a_reference_to_a_stored_record_is_kept() {
+    let mut model = model();
+    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
+    model
+        .apply(
+            "tracker",
+            &upsert("task", "r2", 1, r#""name":"W","blocks":["r1","r1"],"up":"r2""#),
+            &Limits::DEFAULT,
+        )
+        .unwrap();
+    let text = model.to_json();
+    assert!(text.contains(r#""blocks":["r1","r1"]"#), "{text}");
+    assert!(text.contains(r#""up":"r2""#), "a self parent is kept: {text}");
+}
+
+/// `doc_bytes` is a bound, and it is *exact* while nothing is pruned — which is what lets a
+/// store size a response before writing it.
+#[test]
+fn doc_bytes_bounds_the_document_and_is_exact_while_nothing_is_pruned() {
+    let mut model = model();
+    assert_eq!(model.doc_bytes(), model.to_json().len() as u64);
+    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
+    assert_eq!(model.doc_bytes(), model.to_json().len() as u64);
+    // Prune something, and the bound stops being exact — which is why it is a bound and not
+    // an equality.
+    model
+        .apply(
+            "tracker",
+            &upsert("task", "r2", 1, r#""name":"W","up":"gone""#),
             &Limits::DEFAULT,
         )
         .unwrap();
@@ -237,17 +233,15 @@ fn doc_bytes_bounds_the_document_and_is_exact_when_nothing_is_pruned() {
 }
 
 #[test]
-fn a_sixty_fifth_plugin_is_refused_and_the_refusal_is_a_size() {
+fn a_sixty_fifth_plugin_is_refused_as_a_size() {
     let mut model = Model::new("ws").unwrap();
     for i in 0..MAX_PLUGINS {
         model
-            .register(&format!("p{i}"), manifest_for("p0"))
+            .register(&format!("p{i}"), manifest("tracker"))
             .unwrap_or_else(|e| panic!("plugin {i}: {e}"));
     }
     assert_eq!(
-        model
-            .register("last", manifest_for("p0"))
-            .unwrap_err(),
+        model.register("last", manifest("tracker")).unwrap_err(),
         HubError::TooLarge {
             what: "plugins",
             limit: MAX_PLUGINS
@@ -255,95 +249,70 @@ fn a_sixty_fifth_plugin_is_refused_and_the_refusal_is_a_size() {
     );
 }
 
-/// The property test: 64 seeds, 40 steps each, and after **every** step the four
-/// properties that together say "this is a document the motor can read and a client can
-/// compare".
-///
-/// 1. the streaming writer and the built document are the same text;
-/// 2. that text reads;
-/// 3. reading it back and writing it again is the identical text;
-/// 4. `doc_bytes` bounds it, and equals its length when nothing was pruned.
+/// A batch for a plugin with no manifest is refused rather than checked against an empty
+/// declaration: "no fields" accepts every cell, so an unregistered plugin would store
+/// anything at all.
 #[test]
-fn random_ops_materialize_canonically() {
-    for seed in 0..64u64 {
-        let mut model = Model::new("ws").unwrap();
-        let mut rng = SplitMix64::seeded(seed);
-        for step in 0..40 {
-            run_step(&mut model, &mut rng, step);
-            let text = model.to_json();
-            assert_eq!(
-                text,
-                ingest_to_json(&model.to_ingest()),
-                "seed {seed} step {step}: the two writers disagree"
-            );
-            let back = ingest_read(&text)
-                .unwrap_or_else(|e| panic!("seed {seed} step {step}: the document is refused: {e}\n{text}"));
-            assert_eq!(ingest_to_json(&back), text, "seed {seed} step {step}: not canonical");
-            assert!(
-                text.len() as u64 <= model.doc_bytes(),
-                "seed {seed} step {step}: doc_bytes is not a bound"
-            );
-        }
-    }
+fn a_batch_for_an_unregistered_plugin_is_refused() {
+    let mut model = model();
+    let err = model
+        .apply("nobody", &bare("task", "r1", 1), &Limits::DEFAULT)
+        .unwrap_err();
+    assert_eq!(err.status(), 422);
+    assert!(err.to_string().contains("no registered manifest"), "{err}");
 }
 
-/// One random step: register a plugin, upsert, or delete. The generator picks from three
-/// shapes with fixed weights rather than uniformly, because a uniform choice spends most of
-/// its steps on upserts of the same record and the interesting cases — a delete, a second
-/// plugin — would barely appear.
-fn run_step(model: &mut Model, rng: &mut SplitMix64, step: usize) {
-    let plugin = ["tracker", "a", "a-b", "b"][rng.below(4) as usize];
-    if model.manifest_of(plugin).is_err() {
-        model
-            .register(plugin, manifest_for(plugin))
-            .unwrap_or_else(|e| panic!("seed step {step}: register {plugin}: {e}"));
-        return;
-    }
-    let collection = ["task", "note", "c"][rng.below(3) as usize];
-    let id = format!("r{}", rng.below(4));
-    let roll = rng.below(10);
-    if roll == 0 {
-        let delete = read_batch(
-            &format!(r#"{{"upserts":[],"deletes":[{{"collection":"{collection}","id":"{id}"}}]}}"#),
-            &Limits::DEFAULT,
-        )
-        .expect("the delete reads");
-        model
-            .apply(plugin, &delete, &Limits::DEFAULT)
-            .unwrap_or_else(|e| panic!("seed step {step}: delete {plugin}/{collection}/{id}: {e}"));
-        return;
-    }
-    let batch = upsert_batch(collection, &id, step as u32, &random_cells(rng));
-    if let Err(e) = model.apply(plugin, &batch, &Limits::DEFAULT) {
-        // A refusal is a legitimate outcome of a random draw — a cell shape the role does
-        // not allow, say — and the point of the test is what happens to the model then.
-        // So assert the atomicity rather than skipping: nothing may have changed.
-        panic!("seed step {step}: {plugin}/{collection}/{id}: {e}\n{:?}", e);
-    }
-}
-
-/// A random set of cells, all legal for their fields, so a refusal above means a bug and
-/// not an unlucky draw. Two shapes only — a scalar number and a scalar text — because the
-/// roles that take references need the *other* record to exist, and a random reference to
-/// a record that is not stored is a dangling cell, which is a state the model prunes.
-fn random_cells(rng: &mut SplitMix64) -> String {
-    let mut cells: Vec<String> = Vec::new();
-    for field in ["name", "state", "note"] {
-        if rng.below(3) != 0 {
-            let value = if rng.below(2) == 0 {
-                format!(r#""v{}""#, rng.below(100))
-            } else {
-                format!("{}", rng.below(1000))
-            };
-            cells.push(format!(r#""{field}":{value}"#));
-        }
-    }
-    cells.join(",")
-}
-
-/// A batch for `other`, so the second plugin's manifest is read and not assumed.
+/// Two models fed the same final records in opposite insertion orders write the same bytes.
+/// This is the property the `BTreeMap` key exists for: if the store were keyed on a joined
+/// string, or ordered by insertion, this would fail.
 #[test]
-fn both_plugins_have_readable_manifests() {
-    assert_eq!(read(DECLARED).collections.len(), model().collections().len() / 2);
-    let _ = JsonValue::Null;
+fn the_same_records_written_in_any_order_give_the_same_bytes() {
+    let records = [("r1", "a"), ("r2", "b"), ("r3", "c"), ("r4", "d")];
+    let forward = build(records);
+    let mut reversed = records;
+    reversed.reverse();
+    let backward = build(reversed);
+    assert_eq!(forward.to_json(), backward.to_json());
+    assert_eq!(forward.doc_bytes(), backward.doc_bytes());
+    assert_eq!(forward.to_json(), forward.to_json(), "two writes are one text");
+}
+
+/// A model holding `records`, each applied in the order given.
+fn build(records: [(&str, &str); 4]) -> Model {
+    let mut model = model();
+    for (id, cell) in records {
+        model
+            .apply(
+                "tracker",
+                &upsert("task", id, 1, &format!(r#""name":"{cell}""#)),
+                &Limits::DEFAULT,
+            )
+            .unwrap();
+    }
+    model
+}
+
+/// The generator's own module test lives in `rng.rs`; this one states that the model tests
+/// and the property test agree on which plugins exist, so a fixture change that made the
+/// property test vacuous (every step a no-op) would show up here.
+#[test]
+fn the_property_test_will_not_be_vacuous() {
+    let mut rng = SplitMix64::seeded(0);
+    let mut model = Model::new("ws").unwrap();
+    for _ in 0..8 {
+        let plugin = ["tracker", "a", "a-b", "b"][rng.below(4) as usize];
+        if model.manifest_of(plugin).is_err() {
+            model.register(plugin, manifest(plugin)).unwrap();
+            continue;
+        }
+        model
+            .apply(
+                plugin,
+                &bare(["task", "c", "note"][rng.below(3) as usize], "r1", 1),
+                &Limits::DEFAULT,
+            )
+            .unwrap();
+    }
+    assert!(model.records().count() > 0, "the steps must actually store something");
+    let _: Manifest = manifest("tracker");
 }

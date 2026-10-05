@@ -30,10 +30,9 @@
 use super::breaks;
 use super::manifest::{Growth, Manifest, growth};
 use super::prune::prune_record;
-use super::{HubError, Limits, MAX_PLUGINS, check_workspace_id, qualify};
+use super::{HubError, Limits, MAX_PLUGINS, check_workspace_id};
 use crate::ingest::{
-    Collection, Ingest, JsonValue, Record, collection_piece, doc_tail, frame_bytes,
-    record_piece, to_json,
+    Collection, Ingest, Record, collection_piece, doc_tail, frame_bytes, record_piece,
 };
 use std::collections::BTreeMap;
 
@@ -124,13 +123,17 @@ impl Model {
         limits: &Limits,
     ) -> Result<Applied, HubError> {
         batch.check(plugin, self.manifest_of(plugin)?, limits)?;
-        let mut staged = feed::stage(self, plugin, batch)?;
-        let applied = Applied {
-            upserted: staged.upserted.clone(),
-            deleted: staged.deleted.clone(),
-        };
+        let staged = feed::stage(self, plugin, batch)?;
+        let applied = staged.applied.clone();
         self.records = staged.into_records();
         Ok(applied)
+    }
+
+    /// Every stored record by key. The one place the private map escapes, and it goes to
+    /// [`feed::stage`] alone — which clones it, so the staging copy is a snapshot and not a
+    /// second view that a commit could leave out of step.
+    pub(super) fn records_map(&self) -> &BTreeMap<(String, String), Stored> {
+        &self.records
     }
 
     /// The `document`'s whole model: what a read of every plugin would write. The test's
@@ -153,6 +156,7 @@ impl Model {
     /// has nothing to prune written from its stored bytes.
     pub fn to_json(&self) -> String {
         let collections = self.collections();
+        let collections: &[Collection] = &collections;
         let mut out = String::from(crate::ingest::DOC_HEAD);
         out.push_str(
             &collections
@@ -188,7 +192,7 @@ impl Model {
     /// Every piece of the document, in order: the collections', then each record's. `doc_bytes`
     /// sums these; `to_json` concatenates them, so the bound and the bytes cannot disagree.
     pub fn pieces(&self) -> Vec<String> {
-        let collections = self.collections();
+        let collections: &[Collection] = &self.collections();
         let mut out: Vec<String> = collections.iter().map(collection_piece).collect();
         out.extend(self.records.values().map(|s| self.piece(s, collections)));
         out

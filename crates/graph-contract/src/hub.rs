@@ -32,6 +32,8 @@ pub mod change;
 mod error;
 mod ids;
 pub mod manifest;
+pub mod model;
+pub mod prune;
 mod strict;
 
 #[cfg(test)]
@@ -47,6 +49,7 @@ pub use ids::{
     qualify,
 };
 pub use manifest::{Growth, Manifest, growth, manifest_json, read_manifest};
+pub use model::{Applied, Model, Stored};
 
 /// The only hub wire version this contract reads and writes.
 pub const VERSION: u32 = 1;

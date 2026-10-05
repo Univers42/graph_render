@@ -3,13 +3,12 @@
 //! One function, 64-bit, no dependency. Chosen over a `u32` LCG because its output
 //! passes BigCrush and its state advances with additions, so a chain of "random" choices
 //! does not fall into a short cycle the way the small generators do — which matters here,
-//! because the test's whole claim is that 64 different seeds and 40 steps each explore
-//! more than one shape.
+//! because the property test's claim is that 64 seeds and 40 steps each explore more than
+//! one shape.
 //!
-//! A generator and not `rand`: the crate is dependency-free so graph-core can carry it,
-//! and — more to the point — a test that can be reproduced from its seed alone can be
-//! re-run by a reader with the failure in hand (D2: no wall-clock, no unseeded
-//! randomness).
+//! A generator and not `rand`: the crate is dependency-free so graph-core can carry it, and
+//! — more to the point — a test reproducible from its seed alone can be re-run by a reader
+//! holding the failure (D2: no wall-clock, no unseeded randomness).
 
 /// The generator's state. Seeded, never read from anywhere else.
 #[derive(Debug, Clone)]
@@ -21,8 +20,8 @@ impl SplitMix64 {
         SplitMix64(seed)
     }
 
-    /// The next 64 bits. The three constants are splitmix64's own golden-ratio
-    /// increments; they are the algorithm, not a tuning choice.
+    /// The next 64 bits. The three constants are splitmix64's own multipliers; they are
+    /// the algorithm, not a tuning choice.
     pub(super) fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -31,10 +30,13 @@ impl SplitMix64 {
         z ^ (z >> 31)
     }
 
-    /// A value in `0..bound`. **Caveat: modulo bias** — `bound` does not divide `2^64`, so
-    /// the low values are very slightly more likely than the high ones. Every use here is
-    /// a choice among at most a hundred ids, where a bias of one part in `2^53` cannot
-    /// change what the test explores.
+    /// A value in `0..bound`.
+    ///
+    /// **Caveat: modulo bias** — `bound` does not divide `2^64`, so the low values are very
+    /// slightly more likely than the high ones. Every use here chooses among at most four
+    /// ids or three collections, where a bias of one part in `2^61` cannot change which
+    /// cases the property test explores; a use with a large bound would need rejection
+    /// sampling instead, and would be a bug worth a `Caveat` of its own.
     pub(super) fn below(&mut self, bound: u64) -> u64 {
         self.next_u64() % bound
     }
@@ -45,8 +47,8 @@ mod tests {
     use super::SplitMix64;
 
     /// splitmix64's published first three outputs for seed 0. Pinned so a refactor of the
-    /// arithmetic cannot quietly change *which* cases the property test explores: a new
-    /// generator with the same shape would still pass every assertion here.
+    /// arithmetic cannot quietly change *which* cases the property test explores: a
+    /// different generator of the same shape would still pass every other test here.
     #[test]
     fn the_sequence_is_splitmix64s_own() {
         let mut rng = SplitMix64::seeded(0);
@@ -63,8 +65,12 @@ mod tests {
 
     #[test]
     fn a_seeded_generator_is_reproducible() {
-        let a: Vec<u64> = (0..8).scan(SplitMix64::seeded(7), |r, _| Some(r.next_u64())).collect();
-        let b: Vec<u64> = (0..8).scan(SplitMix64::seeded(7), |r, _| Some(r.next_u64())).collect();
+        let a: Vec<u64> = (0..8)
+            .scan(SplitMix64::seeded(7), |r, _| Some(r.next_u64()))
+            .collect();
+        let b: Vec<u64> = (0..8)
+            .scan(SplitMix64::seeded(7), |r, _| Some(r.next_u64()))
+            .collect();
         assert_eq!(a, b);
     }
 
