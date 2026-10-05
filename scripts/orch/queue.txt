@@ -137,3 +137,6 @@ fix-core-base|build|prompts/jobs/fix-core-base.md|scripts/orch/rows/quick.rows|n
 host-api-facts|build|prompts/jobs/host-api-facts.md|scripts/orch/rows/docs.rows|no
 render-spacing|build|prompts/jobs/render-spacing.md|scripts/orch/rows/render-spacing.rows|no
 split-300|build|prompts/jobs/split-300.md|scripts/orch/rows/quick.rows|no
+dag-lanes-verdict|devil|prompts/jobs/dag-lanes-verdict.md|scripts/orch/rows/docs.rows|no
+git-plugin|build|prompts/jobs/git-plugin.md|scripts/orch/rows/git-plugin.rows|no
+studio-query-fields|build|prompts/jobs/studio-query-fields.md|scripts/orch/rows/studio-query-fields.rows|no

@@ -11,7 +11,7 @@
 //! consequence is deliberate and is the reason this file exists: **a hub's document is not
 //! necessarily a faithful copy of what was sent**. A dangling reference is invisible in the
 //! document, and a client that diffs documents cannot tell a deleted record from a dropped
-//! link. That is the trade the spec makes, and [`doc_bytes`] is the bound that keeps it
+//! link. That is the trade the spec makes, and [`doc_bytes`](crate::hub::Model::doc_bytes) is the bound that keeps it
 //! honest.
 //!
 //! # Two rules that are not the same rule
