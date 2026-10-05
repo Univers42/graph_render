@@ -99,7 +99,10 @@ pub(crate) fn if_match(req: &BatchWrite, plugin: &Plugin, epoch: u64) -> Result<
         return Ok(());
     }
     Err(StoreError::PreconditionFailed {
-        what: format!("If-Match `{want}`, the plugin is at `{epoch}.{}`", plugin.seq),
+        what: format!(
+            "If-Match `{want}`, the plugin is at `{epoch}.{}`",
+            plugin.seq
+        ),
     })
 }
 
@@ -266,11 +269,7 @@ pub(crate) async fn plan(
     let upserts = upserts_of(req, &known)?;
     let deletes = deletes_of(req, &known)?;
     let (doc, plugin_delta, added, removed) = deltas(&upserts, &deletes, &known);
-    let frame = bytes::frame_delta(
-        &req.ws,
-        (0, ws.records),
-        (0, ws.records + added - removed),
-    );
+    let frame = bytes::frame_delta(&req.ws, (0, ws.records), (0, ws.records + added - removed));
     let doc_bytes = bytes::add(ws.doc_bytes, doc + frame)?;
     let plugin_bytes = bytes::add(plugin.bytes, plugin_delta)?;
     bytes::cap("document", doc_bytes, caps.doc_bytes)?;
@@ -291,7 +290,11 @@ pub(crate) async fn plan(
 /// be derived would be stored with no links — which the materializer's anti-join would read as "no
 /// reference", silently. The check upstream is what keeps that from happening, and the test that
 /// proves it is `a_batch_with_one_bad_record_changes_nothing`.
-fn links_of(manifest: &Manifest, collection: &str, record: &Record) -> Vec<(String, String, String)> {
+fn links_of(
+    manifest: &Manifest,
+    collection: &str,
+    record: &Record,
+) -> Vec<(String, String, String)> {
     manifest
         .collections
         .iter()

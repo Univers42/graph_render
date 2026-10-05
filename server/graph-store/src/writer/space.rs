@@ -19,11 +19,7 @@ use crate::writer::step;
 /// The id is checked against the slug grammar **before** the connection opens: the `CHECK` on the
 /// column would catch it, but a refusal that arrives as a driver error is a 500-class answer, and
 /// this one is a 422.
-pub(crate) async fn create(
-    store: &Store,
-    ws: &str,
-    _limits: &Limits,
-) -> Result<bool, StoreError> {
+pub(crate) async fn create(store: &Store, ws: &str, _limits: &Limits) -> Result<bool, StoreError> {
     check_workspace_id(ws)?;
     let mut client = store.client().await?;
     let (inserted, epoch) = retried!(store, client, once(&mut client, ws).await)?;

@@ -90,9 +90,11 @@ async fn read_workspace(
          FROM workspaces WHERE id = $1"
     };
     let row = client.query_opt(sql, &[&ws]).await?;
-    row.as_ref().map(workspace_of).ok_or_else(|| StoreError::NotFound {
-        what: format!("workspace `{ws}`"),
-    })
+    row.as_ref()
+        .map(workspace_of)
+        .ok_or_else(|| StoreError::NotFound {
+            what: format!("workspace `{ws}`"),
+        })
 }
 
 /// Four columns to one struct, with the driver's `i64` narrowed to the store's `u64`.

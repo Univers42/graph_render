@@ -23,7 +23,7 @@ async fn workspace_create_is_idempotent_and_draws_an_epoch() {
     let mut client = support::db::more(&url).await;
     let epoch = epoch_of(&mut client, "ws").await;
     assert!(
-        (1_700_000_000_000_000..(1u64 << 53)).contains(&epoch as u64),
+        (1_700_000_000_000_000u64..(1u64 << 53)).contains(&(epoch as u64)),
         "the stored epoch {epoch} is not microseconds since 2023 below 2^53"
     );
     let seeded = doc_bytes(&mut client).await;

@@ -34,7 +34,11 @@ async fn batch_applies_and_answers() {
         ],
         "two operations in batch order, both at rev 1"
     );
-    assert_eq!(rev_of(&mut client, "tracker", "1").await, 1, "the first write is rev 1");
+    assert_eq!(
+        rev_of(&mut client, "tracker", "1").await,
+        1,
+        "the first write is rev 1"
+    );
 }
 
 /// The same canonical text again is a no-op: no rev, no seq, no notice.
@@ -43,7 +47,11 @@ async fn identical_upsert_takes_no_seq() {
     let (store, mut client, _, _) = ready("identical_upsert_takes_no_seq").await;
     let cells = r#""name":"Write""#;
     let first = store
-        .apply_batch(&batch_write("ws", "tracker", batch_of(&[("task", "1", 7, cells)], &[])))
+        .apply_batch(&batch_write(
+            "ws",
+            "tracker",
+            batch_of(&[("task", "1", 7, cells)], &[]),
+        ))
         .await
         .expect("the first upsert");
     assert_answer(&first, 1, 1);
@@ -53,12 +61,19 @@ async fn identical_upsert_takes_no_seq() {
     );
 
     let again = store
-        .apply_batch(&batch_write("ws", "tracker", batch_of(&[("task", "1", 7, cells)], &[])))
+        .apply_batch(&batch_write(
+            "ws",
+            "tracker",
+            batch_of(&[("task", "1", 7, cells)], &[]),
+        ))
         .await
         .expect("the identical upsert again");
     assert_answer(&again, before.1 as u64, 0);
     assert_eq!(
-        (rev_of(&mut client, "tracker", "1").await, head_of(&mut client).await),
+        (
+            rev_of(&mut client, "tracker", "1").await,
+            head_of(&mut client).await
+        ),
         before,
         "an identical resend moved neither the rev nor head_seq"
     );
@@ -70,9 +85,7 @@ async fn identical_upsert_takes_no_seq() {
     assert_eq!(
         text_of(&mut client, "tracker", "1").await,
         graph_contract::ingest::record_piece(
-            &batch_of(&[("task", "1", 7, cells)], &[])
-                .upserts[0]
-                .record("tracker")
+            &batch_of(&[("task", "1", 7, cells)], &[]).upserts[0].record("tracker")
         ),
         "the stored text is the record's canonical piece, byte for byte"
     );
@@ -126,12 +139,19 @@ async fn a_changed_upsert_bumps_rev() {
 async fn deleting_an_absent_record_is_a_noop() {
     let (store, mut client, _, _) = ready("deleting_an_absent_record_is_a_noop").await;
     let outcome = store
-        .apply_batch(&batch_write("ws", "tracker", batch_of(&[], &[("task", "404")])))
+        .apply_batch(&batch_write(
+            "ws",
+            "tracker",
+            batch_of(&[], &[("task", "404")]),
+        ))
         .await
         .expect("delete an absent record");
     assert_answer(&outcome, 1, 0);
     assert_eq!(
-        (head_of(&mut client).await, seqs(&mut client).await.len() as i64),
+        (
+            head_of(&mut client).await,
+            seqs(&mut client).await.len() as i64
+        ),
         (1, 1),
         "the manifest's seq 1 is all the stream holds, and it did not move"
     );
@@ -149,7 +169,10 @@ async fn a_batch_with_one_bad_record_changes_nothing() {
         ))
         .await
         .expect("a good batch first");
-    let before = (head_of(&mut client).await, rev_of(&mut client, "tracker", "1").await);
+    let before = (
+        head_of(&mut client).await,
+        rev_of(&mut client, "tracker", "1").await,
+    );
 
     let error = store
         .apply_batch(&batch_write(
@@ -167,7 +190,10 @@ async fn a_batch_with_one_bad_record_changes_nothing() {
         .expect_err("an undeclared field is refused");
     assert_eq!(status(&error), "422", "an undeclared field is a 422");
     assert_eq!(
-        (head_of(&mut client).await, rev_of(&mut client, "tracker", "1").await),
+        (
+            head_of(&mut client).await,
+            rev_of(&mut client, "tracker", "1").await
+        ),
         before,
         "the refused batch stored nothing"
     );
@@ -176,7 +202,10 @@ async fn a_batch_with_one_bad_record_changes_nothing() {
         .await
         .expect("count the records")
         .get(0);
-    assert_eq!(stored, 1, "the good upsert of the refused batch is not there either");
+    assert_eq!(
+        stored, 1,
+        "the good upsert of the refused batch is not there either"
+    );
 }
 
 /// An all-no-op batch still takes step 1's lock and takes no seq.

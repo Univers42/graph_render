@@ -26,7 +26,10 @@ async fn idem_replay_returns_the_stored_response_and_no_seq() {
         .await
         .expect("count the idempotency rows")
         .get::<_, i64>(0);
-    assert_eq!(rows, 1, "the key is stored beside the batch that produced it");
+    assert_eq!(
+        rows, 1,
+        "the key is stored beside the batch that produced it"
+    );
 
     let replay = store
         .apply_batch(&batch_write_with_key(
@@ -50,7 +53,10 @@ async fn idem_replay_returns_the_stored_response_and_no_seq() {
         .await
         .expect("count the records")
         .get(0);
-    assert_eq!(stored, 1, "the replay did not apply its own body: only the first upsert is there");
+    assert_eq!(
+        stored, 1,
+        "the replay did not apply its own body: only the first upsert is there"
+    );
 }
 
 /// The same key with a different body is a 422, and nothing is stored.
@@ -81,8 +87,16 @@ async fn idem_same_key_other_body_is_422() {
         ))
         .await
         .expect_err("the same key with another body");
-    assert_eq!(status(&error), "422", "a reused key with another body is a 422");
-    assert_eq!(head_of(&mut client).await, before, "the refused request took no seq");
+    assert_eq!(
+        status(&error),
+        "422",
+        "a reused key with another body is a 422"
+    );
+    assert_eq!(
+        head_of(&mut client).await,
+        before,
+        "the refused request took no seq"
+    );
     let rows: i64 = client
         .query_one("SELECT count(*) FROM idempotency WHERE ws = 'ws'", &[])
         .await
@@ -106,7 +120,11 @@ async fn idem_key_over_128_bytes_is_422() {
         ))
         .await
         .expect_err("a 129-byte key is past the cap");
-    assert_eq!(status(&error), "422", "an over-long key is a 422, not a 413");
+    assert_eq!(
+        status(&error),
+        "422",
+        "an over-long key is a 422, not a 413"
+    );
     assert_eq!(
         head_of(&mut client).await,
         1,
@@ -129,7 +147,7 @@ async fn idem_key_over_128_bytes_is_422() {
 /// A key is scoped per `(workspace, plugin, key)`: the same key under another plugin is another row.
 #[tokio::test]
 async fn idem_key_is_scoped_per_plugin() {
-    let (store, mut client, _, _) = ready("idem_key_is_scoped_per_plugin").await;
+    let (store, client, _, _) = ready("idem_key_is_scoped_per_plugin").await;
     store
         .put_manifest(&manifest_write("ws", "other"))
         .await

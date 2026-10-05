@@ -11,7 +11,10 @@ async fn cursors(client: &mut Client, plugin: &str) -> (u64, u64) {
         .expect("read the epoch")
         .get(0);
     let seq: i64 = client
-        .query_one("SELECT plugin_seq FROM manifests WHERE plugin = $1", &[&plugin])
+        .query_one(
+            "SELECT plugin_seq FROM manifests WHERE plugin = $1",
+            &[&plugin],
+        )
         .await
         .expect("read plugin_seq")
         .get(0);
@@ -24,14 +27,22 @@ async fn if_match_refuses_a_stale_plugin_seq() {
     let (store, mut client, _, _) = ready("if_match_refuses_a_stale_plugin_seq").await;
     let (epoch, plugin_seq) = cursors(&mut client, "tracker").await;
 
-    let mut stale = batch_write("ws", "tracker", batch_of(&[("task", "1", 7, r#""name":"One""#)], &[]));
+    let mut stale = batch_write(
+        "ws",
+        "tracker",
+        batch_of(&[("task", "1", 7, r#""name":"One""#)], &[]),
+    );
     stale.if_match = Some(graph_contract::hub::Cursor {
         epoch,
         seq: plugin_seq + 7,
     });
     let error = store.apply_batch(&stale).await.expect_err("a stale cursor");
     assert_eq!(status(&error), "412", "a stale If-Match is a 412");
-    assert_eq!(head_of(&mut client).await, 1, "the refused batch took no seq");
+    assert_eq!(
+        head_of(&mut client).await,
+        1,
+        "the refused batch took no seq"
+    );
 
     let mut wrong_epoch = batch_write(
         "ws",
@@ -46,7 +57,11 @@ async fn if_match_refuses_a_stale_plugin_seq() {
         .apply_batch(&wrong_epoch)
         .await
         .expect_err("another epoch's cursor");
-    assert_eq!(status(&error), "412", "a cursor from another epoch is a 412 too");
+    assert_eq!(
+        status(&error),
+        "412",
+        "a cursor from another epoch is a 412 too"
+    );
 
     let mut current = batch_write(
         "ws",
@@ -57,7 +72,10 @@ async fn if_match_refuses_a_stale_plugin_seq() {
         epoch,
         seq: plugin_seq,
     });
-    let outcome = store.apply_batch(&current).await.expect("the current cursor");
+    let outcome = store
+        .apply_batch(&current)
+        .await
+        .expect("the current cursor");
     assert_answer(&outcome, 2, 1);
 }
 

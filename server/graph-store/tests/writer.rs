@@ -11,18 +11,22 @@
 //! materializer, which is the stronger proof.
 #![cfg(feature = "db-tests")]
 
-#[path = "writer/space.rs"]
-mod space;
-#[path = "writer/manifest.rs"]
-mod manifest;
 #[path = "writer/batch.rs"]
 mod batch;
-#[path = "writer/idem.rs"]
-mod idem;
 #[path = "writer/bytes.rs"]
 mod bytes;
 #[path = "writer/deadlock.rs"]
 mod deadlock;
+#[path = "writer/idem.rs"]
+mod idem;
+#[path = "writer/if_match.rs"]
+mod if_match;
+#[path = "writer/manifest.rs"]
+mod manifest;
+#[path = "writer/sequence.rs"]
+mod sequence;
+#[path = "writer/space.rs"]
+mod space;
 
 mod support;
 
@@ -104,7 +108,8 @@ pub async fn store(url: &str) -> Store {
 /// skips the qualification pass, and a case that built one by hand would store link targets the
 /// reader never qualified — which is exactly the mistake the store must not be able to make.
 pub fn manifest_of(text: &str, plugin: &str) -> graph_contract::hub::Manifest {
-    graph_contract::hub::read_manifest(text, plugin).unwrap_or_else(|e| panic!("the manifest reads: {e}"))
+    graph_contract::hub::read_manifest(text, plugin)
+        .unwrap_or_else(|e| panic!("the manifest reads: {e}"))
 }
 
 /// A manifest write for `plugin` at [`MANIFEST`].
@@ -139,9 +144,7 @@ pub fn batch_of(
     let ups = upserts
         .iter()
         .map(|(c, id, at, cells)| {
-            format!(
-                r#"{{"collection":"{c}","id":"{id}","updatedAt":{at},"values":{{{cells}}}}}"#
-            )
+            format!(r#"{{"collection":"{c}","id":"{id}","updatedAt":{at},"values":{{{cells}}}}}"#)
         })
         .collect::<Vec<_>>()
         .join(",");
@@ -158,11 +161,7 @@ pub fn batch_of(
 }
 
 /// A batch write for `plugin`, with no key and no `If-Match`.
-pub fn batch_write(
-    ws: &str,
-    plugin: &str,
-    batch: graph_contract::hub::batch::Batch,
-) -> BatchWrite {
+pub fn batch_write(ws: &str, plugin: &str, batch: graph_contract::hub::batch::Batch) -> BatchWrite {
     BatchWrite {
         ws: ws.to_owned(),
         plugin: plugin.to_owned(),
@@ -192,7 +191,7 @@ pub fn batch_write_with_key(
 
 /// A workspace, a registered plugin, and a store — the state almost every case starts from.
 pub async fn ready(name: &str) -> (Store, Client, String, String) {
-    let (mut client, _, url) = support::db::fresh_pair(name).await;
+    let (client, _, url) = support::db::fresh_pair(name).await;
     let store = store(&url).await;
     store
         .create_workspace("ws", &LIMITS)
@@ -233,7 +232,10 @@ pub async fn text_of(client: &mut Client, plugin: &str, id: &str) -> String {
 /// Every seq in `change_headers`, in order.
 pub async fn seqs(client: &mut Client) -> Vec<i64> {
     let rows = client
-        .query("SELECT seq FROM change_headers WHERE ws = 'ws' ORDER BY seq", &[])
+        .query(
+            "SELECT seq FROM change_headers WHERE ws = 'ws' ORDER BY seq",
+            &[],
+        )
         .await
         .expect("read the change log");
     rows.iter().map(|row| row.get(0)).collect()
@@ -258,15 +260,7 @@ pub async fn ops(client: &mut Client) -> Vec<(i64, i32, String, String, i64)> {
         .await
         .expect("read the change operations");
     rows.iter()
-        .map(|row| {
-            (
-                row.get(0),
-                row.get(1),
-                row.get(2),
-                row.get(3),
-                row.get(4),
-            )
-        })
+        .map(|row| (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4)))
         .collect()
 }
 

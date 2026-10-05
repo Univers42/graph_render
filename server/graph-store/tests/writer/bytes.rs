@@ -27,7 +27,11 @@ async fn plugin_bytes_and_doc_bytes_caps_are_413() {
     for i in 0..8 {
         let cells = format!(r#""name":"{filler}","note":"{filler}""#);
         match store
-            .apply_batch(&batch_write("ws", "tracker", batch_of(&[("task", &format!("{i}"), 7, &cells)], &[])))
+            .apply_batch(&batch_write(
+                "ws",
+                "tracker",
+                batch_of(&[("task", &format!("{i}"), 7, &cells)], &[]),
+            ))
             .await
         {
             Ok(outcome) => applied += outcome.applied,
@@ -52,8 +56,7 @@ async fn plugin_bytes_and_doc_bytes_caps_are_413() {
         .expect("count the records")
         .get(0);
     assert_eq!(
-        stored,
-        applied as i64,
+        stored, applied as i64,
         "the refused batch stored nothing: the count is the applied count"
     );
     let bytes = doc_bytes(&mut client).await;

@@ -27,7 +27,11 @@ const REMOVES_LABEL: &str = r#"{
 #[tokio::test]
 async fn manifest_put_grows_and_refuses() {
     let (store, mut client, _, _) = ready("manifest_put_grows_and_refuses").await;
-    assert_eq!(seqs(&mut client).await, vec![1], "the first registration took seq 1");
+    assert_eq!(
+        seqs(&mut client).await,
+        vec![1],
+        "the first registration took seq 1"
+    );
 
     let again = store
         .put_manifest(&manifest_write("ws", "tracker"))
@@ -47,10 +51,17 @@ async fn manifest_put_grows_and_refuses() {
         .await
         .expect("a grown manifest");
     assert_eq!(grown.status, 200, "growing an existing plugin is a 200");
-    assert_eq!(grown.growth, graph_contract::hub::Growth::Grown, "adding is growth");
+    assert_eq!(
+        grown.growth,
+        graph_contract::hub::Growth::Grown,
+        "adding is growth"
+    );
     assert_eq!(grown.seq, 2, "growth takes the next seq");
     let headers = client
-        .query("SELECT seq, kind, ops FROM change_headers WHERE ws = 'ws' ORDER BY seq", &[])
+        .query(
+            "SELECT seq, kind, ops FROM change_headers WHERE ws = 'ws' ORDER BY seq",
+            &[],
+        )
         .await
         .expect("read the change headers");
     assert_eq!(headers.len(), 2, "two changes so far");
@@ -65,7 +76,11 @@ async fn manifest_put_grows_and_refuses() {
         .put_manifest(&manifest_write_text("ws", "tracker", REMOVES_LABEL))
         .await
         .expect_err("a manifest that removes a collection is a conflict");
-    assert_eq!(status(&error), "409", "a removed collection is a 409, not growth");
+    assert_eq!(
+        status(&error),
+        "409",
+        "a removed collection is a 409, not growth"
+    );
 
     let other = MANIFEST.replace(r#""name": "Tasks""#, r#""name": "Renamed""#);
     let error = store
@@ -83,7 +98,7 @@ async fn manifest_put_grows_and_refuses() {
 /// The 65th plugin is a 413, and the 64 before it are stored.
 #[tokio::test]
 async fn manifest_put_refuses_the_sixty_fifth_plugin() {
-    let (store, mut client, _, _) = ready("manifest_put_refuses_65th_plugin").await;
+    let (store, client, _, _) = ready("manifest_put_refuses_65th_plugin").await;
     for i in 1..64 {
         let plugin = format!("p{i:02}");
         let written = store
@@ -109,14 +124,17 @@ async fn manifest_put_refuses_the_sixty_fifth_plugin() {
 /// move it — the fact `If-Match` is per plugin (§5.1).
 #[tokio::test]
 async fn manifest_put_moves_only_its_own_plugin_seq() {
-    let (store, mut client, _, _) = ready("manifest_put_moves_its_own_plugin_seq").await;
+    let (store, client, _, _) = ready("manifest_put_moves_its_own_plugin_seq").await;
     let written = store
         .put_manifest(&manifest_write("ws", "other"))
         .await
         .expect("register a second plugin");
     assert_eq!(written.seq, 2, "the second registration took seq 2");
     let rows = client
-        .query("SELECT plugin, plugin_seq FROM manifests WHERE ws = 'ws' ORDER BY plugin", &[])
+        .query(
+            "SELECT plugin, plugin_seq FROM manifests WHERE ws = 'ws' ORDER BY plugin",
+            &[],
+        )
         .await
         .expect("read both plugin rows");
     let seen: Vec<(String, i64)> = rows.iter().map(|row| (row.get(0), row.get(1))).collect();
@@ -136,21 +154,31 @@ async fn manifest_put_moves_only_its_own_plugin_seq() {
 #[tokio::test]
 async fn manifest_put_takes_the_workspace_lock_first() {
     let (store, _, url, _) = ready("manifest_put_takes_the_workspace_lock_first").await;
-    let mut manual = support::db::more(&url).await;
-    manual.batch_execute("BEGIN").await.expect("the manual session begins");
+    let manual = support::db::more(&url).await;
+    manual
+        .batch_execute("BEGIN")
+        .await
+        .expect("the manual session begins");
     manual
         .query_one("SELECT id FROM workspaces WHERE id = 'ws' FOR UPDATE", &[])
         .await
         .expect("the manual session holds the workspace row");
 
-    let put = store.put_manifest(&manifest_write("ws", "tracker"));
-    let waited = tokio::time::timeout(std::time::Duration::from_millis(500), put).await;
+    let req = manifest_write("ws", "tracker");
+    let waited = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        store.put_manifest(&req),
+    )
+    .await;
     assert!(
         waited.is_err(),
         "the PUT waited for the row lock instead of passing through it"
     );
 
-    manual.batch_execute("ROLLBACK").await.expect("the manual session releases it");
+    manual
+        .batch_execute("ROLLBACK")
+        .await
+        .expect("the manual session releases it");
     let grown = store
         .put_manifest(&manifest_write("ws", "tracker"))
         .await

@@ -65,16 +65,17 @@ pub(crate) async fn put(store: &Store, req: &ManifestWrite) -> Result<ManifestWr
     let caps = Caps::of(store);
     let mut client = store.client().await?;
     let head = retried!(store, client, once(&mut client, req, &caps).await)?;
-    step::watermark(&mut client, store.detector(), (&req.ws, head.epoch, head.seq)).await?;
+    step::watermark(
+        &mut client,
+        store.detector(),
+        (&req.ws, head.epoch, head.seq),
+    )
+    .await?;
     Ok(head.written)
 }
 
 /// One attempt: the whole transaction, `BEGIN` to `COMMIT`.
-async fn once(
-    client: &mut Client,
-    req: &ManifestWrite,
-    caps: &Caps,
-) -> Result<Head, StoreError> {
+async fn once(client: &mut Client, req: &ManifestWrite, caps: &Caps) -> Result<Head, StoreError> {
     step::begin(client).await?;
     let workspace = step::lock_workspace(client, &req.ws).await?;
     let old = read_stored(client, &req.ws, &req.plugin).await?;
@@ -206,11 +207,7 @@ async fn write_manifest(
 }
 
 /// The workspace's document length, which the caps were just checked against.
-async fn write_doc_bytes(
-    client: &mut Client,
-    ws: &str,
-    doc_bytes: u64,
-) -> Result<(), StoreError> {
+async fn write_doc_bytes(client: &mut Client, ws: &str, doc_bytes: u64) -> Result<(), StoreError> {
     client
         .execute(
             "UPDATE workspaces SET doc_bytes = $2 WHERE id = $1",
@@ -227,7 +224,10 @@ async fn read_stored(
     plugin: &str,
 ) -> Result<Option<Stored>, StoreError> {
     let row = client
-        .query_opt("SELECT text FROM manifests WHERE ws = $1 AND plugin = $2", &[&ws, &plugin])
+        .query_opt(
+            "SELECT text FROM manifests WHERE ws = $1 AND plugin = $2",
+            &[&ws, &plugin],
+        )
         .await?;
     Ok(row.map(|row| {
         let text: String = row.get(0);

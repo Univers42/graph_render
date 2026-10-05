@@ -92,7 +92,13 @@ async fn write(
         stamp(client, req, planned).await?
     };
     write_records(client, req, planned).await?;
-    write_counts(client, req, planned, if applied == 0 { None } else { Some(seq) }).await?;
+    write_counts(
+        client,
+        req,
+        planned,
+        if applied == 0 { None } else { Some(seq) },
+    )
+    .await?;
     if let Some(key) = &req.idem {
         let response = answer_json(seq, applied);
         idempotency::record(client, key, &req.ws, &req.plugin, &response, seq).await?;
@@ -120,7 +126,11 @@ async fn stamp(client: &mut Client, req: &BatchWrite, planned: &Plan) -> Result<
         .collect();
     let text = change_json(&head, &upserts, &planned.deletes);
     check_change(&text, &req.limits)?;
-    insert(client, &change_of(req, &taken.seq, &taken.at, text, planned)).await?;
+    insert(
+        client,
+        &change_of(req, &taken.seq, &taken.at, text, planned),
+    )
+    .await?;
     Ok(taken.seq)
 }
 
@@ -278,7 +288,7 @@ async fn write_counts(
     client
         .execute(
             "UPDATE manifests SET plugin_bytes = $3, plugin_seq = \
-             CASE WHEN $5 THEN plugin_seq ELSE $4 END WHERE ws = $1 AND plugin = $2",
+             CASE WHEN $5 THEN $4 ELSE plugin_seq END WHERE ws = $1 AND plugin = $2",
             &[
                 &req.ws,
                 &req.plugin,

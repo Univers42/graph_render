@@ -58,8 +58,12 @@ pub(crate) struct Change {
 pub(crate) async fn insert(client: &mut Client, change: &Change) -> Result<(), StoreError> {
     client
         .execute(
+            // `CAST($4 AS text)` and not `$4::text`: PostgreSQL resolves `$4::timestamptz`'s
+            // parameter type to `timestamptz` itself, and the driver then refuses a `String`
+            // against it. The explicit `CAST` names the parameter's type as `text`, which is what
+            // it is.
             "INSERT INTO change_headers (ws, seq, plugin, at, kind, bytes, ops) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             VALUES ($1, $2, $3, CAST($4 AS text)::timestamptz, $5, $6, $7)",
             &[
                 &change.ws,
                 &(change.seq as i64),
@@ -78,12 +82,7 @@ pub(crate) async fn insert(client: &mut Client, change: &Change) -> Result<(), S
 }
 
 /// One operation row.
-async fn insert_op(
-    client: &mut Client,
-    ws: &str,
-    seq: u64,
-    op: &Op,
-) -> Result<(), StoreError> {
+async fn insert_op(client: &mut Client, ws: &str, seq: u64, op: &Op) -> Result<(), StoreError> {
     client
         .execute(
             "INSERT INTO change_ops (ws, seq, ord, op, qcoll, id, rev, text) \

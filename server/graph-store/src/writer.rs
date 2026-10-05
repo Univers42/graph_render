@@ -119,11 +119,17 @@ pub(crate) async fn create_workspace(
 }
 
 /// §4's manifest PUT. See [`Store::put_manifest`].
-pub(crate) async fn put_manifest(store: &Store, req: &ManifestWrite) -> Result<ManifestWritten, StoreError> {
+pub(crate) async fn put_manifest(
+    store: &Store,
+    req: &ManifestWrite,
+) -> Result<ManifestWritten, StoreError> {
     manifest::put(store, req).await
 }
 
 /// §5.1's batch. See [`Store::apply_batch`].
-pub(crate) async fn apply_batch(store: &Store, req: &BatchWrite) -> Result<BatchOutcome, StoreError> {
+pub(crate) async fn apply_batch(
+    store: &Store,
+    req: &BatchWrite,
+) -> Result<BatchOutcome, StoreError> {
     apply::batch(store, req).await
 }

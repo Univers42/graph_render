@@ -66,11 +66,7 @@ impl Store {
 
     /// §4's workspace create: `true` when the row was inserted (201), `false` when it already
     /// existed (200). It takes no seq — a workspace has no change log of its own.
-    pub async fn create_workspace(
-        &self,
-        ws: &str,
-        limits: &Limits,
-    ) -> Result<bool, StoreError> {
+    pub async fn create_workspace(&self, ws: &str, limits: &Limits) -> Result<bool, StoreError> {
         crate::writer::create_workspace(self, ws, limits).await
     }
 
