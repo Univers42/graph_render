@@ -4,6 +4,7 @@
 #   hub-run.sh reset | start | stop | kill | restart | url
 #   hub-run.sh run CMD [ARGS...]      run CMD, serving its step requests until it exits
 #   hub-run.sh ack-file STEP          print the path of STEP's acknowledgement file
+#   hub-run.sh inspect FORMAT         docker inspect -f FORMAT on this worktree's hub container
 #
 # The container runs the image of scripts/hub.sh image (rebuilt incrementally on every start),
 # through scripts/orch/drun only, read-only, with every capability dropped and no port published:
@@ -17,8 +18,12 @@
 # only when HUB_MOTOR_KEY_FILE names its key file (GRAPH_HUB_MOTOR_URL then names the motor).
 # Every GRAPH_HUB_* variable set in the caller's environment passes through by name, never by
 # value on a command line; GRAPH_HUB_DB_URL defaults to `hub-pg.sh url`.
-# GM_HUB_BREAK=<name>[,<name>] runs a graph-hub built with --features negctl (target/hub-negctl),
-# bind-mounted over the image's binary, with the break named in its environment.
+# GM_HUB_BREAK=<name>[,<name>] runs a graph-hub built with --features negctl, and GM_HUB_HOLD_BODIES=N
+# one built with --features test-hooks (src/hooks.rs `Hooks::from_env`: N writes wait for each other
+# between reading and parsing their bodies). Either build lives in target/hub-<features> and is
+# bind-mounted over the image's binary, with its variables named in its environment.
+# HUB_RUN_MEMORY=<size> caps the container at <size> of RAM and no swap (row hub-memory); without
+# it drun's default cap applies.
 #
 # Step handshake (`run`): a test asks for a container action by writing one verb (kill, stop, start
 # or restart) to target/hub-steps/<step>.req; the runner deletes the request, acts, and writes the
@@ -30,7 +35,8 @@
 #
 # Caveat: the environment, the database URL and the break are fixed when the container is
 # created, and `start` reuses an existing container; after a hub-pg.sh reset, or to change
-# GM_HUB_BREAK or any GRAPH_HUB_* value, run `hub-run.sh reset` first.
+# GM_HUB_BREAK, GM_HUB_HOLD_BODIES, HUB_RUN_MEMORY or any GRAPH_HUB_* value, run `hub-run.sh reset`
+# first.
 # Caveat: `run` polls every 50 ms, so an action lands up to 50 ms after its request, and a request
 # written after CMD has exited is never served (it is reported on stderr and deleted).
 
@@ -42,7 +48,15 @@ drun=$here/drun
 name=${GM_HUB_RUN_NAME:-gm-hub-$(basename "$root")}
 state=target/hub-run
 steps=target/hub-steps
-negctl_bin=target/hub-negctl/release/graph-hub
+
+# The cargo features the variables above ask for, comma-separated; empty for the image's own binary.
+features() {
+  local list=()
+  [ -n "${GM_HUB_BREAK-}" ] && list+=(negctl)
+  [ -n "${GM_HUB_HOLD_BODIES-}" ] && list+=(test-hooks)
+  local IFS=,
+  printf '%s' "${list[*]-}"
+}
 
 die() { echo "hub-run: $*" >&2; exit 2; }
 fail() { echo "hub-run: $*" >&2; return 1; }
@@ -57,10 +71,18 @@ credentials() {
   printf 'tester * admin\n' >"$state/grants"
 }
 
-negctl_build() {
-  "$here/gr" bash -c "cd server && CARGO_TARGET_DIR=/w/target/hub-negctl \
-    cargo build --release --locked -p graph-hub --bin graph-hub --features negctl" >&2 \
-    || fail "the negctl build failed"
+variant_bin() {
+  local list
+  list=$(features)
+  printf 'target/hub-%s/release/graph-hub' "${list//,/-}"
+}
+
+variant_build() {
+  local list
+  list=$(features)
+  "$here/gr" bash -c "cd server && CARGO_TARGET_DIR=/w/target/hub-${list//,/-} \
+    cargo build --release --locked -p graph-hub --bin graph-hub --features $list" >&2 \
+    || fail "the $list build failed"
 }
 
 ip() {
@@ -88,8 +110,13 @@ create() {
     args+=(-v "$(readlink -f "$HUB_MOTOR_KEY_FILE"):/run/graph/motor-key:ro"
       -e GRAPH_HUB_MOTOR_KEY_FILE=/run/graph/motor-key)
   fi
-  if [ -n "${GM_HUB_BREAK-}" ]; then
-    args+=(-v "$root/$negctl_bin:/usr/local/bin/graph-hub:ro" -e GM_HUB_BREAK)
+  if [ -n "$(features)" ]; then
+    args+=(-v "$root/$(variant_bin):/usr/local/bin/graph-hub:ro")
+  fi
+  [ -n "${GM_HUB_BREAK-}" ] && args+=(-e GM_HUB_BREAK)
+  [ -n "${GM_HUB_HOLD_BODIES-}" ] && args+=(-e GM_HUB_HOLD_BODIES)
+  if [ -n "${HUB_RUN_MEMORY-}" ]; then
+    args+=(--memory "$HUB_RUN_MEMORY" --memory-swap "$HUB_RUN_MEMORY")
   fi
   # WHY --group-add: the image runs as 10001, and the credential files are 0640 for the host user,
   # which KeySet::load and Grants::load require; the host user's group is how 10001 reads them.
@@ -117,7 +144,7 @@ wait_healthy() {
 start() {
   "$root/scripts/hub.sh" image >/dev/null || { fail "scripts/hub.sh image failed"; return 1; }
   credentials || return 1
-  if [ -n "${GM_HUB_BREAK-}" ]; then negctl_build || return 1; fi
+  if [ -n "$(features)" ]; then variant_build || return 1; fi
   boot
 }
 
@@ -200,6 +227,7 @@ restart) restart ;;
 url) url ;;
 run) shift; run "$@" ;;
 ack-file) [ $# -eq 2 ] || die "ack-file needs a step name"; printf '%s\n' "$root/$steps/$2.ack" ;;
+inspect) [ $# -eq 2 ] || die "inspect needs a format"; docker inspect -f "$2" "$name" ;;
 --help | -h) sed -n '2,/^$/p' "$0" | sed -e 's/^# \{0,1\}//' -e '/^$/d'; exit 0 ;;
 *) die "unknown verb: ${1-}" ;;
 esac
