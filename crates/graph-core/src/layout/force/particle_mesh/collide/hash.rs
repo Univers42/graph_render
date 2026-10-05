@@ -1,5 +1,7 @@
-//! The cell hash. The buckets a sort walks in the previous order live in
-//! [`sort`](super::sort); [`Hash`] is what they and `Grid`'s query reads agree on.
+//! The cell hash, and the pass that hashes every node through the `Runner`.
+
+use crate::exec::StepRange;
+use std::ops::Range;
 
 /// Cell `(cx, cy)` is bucket `row(cy) + cx` modulo the bucket count.
 #[derive(Clone, Copy)]
@@ -27,5 +29,27 @@ impl Hash {
     /// Row `cy`'s bucket for cell `0`, the hash's top bits.
     fn row(&self, cy: i64) -> u64 {
         (cy as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift
+    }
+}
+
+/// Each node's bucket, one output per node.
+pub(super) struct Buckets<'a> {
+    pub(super) hash: Hash,
+    pub(super) xy: (&'a [f64], &'a [f64]),
+}
+
+impl StepRange for Buckets<'_> {
+    type Out = u32;
+
+    fn len(&self) -> u32 {
+        self.xy.0.len() as u32
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [u32]) {
+        let nodes = range.start as usize..range.end as usize;
+        let xy = self.xy.0[nodes.clone()].iter().zip(&self.xy.1[nodes]);
+        for (bucket, (&x, &y)) in out.iter_mut().zip(xy) {
+            *bucket = self.hash.bucket_of(self.hash.cell_of((x, y)));
+        }
     }
 }
