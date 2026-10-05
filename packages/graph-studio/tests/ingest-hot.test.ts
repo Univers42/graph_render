@@ -37,7 +37,7 @@ test("a full document passes through with no notes and the ten members in contra
     '"directed":true,"record_id":"db","child_first":true}]}');
   // `tags` and `path` ride in `doc`, never on the wire: `gm_build` refuses an unknown member.
   assert.deepEqual(result.doc.nodes[0]?.tags, ["Zed", "alpha"]);
-  assert.equal(result.doc.nodes[0]?.path, "n/a.md");
+  assert.equal(result.doc.nodes[0].path, "n/a.md");
 });
 
 test("every note of a ragged document, in the order they happen", () => {

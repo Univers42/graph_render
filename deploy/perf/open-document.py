@@ -32,10 +32,10 @@ them is this probe's own polling — a check on that number, not a second measur
 sampling profiler: self times under a few samples are noise, wasm names are mangled Rust symbols, the
 page's JavaScript is minified (find a row in app/dist/assets/<chunk>.js), and a worker is sampled
 from a millisecond or two after it starts. Caveat: the heap is the page's `performance.memory`, which
-Chromium rounds, never collects to zero and does not have in a worker; it says nothing of the wasm
-heap, so the resident memory printed beside it is the only figure here that sees that heap — and it is
-the whole browser, processes this probe does not name. Caveat: the cross-origin fetch of the document
-is one request a dropped file does not pay. Caveat: one run is one run — take medians over rounds and
+Chromium rounds, never collects to zero and does not have in a worker, so it says nothing of the wasm
+heap: the resident memory printed beside it is the only figure here that sees that heap, and it is the
+whole browser, processes this probe does not name. Caveat: the cross-origin fetch of the document is
+one request a dropped file does not pay, and one run is one run — take medians over rounds and
 compare only arms of this probe on the same host.
 """
 import functools
@@ -180,8 +180,7 @@ def first_frame(page):
     """The milliseconds to the first animation frame after the open returned.
 
     Headless produces no BeginFrames for a page nobody watches, so none would ever arrive and the
-    number would read -1 for every arm. One screencast frame asks the compositor for one frame,
-    and the screencast is stopped again as soon as the frame has landed.
+    number would read -1 for every arm. One screencast frame asks the compositor for one.
     """
     page.call("Page.startScreencast", {"format": "jpeg", "quality": 1,
                                        "maxWidth": 2, "maxHeight": 2, "everyNthFrame": 1})
@@ -197,7 +196,7 @@ def rss_mb():
     `performance.memory` is the page's JavaScript heap and nothing else, so the wasm heap is only
     visible from outside — and this is the probe's own browser, the only one the container runs.
     """
-    total, largest = 0, 0
+    total = largest = 0
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -225,9 +224,7 @@ def open_one(page, done, name, url, rows):
     # awaits what it is handed, and an awaited open would put this probe back where open.py starts.
     page.evaluate(f"void (window.__gmOpen = {OPEN_DOCUMENT}"
                   f"({json.dumps(name)}, {json.dumps(url)}).catch({CAUGHT}))")
-    began = time.monotonic()
-    polls = 0
-    settled = None
+    began, settled, polls = time.monotonic(), None, 0
     for polls in range(1, POLLS + 1):
         harvest(page, done)
         answer = page.evaluate(SETTLED, timeout=600)
@@ -235,10 +232,10 @@ def open_one(page, done, name, url, rows):
             settled = json.loads(answer)
             break
         time.sleep(0.005)
+    live = [session for session in done if session not in page.gone]
     if settled is None:
         print(f"open-document: {name} was still running after {POLLS} polls")
         return None
-    live = [session for session in done if session not in page.gone]
     if "error" in settled:
         print(f"open {name} failed after {round(time.monotonic() - began, 2)} s: {settled['error']}")
         stop_profiles(page, live, rows)

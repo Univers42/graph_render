@@ -96,13 +96,19 @@ function noteDropped(notes: string[], at: string, record: Record_, keep: Readonl
   }
 }
 
+/** The kind `name` is, or null where it names none: a scan over four, no closure per node. */
+function nodeKindNamed(name: unknown): NodeKind | null {
+  if (typeof name !== "string") return null;
+  for (const kind of NODE_KINDS) {
+    if (kind === name) return kind;
+  }
+  return null;
+}
+
 function nodeKindOf(source: string, at: string, value: unknown): NodeKind {
   if (value === undefined) return "record";
-  if (typeof value === "string") {
-    for (const kind of NODE_KINDS) {
-      if (kind === value) return kind;
-    }
-  }
+  const named = nodeKindNamed(value);
+  if (named !== null) return named;
   throw new IngestRefusal(source, `${at}.kind ${JSON.stringify(value)} is not a node kind`);
 }
 
@@ -153,15 +159,21 @@ export function wireNode(node: IngestNode): Record_ {
   };
 }
 
+/** The kind `name` is, or null where it names none: a scan over five, no closure per edge. */
+function edgeKindNamed(name: unknown): EdgeKind | null {
+  if (typeof name !== "string") return null;
+  for (const kind of EDGE_KINDS) {
+    if (kind === name) return kind;
+  }
+  return null;
+}
+
 /** A fixture's `type` is its wire spelling of the kind; only the hierarchy spellings
  *  are honoured here, and anything else keeps the default. */
 function edgeKindOf(source: string, at: string, record: Record_, notes: string[]): EdgeKind {
   if (record.kind !== undefined) {
-    if (typeof record.kind === "string") {
-      for (const kind of EDGE_KINDS) {
-        if (kind === record.kind) return kind;
-      }
-    }
+    const named = edgeKindNamed(record.kind);
+    if (named !== null) return named;
     throw new IngestRefusal(source, `${at}.kind ${JSON.stringify(record.kind)} is not an edge kind`);
   }
   const spelling = optionalString(record.type) ?? "";
