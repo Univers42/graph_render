@@ -23,16 +23,13 @@ use super::frame::{self, Bounds};
 use super::motion;
 use crate::exec::{Runner, StepRange};
 use crate::layout::force::barnes_hut::sim::{How, Sim};
-use crate::rng::jiggle;
 use gather::Gather;
 use hash::{Buckets, Hash};
 use std::ops::Range;
 
 mod gather;
 mod hash;
-
-const PASS_X: u32 = 4;
-const PASS_Y: u32 = 5;
+mod push;
 
 /// The cell list over one tick's projected positions.
 pub(in crate::layout::force) struct Grid {
@@ -232,28 +229,18 @@ impl Reads {
 /// Barnes-Hut's overlap correction for one pair, `offset` being the querying node's
 /// position minus the other's. A NaN offset is no overlap. `ids` is called only for a
 /// jiggle, which most overlaps never need.
-fn resolve(
-    c: Contact,
-    ids: impl Fn() -> (u32, u32),
-    (mut dx, mut dy): (f64, f64),
-    out: &mut (f64, f64),
-) {
-    let mut l = dx * dx + dy * dy;
+///
+/// This is the test plus [`push::hit`](push::hit): what `Gather` skips, because its filter
+/// already decided it. It stays the branched reference the tests compare against, and it
+/// shares the push so the two paths cannot drift.
+fn resolve(c: Contact, ids: impl Fn() -> (u32, u32), (dx, dy): (f64, f64), out: &mut (f64, f64)) {
+    let l = dx * dx + dy * dy;
     if l.is_nan() || l >= c.d2 {
         return;
     }
-    if dx == 0.0 {
-        dx = jiggle(c.seed, c.tick, PASS_X, ids());
-        l += dx * dx;
-    }
-    if dy == 0.0 {
-        dy = jiggle(c.seed, c.tick, PASS_Y, ids());
-        l += dy * dy;
-    }
-    let dist = f64::sqrt(l);
-    let push = (c.reach - dist) / dist * 0.5;
-    out.0 += dx * push;
-    out.1 += dy * push;
+    let (fx, fy) = push::hit(c, ids, (dx, dy));
+    out.0 += fx;
+    out.1 += fy;
 }
 
 /// The collide pass: project, sort, gather into `how.deltas` in slot order. False when

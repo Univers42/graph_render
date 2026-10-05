@@ -202,3 +202,65 @@ fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
         "no cell's candidates span two windows"
     );
 }
+
+/// Offsets on the filter's own boundary: for a `dx` one ulp under the diameter, the largest
+/// `dy` whose `dx * dx + dy * dy` is still under `d2`, then one ulp past it. A `<` swapped
+/// for a `<=`, or a `d2` rounded the other way, shows on these and nowhere in a coarse grid.
+fn edge_of_the_diameter() -> Vec<(f64, f64)> {
+    let dx = f64::from_bits(CONTACT.reach.to_bits() - 1);
+    let mut dy = 0.0;
+    while dx * dx + dy * dy < CONTACT.d2 {
+        dy = f64::from_bits(dy.to_bits() + 1);
+    }
+    vec![(dx, dy), (dy, dx), (dx, f64::from_bits(dy.to_bits() + 1))]
+}
+
+/// The gather's hit-only push is `resolve`'s own half: the filter already decided the test,
+/// so the push must add exactly what `resolve` would have added for the same offset, in the
+/// same arithmetic. Jiggle keys come from the offset itself, so a key read from the wrong
+/// place cannot pass. Covers `dx == 0`, `dy == 0`, both zero, and `l` just under `d2`.
+#[test]
+fn the_hit_only_push_is_resolve_bit_for_bit() {
+    let mut offsets: Vec<(f64, f64)> = (0..24)
+        .flat_map(|i| (0..24).map(move |j| (i as f64 * 1.5 - 18.0, j as f64 * 1.5 - 18.0)))
+        .collect();
+    // The exact zeros, which a coarse grid never lands on.
+    offsets.extend([(0.0, 0.0), (0.0, 5.0), (5.0, 0.0), (-0.0, 5.0), (5.0, -0.0)]);
+    offsets.extend(edge_of_the_diameter());
+    let (mut hits, mut both, mut only_x, mut only_y) = (0, 0, 0, 0);
+    for &(dx, dy) in &offsets {
+        let ids = || (dx.to_bits() as u32, dy.to_bits() as u32);
+        let mut want = (0.0, 0.0);
+        resolve(CONTACT, ids, (dx, dy), &mut want);
+        let l = dx * dx + dy * dy;
+        if l.is_nan() || l >= CONTACT.d2 {
+            // `push::hit` is never called with a refused offset; `resolve` must still refuse
+            // it, or the filter's own expression and `resolve`'s have drifted apart.
+            assert_eq!(
+                (want.0.to_bits(), want.1.to_bits()),
+                (0, 0),
+                "resolve must refuse ({dx}, {dy})"
+            );
+            continue;
+        }
+        hits += 1;
+        both += usize::from(dx == 0.0 && dy == 0.0);
+        only_x += usize::from(dx == 0.0 && dy != 0.0);
+        only_y += usize::from(dy == 0.0 && dx != 0.0);
+        let got = push::hit(CONTACT, ids, (dx, dy));
+        assert_eq!(
+            (got.0.to_bits(), got.1.to_bits()),
+            (want.0.to_bits(), want.1.to_bits()),
+            "offset ({dx}, {dy}), l = {l}"
+        );
+    }
+    assert!(
+        hits > 400,
+        "only {hits} of {} offsets overlap",
+        offsets.len()
+    );
+    assert!(
+        both > 0 && only_x > 0 && only_y > 0,
+        "a jiggle branch went untested"
+    );
+}
