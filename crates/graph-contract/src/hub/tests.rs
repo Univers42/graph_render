@@ -13,25 +13,3 @@ mod rng;
 mod scalars;
 mod support;
 mod wire;
-
-#[cfg(test)]
-mod dbg {
-    use super::super::Limits;
-    use super::super::model::Model;
-    use super::fixtures::{manifest, upsert};
-
-    #[test]
-    fn dbg_model() {
-        let mut model = Model::new("ws").unwrap();
-        model.register("tracker", manifest("tracker")).unwrap();
-        model
-            .apply(
-                "tracker",
-                &upsert("task", "r1", 1, r#""name":"W","blocks":["r9"]"#),
-                &Limits::DEFAULT,
-            )
-            .unwrap();
-        println!("TEXT {}", model.to_json());
-        println!("PIECES {:?}", model.pieces());
-    }
-}

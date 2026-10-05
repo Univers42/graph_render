@@ -176,10 +176,11 @@ fn a_dangling_parent_is_pruned_and_an_originally_empty_list_stays() {
     );
 }
 
-/// The other half of that rule: a list *emptied by pruning* is removed, because the client
-/// never said there were none — it said there were some and they are not stored.
+/// The other half of that rule: a list *emptied by pruning* is removed **from the
+/// record**, while the declaration keeps the field — the field is registered and other
+/// records may still use it. The two are different objects and only one of them changes.
 #[test]
-fn a_list_emptied_by_pruning_is_removed() {
+fn a_list_emptied_by_pruning_is_removed_from_the_record_only() {
     let mut model = model();
     model
         .apply(
@@ -189,7 +190,12 @@ fn a_list_emptied_by_pruning_is_removed() {
         )
         .unwrap();
     let text = model.to_json();
-    assert!(!text.contains(r#""blocks""#), "the emptied list is gone: {text}");
+    let record = &text[text.find("\"records\":[").unwrap()..];
+    assert!(!record.contains(r#""blocks":"#), "the cell is gone: {record}");
+    assert!(
+        text.contains(r#""id":"blocks""#),
+        "the declaration keeps a field other records still use: {text}"
+    );
 }
 
 /// A reference to a record that *is* stored is kept, and a self reference is kept: the

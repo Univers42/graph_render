@@ -84,7 +84,7 @@ fn run_step(model: &mut Model, rng: &mut SplitMix64, seed: u64, step: usize) {
             .unwrap_or_else(|e| panic!("seed {seed} step {step}: delete {id}: {e}"));
         return;
     }
-    let batch = upsert(collection, &id, 1, &random_cells(rng));
+    let batch = upsert(collection, &id, 1, &random_cells(rng, collection));
     if let Err(e) = model.apply(plugin, &batch, &limit) {
         // A random draw that trips a cell rule is a legitimate state of the world, but the
         // model must be untouched — so this asserts the atomicity rather than skipping.
@@ -102,14 +102,14 @@ fn run_step(model: &mut Model, rng: &mut SplitMix64, seed: u64, step: usize) {
 /// whether or not anything was pruned.
 fn random_cells(rng: &mut SplitMix64, collection: &str) -> String {
     let mut cells: Vec<String> = Vec::new();
-    for field in scalar_fields(collection) {
+    for (field, numeric) in scalar_fields(collection) {
         if rng.below(3) == 0 {
             continue;
         }
-        let value = if rng.below(2) == 0 {
-            format!(r#""v{}""#, rng.below(100))
-        } else {
+        let value = if *numeric {
             format!("{}", rng.below(1000))
+        } else {
+            format!(r#""v{}""#, rng.below(100))
         };
         cells.push(format!(r#""{field}":{value}"#));
     }
@@ -120,14 +120,18 @@ fn random_cells(rng: &mut SplitMix64, collection: &str) -> String {
     cells.join(",")
 }
 
-/// The fields of `collection` that take a string or a number and nothing else. Only these
-/// are drawn, because a *reference* field needs the other record to exist: emitting one at
-/// random would make most steps fail the cell check for a reason the property test is not
-/// about. Pruning a reference is covered by the example tests in `materialize.rs`; here the
-/// invariants must hold whether or not anything was pruned.
-fn scalar_fields(collection: &str) -> &'static [&'static str] {
+/// The fields of `collection` this generator draws, each with the value **kind** its role
+/// fixes: `(field id, is a number)`. Only these are drawn, because a *reference* field
+/// needs the other record to exist — emitting one at random would make most steps fail the
+/// cell check for a reason the property test is not about — and because `title` and `group`
+/// take a string while `scalar` takes either, so a value's kind is part of the draw rather
+/// than a coin flip that would be wrong half the time.
+///
+/// Pruning a reference is covered by the example tests in `materialize.rs`; the invariants
+/// here must hold whether or not anything was pruned.
+fn scalar_fields(collection: &str) -> &'static [(&'static str, bool)] {
     match collection {
-        "task" => &["name", "state", "note"],
-        _ => &["name"],
+        "task" => &[("name", false), ("state", false), ("note", true)],
+        _ => &[("name", false)],
     }
 }
