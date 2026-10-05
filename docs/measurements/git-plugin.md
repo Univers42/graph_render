@@ -120,3 +120,38 @@ with no plugin file changed:
   that follows exits 2 (unreadable) where the row wants 1. This row and `plugin-converges` cannot
   both hold for one file: `--check` compares the whole produced text, canonical JSON *and*
   rendering, so a `small.graph.json` that `JSON.parse` accepts is by construction STALE.
+Fixed on develop (800deeab): `plugin-test` takes the quoted glob `"examples/plugins/git/test/*.test.mjs"`
+(11 tests, 11 pass), and `negctl-converges` parses the first line only, pops a node, writes the rest
+back unchanged and expects `--check` to say `STALE` (exit 1). Rerun on the branch merged with that
+develop: `scripts/orch/gate.sh target/rows-git-plugin-merged scripts/orch/rows/git-plugin.rows` →
+5 PASS.
+
+## Studio check, by hand (2026-10-05)
+
+The documents `run.sh` wrote, opened in the studio's dev server (`STUDIO_PORT=5175 scripts/studio.sh`,
+branch studio-query-fields, which adds `group:` and `version:`) through the Playwright browser MCP
+(headless Chromium in `gm-mcp-browser`, WebGL2 on SwiftShader), layout `dag.sugiyama`. Timed from the
+file input's `change` to the status line naming the new node count, one run each, host load 2.8–3.3:
+
+| document | nodes · edges | open → first frame | layout | notes |
+|---|---|---|---|---|
+| contributor-stats.studio.json (347 KB) | 488 · 490 | under 1 s | 1 ms | no console error or warning |
+| git.studio.json (62 MB) | 85,928 · 107,694 | 10.65 s, 7.48 s, 7.10 s | 138–148 ms | 4 WebGL `GPU stall due to ReadPixels` warnings, no error |
+| contributor-stats, opened right after git | 488 · 490 | **10.1 s** | 1 ms | |
+
+- Queries work on the plugin's members: the Filters panel query `tag:#merge OR tag:#root` keeps
+  the 4 nodes the document tags (3 merges, 1 root); `group:"erik bjäreholt" AND version:<1700000000`
+  keeps one author's older commits. The search box finds labels only, by design (`ui/Search.tsx`).
+- **Finding: the studio, not the plugin, is the slow part on git/git.** The layout is 140 ms; the rest
+  of the 7–10 s is the open path. Leaving the big document costs as much again (10.1 s for a 488-node
+  file).
+- **Finding: the tab crashed** ("Target crashed") 4 times in 6 attempts to open a second document
+  after git.studio.json, once with no profiler attached. Not yet separated from the headless
+  SwiftShader setup; recorded as unexplained, not as a studio defect.
+- **Finding: the legend mislabels counts past its palette.** git/git has 2,486 authors. The legend
+  lists ten rows such as "Junio C Hamano 34254", "Ilia K 10348" and "Julia Evans 6774"; the document
+  holds 31,716, 1 and 38 commits for those names (`Counter(node["group"])` over git.studio.json). The
+  numbers read like per-colour totals labelled with one name each. Not investigated further here.
+
+Caveat: one run per row on a shared host, in the dev server (unminified, React development
+build); a production build is faster by an unmeasured factor, so these are upper bounds.
