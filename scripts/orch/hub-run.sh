@@ -23,7 +23,8 @@
 # Step handshake (`run`): a test asks for a container action by writing one verb (kill, stop, start
 # or restart) to target/hub-steps/<step>.req; the runner deletes the request, acts, and writes the
 # verb's exit status to target/hub-steps/<step>.ack. The test waits for the ack, then re-reads
-# target/hub-run/url.
+# target/hub-run/url. `run` clears stale requests and acks and keeps every other file there, so a
+# record one `run` writes (a list of acknowledged seqs) is read by the next; `reset` removes them.
 #
 # Exit: 0 the verb did what it says · 1 it could not (docker, the build or the hub failed) · 2 usage
 #
@@ -173,7 +174,7 @@ serve_requests() {
 # and a directory it made would refuse the runner's acks.
 run() {
   [ $# -gt 0 ] || die "run needs a command"
-  rm -rf "$steps" && mkdir -p "$steps" || return 1
+  mkdir -p "$steps" && rm -f "$steps"/*.req "$steps"/*.ack "$steps"/*.ack.tmp || return 1
   "$@" &
   local pid=$! rc req
   while kill -0 "$pid" 2>/dev/null; do
