@@ -136,7 +136,10 @@ test("an analysis colours the nodes and says what it measured; off gives the gro
   assert.equal(state.analysis?.id, "analysis.communities.louvain");
   assert.deepEqual([state.settings.analysis, state.settings.appearance.colourBy], ["analysis.communities.louvain", "analysis"]);
   assert.ok(entry.notes.some((note) => /^modularity 0\.\d+/.test(note)));
-  assert.equal(seen.styles.at(-1)?.palette, GROUP_PALETTE);
+  // Off gives the group colouring back: one palette entry per document group, the group
+  // palette's colours in order (the array itself is built per colouring, not shared).
+  const palette = seen.styles.at(-1)?.palette ?? [];
+  assert.deepEqual([...palette], Array.from({ length: palette.length }, (_, i) => GROUP_PALETTE[i % GROUP_PALETTE.length]));
   assert.equal(seen.frames.length, 1);
   await studio.dispatch("analysis", { id: "off" });
   assert.deepEqual([studio.store.get().analysis, studio.store.get().settings.appearance.colourBy], [null, "group"]);
