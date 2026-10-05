@@ -4,8 +4,6 @@
 use super::super::batch::{Batch, read_batch};
 use super::super::manifest::read_manifest;
 use super::super::*;
-use super::support::{TWO, read};
-use crate::ingest::{JsonValue, record_piece};
 
 /// One upsert and one delete: the whole batch shape, in one document. Collections are
 /// **unqualified** — a batch is the write path, so the store qualifies them itself and
@@ -21,7 +19,7 @@ const BATCH: &str = r#"{
 /// The same batch with its collections written back the way a client received them from a
 /// read. Two round trips would then give `tracker.tracker.task`, which is the mistake the
 /// unqualified rule exists to stop — and this is what `lax-reader` lets through.
-const QUALIFIED: &str = r#"{
+pub(super) const QUALIFIED: &str = r#"{
   "upserts": [
     { "collection": "tracker.task", "id": "r1", "updatedAt": 5,
       "values": { "name": "Write", "labels": ["wip"], "effort": 2, "up": null } }
@@ -31,7 +29,7 @@ const QUALIFIED: &str = r#"{
 
 /// A manifest matching [`BATCH`]'s collections: field ids the batch may use, with the
 /// roles [`check`] enforces them against.
-const DECLARED: &str = r#"{
+pub(super) const DECLARED: &str = r#"{
   "version": 1, "manifestVersion": 1, "name": "Tasks",
   "collections": [
     { "id": "note", "name": "Notes", "titleField": "title",
@@ -49,7 +47,7 @@ const DECLARED: &str = r#"{
   ]
 }"#;
 
-fn manifest() -> Manifest {
+pub(super) fn manifest() -> Manifest {
     read_manifest(DECLARED, "tracker").expect("the declared manifest reads")
 }
 
@@ -205,81 +203,6 @@ fn a_nul_in_a_value_key_is_refused() {
     );
 }
 
-/// Every cell whose *shape* the role fixes. `check` is the write-time gate: the ingest
-/// reader checks a whole document's declarations, but a hub writes one record at a time,
-/// and a record that could not appear in the document it will be served from must be
-/// refused when it arrives — with nothing stored and nothing said until a read fails.
-#[test]
-fn a_cell_whose_shape_the_role_forbids_is_refused() {
-    let cases = [
-        (
-            "a tag containing a colon",
-            "labels",
-            r#"["a","b:c"]"#,
-            // A list element's path is index-addressed, which is what makes the refusal
-            // pointable: a client with three tags needs to know *which* one is bad.
-            "upserts[0].values.labels[1]: a tag may not contain `:`",
-        ),
-        (
-            "a bare text tags cell",
-            "labels",
-            r#""b:c""#,
-            "upserts[0].values.labels: expected a list of strings",
-        ),
-        (
-            "a non-numeric weight",
-            "effort",
-            r#""x""#,
-            "upserts[0].values.effort: expected a number",
-        ),
-        (
-            "a title that is a number",
-            "name",
-            "1",
-            "upserts[0].values.name: expected a string",
-        ),
-        (
-            "a parent that is a list of two",
-            "up",
-            r#"["a","b"]"#,
-            "upserts[0].values.up: expected a single reference",
-        ),
-    ];
-    for (what, field, cell, expected) in cases {
-        let batch = one(&format!(r#""{field}":{cell}"#));
-        assert_eq!(
-            batch
-                .check("tracker", &manifest(), &Limits::DEFAULT)
-                .unwrap_err()
-                .to_string(),
-            expected,
-            "{what}"
-        );
-    }
-}
-
-/// Cardinality is *declared*, so a client cannot send a one-element list for a `one`
-/// link and a bare text for a `many` one. A one-element list is accepted for `one` —
-/// a client that builds both kinds of cell from the same code should not have to branch —
-/// but a two-element list is not.
-#[test]
-fn a_link_cells_shape_follows_the_declared_cardinality() {
-    let many_as_text = one(r#""blocks":"a""#);
-    assert_eq!(
-        many_as_text
-            .check("tracker", &manifest(), &Limits::DEFAULT)
-            .unwrap_err()
-            .to_string(),
-        "upserts[0].values.blocks: expected a list of references"
-    );
-    let one_ok = one(r#""blocks":["a"]"#);
-    assert!(
-        one_ok
-            .check("tracker", &manifest(), &Limits::DEFAULT)
-            .is_ok()
-    );
-}
-
 /// An undeclared collection or field is refused: both are cells the stored document would
 /// carry and no manifest declares, so a read would answer with a document that cannot
 /// round trip.
@@ -324,27 +247,6 @@ fn null_is_a_cell_in_every_role_and_a_scalar_takes_anything() {
     }
 }
 
-/// The two number spellings that must survive a round trip byte for byte: `-0` is not
-/// `0` on the wire, and `2^53 − 1` is the largest integer a JSON consumer holds exactly.
-/// Both are carried in a `scalar` cell, where the motor reads nothing, so the writer is
-/// the only thing that can lose them.
-#[test]
-fn minus_zero_and_the_last_exact_integer_survive_the_record_piece_byte_identically() {
-    // The written text, not a quoted string: both are numbers, and `-0` is the point —
-    // it is a distinct `f64` from `0` and a client that sent it must see it come back.
-    for (cell, text) in [("-0", "-0"), ("9007199254740991", "9007199254740991")] {
-        let batch = one(&format!(r#""note":{cell}"#));
-        batch
-            .check("tracker", &manifest(), &Limits::DEFAULT)
-            .expect("a scalar number is accepted");
-        let piece = record_piece(&batch.upserts[0].record("tracker"));
-        assert!(
-            piece.contains(&format!(r#""note":{text}"#)),
-            "{cell} must write as {text}: {piece}"
-        );
-    }
-}
-
 /// The record cap is on the record's *canonical text*, which is the only length the store
 /// actually holds: a cap on the incoming body would be a different number, and the answer
 /// a client gets must be about the thing that is stored.
@@ -363,4 +265,16 @@ fn a_record_over_the_canonical_text_cap_is_refused_as_a_size() {
             limit: 200
         }
     );
+}
+
+/// One upsert whose `values` is `cells`, read from a batch the reader accepts. The helper
+/// keeps every cell test above to one line and pins the path every refusal names.
+pub(super) fn one(cells: &str) -> Batch {
+    read_batch(
+        &format!(
+            r#"{{"upserts":[{{"collection":"task","id":"r1","updatedAt":1,"values":{{{cells}}}}}],"deletes":[]}}"#
+        ),
+        &Limits::DEFAULT,
+    )
+    .expect("the batch reads")
 }
