@@ -66,7 +66,18 @@ that does not cover every route. Thirteen more: N3–N5, N7–N16. Revision 2 co
 readable document was refuted by `motor.rs:18-19`: a 422 also comes from the caller's layout. The
 PostgreSQL facts are measured in `docs/measurements/hub-pg-epoch-probe.md`; spec §14 maps every fix.
 
-**Revision 4: pending.** Its verdict is recorded here when it comes.
+**Revision 4: BLOCK (2026-10-05).** Axes: blast radius 3, reversibility 3, cost on failure 3,
+confidence 3; the worst is confidence. Two defects carry the block: R3, a restore detector that ran
+only at start and whose keys no physical restore changes, with point-in-time recovery and promotion
+unmeasured; R1, a trigger set that named no tables and a detector bump outside `hub.writer`. Nine
+more: R2 (an empty `hub_meta`, a bump outside one transaction), R4 (SSE pages and `PUT /workspaces`
+outside the memory bound), R5 (a negative control that could not fail), R6 (millisecond epochs),
+R7 (one key holding both writer permits), R8 (a manual-SQL deadlock as a 500), R9 and R11 (two
+wrong citations), R10 (`SET LOCAL` outside a transaction). The physical restores are measured in
+`docs/measurements/hub-pg-epoch-probe.md` ("Physical restores"); spec §15 maps every fix and the one
+deviation (`event: busy` instead of `event: resync`).
+
+**Revision 5: pending.** Its verdict is recorded here when it comes.
 
 ## Agreements before slice 2
 

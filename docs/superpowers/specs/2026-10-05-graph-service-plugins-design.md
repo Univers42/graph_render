@@ -383,33 +383,68 @@ otherwise.
 
 **Epoch triggers.** The facts below are measured in `docs/measurements/hub-pg-epoch-probe.md`.
 - `hub_next_epoch()` runs `UPDATE epoch_clock SET last = greatest(last + 1,
-  (extract(epoch FROM clock_timestamp()) * 1000)::bigint) RETURNING last` on the one-row table
-  `epoch_clock(one bool PRIMARY KEY CHECK (one), last bigint)`.
-- Every hub table carries one statement-level trigger per event: `AFTER INSERT` with
-  `REFERENCING NEW TABLE`, `AFTER UPDATE` with `REFERENCING OLD TABLE ... NEW TABLE`, `AFTER
-  DELETE` with `REFERENCING OLD TABLE`, and `AFTER TRUNCATE FOR EACH STATEMENT`, which bumps every
-  workspace. PostgreSQL 17 refuses transition tables on a multi-event trigger (`transition tables
-  cannot be specified for triggers with more than one event`). The workspace column's name is
-  the trigger's `TG_ARGV[0]`.
+  (extract(epoch FROM clock_timestamp()) * 1000000)::bigint) RETURNING last` on the one-row table
+  `epoch_clock(one bool PRIMARY KEY CHECK (one), last bigint)`. Epochs are microseconds: about
+  1.79 × 10^15 in 2026, below 2^53, so JavaScript reads them exactly. A statement that draws N
+  epochs inside one microsecond runs `last` N µs ahead of the clock, not N ms.
+- The trigger tables are the ones with a workspace column: `workspaces` (column `id`) and every
+  table keyed by `ws` (records, links, manifests, change headers, change operations). Each carries
+  one statement-level trigger per event: `AFTER INSERT` with `REFERENCING NEW TABLE`, `AFTER
+  UPDATE` with `REFERENCING OLD TABLE ... NEW TABLE`, `AFTER DELETE` with `REFERENCING OLD TABLE`,
+  and `AFTER TRUNCATE FOR EACH STATEMENT`, which bumps every workspace. PostgreSQL 17 refuses
+  transition tables on a multi-event trigger (`transition tables cannot be specified for triggers
+  with more than one event`). The workspace column's name is the trigger's `TG_ARGV[0]`, given on
+  every trigger.
+- `epoch_clock`, `hub_meta` and the idempotency table carry no trigger: the first two have no
+  workspace column, and an operator clearing idempotency rows changes no graph. `hub-epoch` fails
+  on a trigger on any of the three.
 - Every trigger is `ENABLE ALWAYS`: with plain `ENABLE`, `session_replication_role = replica`
-  skips it. The probe measured `TRUNCATE` (+2), `\copy` (+1) and the replica role with `ALWAYS`
-  (+1) each moving the epoch.
+  skips it. The probe measured `TRUNCATE`, `\copy` and the replica role with `ALWAYS` each moving
+  the epoch.
 - The guard skips the bump when `current_setting('hub.writer', true) = '1' OR pg_trigger_depth()
-  > 1`. The hub sets `hub.writer` with `SET LOCAL` on every one of its write paths: the batch, the
-  manifest PUT, the workspace create and the sweeper. The depth guard keeps the trigger on
-  `workspaces` from firing on its own update.
+  > 1`. Every hub path that writes runs in one explicit transaction that opens with
+  `SELECT set_config('hub.writer', '1', true)`: the batch, the manifest PUT, the workspace create,
+  the sweeper and the restore detector. `SET LOCAL` outside an explicit transaction only warns and
+  sets nothing, so the hub never relies on it. The depth guard keeps the trigger on `workspaces`
+  from firing on its own update.
 - A workspace deleted and created again by hand draws a fresh, larger epoch.
-- **Restore detector.** `hub_meta(system_identifier, timeline_id, datoid)` holds
-  `pg_control_system().system_identifier`, `pg_control_checkpoint().timeline_id` and the
-  database's `pg_database.oid`, all readable without superuser. At start the hub compares them;
-  on a mismatch it bumps every workspace's epoch and rewrites `hub_meta`. `pg_restore` loads the
-  data before it creates the triggers (`pg_restore -l` lists them in that order), and a restore
-  into a new database gets a new oid, which the detector keys on.
+- **Restore detector.** `hub_meta(one bool PRIMARY KEY CHECK (one), system_identifier bigint,
+  timeline text, datoid oid)` holds the database the hub last saw:
+  `pg_control_system().system_identifier`, the timeline as
+  `substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8)`, and `pg_database.oid` of the current
+  database, all readable by the role `hub` without superuser (`out2.txt`, `out3.txt`). The hub
+  also holds in memory a **high-water**: the highest `pg_current_wal_lsn()` it read after a commit
+  (§5.1 step 8).
+- The detector runs on **every new database connection**, when the hub opens it and before it
+  joins the pool, so a reconnect after PostgreSQL restarts under a running hub runs it too. It refuses the connection when `pg_is_in_recovery()` is true.
+  Otherwise, in one explicit transaction:
+  1. `set_config('hub.writer', '1', true)`, then `pg_advisory_xact_lock(<hub constant>)`, so
+     connections opened together bump once.
+  2. Read `hub_meta`. No row counts as a mismatch.
+  3. Compare the three keys, and compare `pg_current_wal_lsn()` with the high-water.
+  4. On a key mismatch, or an LSN below the high-water: `UPDATE workspaces SET epoch =
+     hub_next_epoch()`, upsert `hub_meta` (`ON CONFLICT (one) DO UPDATE`), and set the high-water
+     to the current LSN. The bump and the rewrite commit together or not at all.
+- What each key catches (`out3.txt`): a logical restore into a new database changes the oid; a
+  fresh cluster changes the system id; a promotion or a point-in-time recovery changes the WAL
+  file's timeline at once (the checkpoint's timeline lags until the next checkpoint, so the
+  detector does not read it); a volume snapshot or a base backup started without recovery keeps
+  every key, and its LSN is below the high-water of the hub that was running.
+- `pg_restore` loads the data before it creates the triggers (`pg_restore -l` lists them in that
+  order), so a logical restore is caught by the oid, not by the triggers.
 - Runbook (`docs/deploy/hub.md`): after any restore, run
-  `UPDATE workspaces SET epoch = hub_next_epoch()`.
-- Caveat: the detector misses `ALTER TABLE ... DISABLE TRIGGER`, `pg_restore --disable-triggers`,
-  `pg_restore --clean` into the same database, and a point-in-time recovery whose host clock was
-  also stepped back. Only the runbook catches those.
+  `UPDATE workspaces SET epoch = hub_next_epoch()`. Run by hand at depth 0, it draws two epochs per
+  workspace (its own, then the trigger's at depth 1); both are fresh, so that is harmless.
+- Lock order: the detector takes the advisory lock, then workspace rows; a batch takes one
+  workspace row, then records (§5.1). Neither takes the other's first lock second, so the two add
+  no deadlock cycle. Manual SQL can deadlock with a batch; §5.1 maps it.
+- Caveat: no key and no trigger catches these, so only the runbook does:
+  - a volume snapshot or base backup restored while the hub is also restarted (every key is the
+    same and the high-water was in memory). Ponytail: the upgrade path is persisting the
+    high-water outside the database;
+  - `ALTER TABLE ... DISABLE TRIGGER`, `pg_restore --disable-triggers`, and `pg_restore --clean`
+    into the same database;
+  - a point-in-time recovery whose host clock was also stepped back by more than the run-ahead.
 
 ## 6. Limits and memory
 
@@ -422,29 +457,32 @@ otherwise.
 | `GRAPH_HUB_MAX_DOC_BYTES` (per workspace) | 64 MiB | 413 on the batch that would cross it |
 | `GRAPH_HUB_RETAIN` / `GRAPH_HUB_RETAIN_BYTES` (per workspace) | 100 000 changes / 512 MiB | older changes are pruned in the commit's transaction; a cursor below them gets 410 |
 | `GRAPH_HUB_CHANGES_BYTES` (one `/changes` page) | 8 MiB | the page ends; at least one change per page |
-| `GRAPH_HUB_WRITERS` (batches and manifests being read and applied at once) | 2 | waits, then 503 with `Retry-After` |
+| `GRAPH_HUB_WRITERS` (batches, manifests and workspace creates being read and applied at once) | 2 | waits, then 503 with `Retry-After` |
 | `GRAPH_HUB_READS` (`/graph`, `/changes`, records pages, `GET /plugins`, one record, `/workspaces` at once) | 2 | waits, then 503 with `Retry-After` |
 | `GRAPH_HUB_LAYOUTS` (`/layout` at once) | 1 | waits, then 503 with `Retry-After` |
+| `GRAPH_HUB_WRITERS_PER_KEY` (the `WRITERS` permits one key holds at once) | 1 | waits, then 503 with `Retry-After` |
 | `GRAPH_HUB_BODY_TIMEOUT_MS` (a request body read in full) | 10 000 | 408 |
 | `GRAPH_HUB_MAX_CONNECTIONS` | 256 | the next connection waits in the backlog |
 | `GRAPH_HUB_HEADER_TIMEOUT_MS` | 5 000 | the connection is closed |
 | `GRAPH_HUB_MAX_HEADER_BYTES` | 16 384 | 431 |
 | `GRAPH_HUB_FETCH_ROWS` (portal page) | 32 records | |
 | `GRAPH_HUB_MAX_SUBSCRIBERS` / `GRAPH_HUB_MAX_SUBSCRIBERS_PER_KEY` | 64 / 8 | 429 |
+| `GRAPH_HUB_SSE_PAGE` (change headers per stream read) | 256 | the page ends; the next read continues from the last seq sent |
 | `GRAPH_HUB_DB_POOL` | 8 | waits up to `GRAPH_HUB_TIMEOUT_MS` (30 000), then 503 with `Retry-After` |
 | `GRAPH_HUB_STREAM_DEADLINE_MS` (`/graph` and `/layout` bodies) | 120 000 | the connection is cut |
 | `GRAPH_HUB_MOTOR_TIMEOUT_MS` | 45 000 | 502 `MotorUnavailable` |
 | `GRAPH_MOTOR_URL`, `GRAPH_MOTOR_KEY_FILE` | `http://127.0.0.1:8080`, none | the hub's own graph-server key |
 
 The connection and header limits mirror graph-server's (`config.rs:28-30, 68-76`, defaults
-`config.rs:234-236`).
+`config.rs:232-235`).
 
 **Start checks.** The hub refuses to start when `GRAPH_HUB_DB_POOL` ≤ `GRAPH_HUB_WRITERS` +
 `GRAPH_HUB_READS` + `GRAPH_HUB_LAYOUTS` (SSE header pages and the sweeper need the rest), when
 `GRAPH_HUB_RETAIN_BYTES` or `GRAPH_HUB_CHANGES_BYTES` is below `max_change` (§5.1), when
 `GRAPH_HUB_MOTOR_TIMEOUT_MS` ≤ 40 000, or when the database's `server_encoding` is not `UTF8` or
 its `pg_database.datcollate` is not `C` (the image runs `initdb --encoding=UTF8 --locale=C`, so
-`COLLATE "C"` order is UTF-8 byte order). Then it runs the restore detector (§5.3).
+`COLLATE "C"` order is UTF-8 byte order). The restore detector runs on every new database
+connection, the first one included (§5.3), so a hub whose database is in recovery does not start.
 
 **doc_bytes.**
 - `doc_bytes` is the sum of every stored record's qualified canonical text and every collection
@@ -470,7 +508,7 @@ M = base
   + (READS + LAYOUTS) × (max(2 × FETCH_ROWS × MAX_RECORD_BYTES + MAX_RECORD_BYTES × F_w,
                              2 × CHANGES_BYTES, 64 × 256 KiB, MAX_RECORD_BYTES) + IO_BUF)
   + MAX_CONNECTIONS × MAX_HEADER_BYTES
-  + MAX_SUBSCRIBERS × 256 B
+  + MAX_SUBSCRIBERS × (256 B + SSE_PAGE × max_header)
   + DB_POOL × conn_buf
 ```
 
@@ -478,12 +516,15 @@ M = base
   is graph-server's measured 18.25 (`slots.rs:22`). Caveat: that was measured on graph-server's
   ingest reader, not the hub's batch reader; slice 3 measures `F_w` on the hub and replaces it.
 - The `MAX_RECORD_BYTES × F_w` term is one pruned record parsed at a time.
+- `max_header` is one change header row as read (seq, plugin, counts, timestamp), about 256 B.
+  Caveat: estimated, not measured; slice 3's `hub-memory` run measures it.
 - The `2 ×` on `FETCH_ROWS` is the second portal, the anti-join (§5.3). `64 × 256 KiB` is
   `GET /plugins`; `MAX_RECORD_BYTES` alone is one record's route. The batch's hash compare
   (at most 320 000 B, §5.1) sits inside `MAX_BODY × F_w`.
 - At the defaults, planning arithmetic only: 146 MiB for writers, 164.5 MiB for reads and
-  82.25 MiB for layouts (82.25 MiB per permit), 4 MiB for headers, 16 KiB for subscribers, 8 MiB
-  for the pool at a planned 1 MiB `conn_buf`: about 405 MiB plus `base` and the `IO_BUF` terms.
+  82.25 MiB for layouts (82.25 MiB per permit), 4 MiB for headers, 4 MiB + 16 KiB for
+  subscribers (64 × 256 × 256 B), 8 MiB for the pool at a planned 1 MiB `conn_buf`: about
+  409 MiB plus `base` and the `IO_BUF` terms.
 - Slice 3 measures peak RSS at every cap at once under `scripts/orch/drun` and records it in
   `docs/measurements/hub-memory.md`. The defaults shrink until the peak fits the hub container's
   1 GiB.
@@ -506,8 +547,12 @@ await plugin.sync("ops", rowsToIngest(rows));    // full state of this plugin on
   `Authorization` header. Notices are coalesced: while a `/changes` read is in flight, newer
   notices only raise its target, and one more read follows. Each change goes to `onChange` in
   seq order. A 410, an `event: resync`, or a first change that is not `cursor + 1` calls
-  `onResync`. It reconnects with `Last-Event-ID`. `hub-sdk` tests the first-change check by
-  injecting a gap.
+  `onResync`. It reconnects with `Last-Event-ID`. An `event: busy` does not call `onResync`: the
+  SDK reconnects from its cursor after a backoff of 1 s, doubling to 30 s. `hub-sdk` tests the
+  first-change check by injecting a gap.
+- The cursor's epoch is a microsecond count below 2^53 (§5.3). The SDK parses `<epoch>.<seq>`
+  by splitting on `.` and reading each half as a decimal integer, refusing any value at or above
+  2^53, never with `parseFloat` over the whole string.
 - `push` retries 429, 503 and transport errors (no answer) up to 3 times with the **same**
   `Idempotency-Key`, so a batch that committed before the connection dropped is not applied
   twice.
@@ -540,24 +585,24 @@ as graph-server's do.
 | `hub-wire` | 1 | readers refuse unknown members, `B.coll` in a batch, a tag with `:`, `\u0000`, manifests past each cap; `-0` and 2^53 − 1 round-trip byte-identical | `lax-reader` |
 | `hub-materialize` | 1, 2 | Random op sequences (cross-plugin links, deletes of linked records, links to unregistered collections) always give a document `ingest::read` accepts; the streamed bytes equal `to_json` over the in-memory model; same `<epoch>.<seq>`, same bytes; a permuted insertion order gives the same hash; `to_json` equals the concatenation of its pieces on every ingest fixture | `keep-dangling`: unresolved cells kept; `keep-cells`: a dropped field's cells kept |
 | `hub-floor` | 2, 3 | fmt, clippy `-D warnings` and tests over the `server/` workspace, without a live PostgreSQL | an unformatted file in a scratch copy |
-| `hub-virtual-root` | 2, 3, 5 | `cargo tree --manifest-path server/Cargo.toml -e features --locked`, with no `-p`, is byte-identical to the pre-slice-2 baseline; graph-server's lock entries keep their versions | a scratch copy without `default-members`: graph-server's subtree shows `hyper-util`'s `client-legacy` (grepped) |
+| `hub-virtual-root` | 2, 3, 5 | `cargo tree --manifest-path server/Cargo.toml -e features --locked`, with no `-p`, is byte-identical to the pre-slice-2 baseline; graph-server's lock entries keep their versions | a scratch copy without `default-members`, in which graph-store's `tokio` dependency also enables a feature absent from the baseline's graph-server subtree (named in the slice report): graph-server's subtree must differ from the baseline (diffed); slices 3 and 5 also grep `hyper-util`'s `client-legacy` |
 | `svc-supply` | 2, 3 | every row of `scripts/orch/rows/service-supply.rows` on the merged tree; each negative control (`--break`, `--break-version`, `--break-feature`) exits 1 **and** prints its original message (grepped) | existing |
 | `hub-seq` | 2 | 100 concurrent writers on one workspace: seqs 1..N, no gap, no duplicate, idempotency rows present; an all-no-op batch takes no seq | `sequence-seq`: seq from a `SEQUENCE` with one rolled-back batch, step 1's lock removed, and the commits of odd seqs delayed |
-| `hub-epoch` | 2 | on the real schema, each of a manual `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `COPY`, a write under `session_replication_role = replica`, and a delete and re-create of a workspace changes the epoch; the restore detector fires on a new database oid; a cursor from before is 410. Reverse: a hub batch, a manifest PUT, a workspace create and a sweeper run leave the epoch unchanged | the trigger dropped; `trigger-enable-origin`: the triggers `ENABLE` instead of `ENABLE ALWAYS` |
+| `hub-epoch` | 2 | on the real schema, each of a manual `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `COPY`, a write under `session_replication_role = replica`, and a delete and re-create of a workspace changes the epoch; the runbook's `UPDATE workspaces SET epoch = hub_next_epoch()` and the detector's bump each move every workspace's epoch; no trigger exists on `epoch_clock`, `hub_meta` or the idempotency table; the detector bumps on an empty `hub_meta`, a new database oid, a standby promoted at once (WAL-file timeline), a point-in-time recovery, and a volume snapshot restored under a running hub (LSN below the high-water, on reconnect); two connections opened at once bump once; a connection to a server in recovery is refused; a cursor from before any bump is 410; a manual `UPDATE` of records racing a batch ends in a commit or a 503 with `Retry-After`, never a 500. Reverse: a hub batch, a manifest PUT, a workspace create, a sweeper run and a detector run that finds a match leave the epoch unchanged | the trigger dropped; `trigger-enable-origin`: the triggers `ENABLE` instead of `ENABLE ALWAYS`; `detector-at-start`: the detector runs once at start (the reconnect cases turn red); `checkpoint-timeline`: the timeline read from `pg_control_checkpoint()` (the promotion case turns red); `no-deadlock-retry`: 40P01 reaches the client as 500 |
 | `hub-changes-snapshot` | 2 | a prune committed between the header and operation reads of a `/changes` page still yields every operation of every returned header | `changes-read-committed` |
 | `hub-pg-durability` | 2 | `fsync`, `synchronous_commit` and `full_page_writes` read `on` in the running image; 200 acked batches, the PostgreSQL container killed (`docker kill`) and started again on the same named volume: every acked seq present | `synchronous_commit=off` with `wal_writer_delay=10s`: acked commits lost, the row fails |
 | `hub-durability` | 3 | 200 batches, the hub container killed right after an ack, restarted: every acked seq present, no gap | `ack-before-commit`: the ack is sent, then a forced 500 ms delay before the commit |
 | `hub-roundtrip` | 3 | hub `/layout` bytes = graph-server `/v1/layout?source=contract` on `/graph`'s document at the same `<epoch>.<seq>`, for 3 fixtures | `drop-record`, in the relay only |
 | `hub-authz` | 3 | the key matrix: `write:A` writing `B.coll` refused; read-only writing 403; unknown key 401; a second `Authorization` header 400; no grant 403 before any 404; refusals identical whether or not the workspace or another plugin exists; `If-Match` on plugin A unaffected by plugin B's writes | `skip-grant` |
 | `hub-reload` | 3 | `SIGHUP` with a bad grants file keeps the old pair; a good pair swaps both | `reload-keys-only` |
-| `hub-events` | 3 | a reconnect while 4 writers commit: no gap, no duplicate; `resync` past retention, for `since > head`, and after an epoch change; the per-key subscriber cap | `skip-event`; and `sequence-seq` must turn it red too (visibility order) |
+| `hub-events` | 3 | a reconnect while 4 writers commit: no gap, no duplicate; `resync` past retention, for `since > head`, and after an epoch change; the per-key subscriber cap; a pool wait past `GRAPH_HUB_TIMEOUT_MS` mid-stream sends `event: busy` and closes, and the reconnect from the cursor has no gap | `skip-event`; and `sequence-seq` must turn it red too (visibility order) |
 | `hub-motor-map` | 3 | every row of the §5.2 map (the 408, the 422 split on `error`, the relayed 503, the default row), the motor timeout, and the pool-wait 503, against a stub graph-server | `layoutfailed-as-502` |
 | `hub-idem` | 3 | a replayed key gives the same response and the same `head_seq`; another body is 422; the sweeper removes rows past 24 h | `no-idem` |
-| `hub-limits` | 3 | each 413, 429 and 503 of §6; each start check, the encoding and collation one included; the connection cap, the header timeout, 431, the body-timeout 408 and the `GRAPH_HUB_LAYOUTS` permit; manifest 409s and caps | `no-cap` |
+| `hub-limits` | 3 | each 413, 429 and 503 of §6; each start check, the encoding and collation one included; the connection cap, the header timeout, 431, the body-timeout 408 and the `GRAPH_HUB_LAYOUTS` permit; manifest 409s and caps; a second batch from one key waits on `GRAPH_HUB_WRITERS_PER_KEY` while another key's batch proceeds; `PUT /workspaces` waits on a `WRITERS` permit; a stream resumed 100 000 changes back reads at most `GRAPH_HUB_SSE_PAGE` headers per read (a test hook counts them) | `no-cap` |
 | `hub-memory` | 3 | peak RSS at every cap at once < 1 GiB under `drun`, `F_w` measured, both recorded in `docs/measurements/hub-memory.md` | `GRAPH_HUB_WRITERS` sized from the measured `F_w` so that `WRITERS × MAX_BODY × F_w` > 1 GiB, `GRAPH_HUB_DB_POOL` just above the start check, under `drun --memory 1g --memory-swap 1g`, every body held in flight behind a barrier: exit 137 or a peak over the limit |
 | `hub-breaks-off` | 3 | `cargo tree --manifest-path server/Cargo.toml -e normal,build,features -i graph-server -p graph-hub` on the release build shows neither `negctl` nor `test-hooks` on graph-server's edge | the edge given `features = ["negctl"]` in a scratch copy |
 | `hub-sync` | 4 | `sync` with a key holding only `write:A` works; a second `sync` on the same input, with a dangling link in it, adds no seq; a transport error mid-push is retried with the same key and applied once; a `deleted: true` row is deleted when stored and dropped otherwise; two concurrent syncs of one plugin lose no fresh record (`If-Match`, 412, start over) | `sync-via-graph`: diff against `/graph`, which re-pushes the dangling record each time |
-| `hub-sdk` | 4 | SDK tests and the example plugin against live hub, PostgreSQL and graph-server containers; an injected gap in the change stream calls `onResync`; a failed `/layout` is not retried | `GM_HUB_SDK_BREAK=1`: the example pushes a wrong record |
+| `hub-sdk` | 4 | SDK tests and the example plugin against live hub, PostgreSQL and graph-server containers; an injected gap in the change stream calls `onResync`; `event: busy` reconnects without `onResync`; a cursor whose epoch is 2^53 − 1 parses exact and one at 2^53 is refused; a failed `/layout` is not retried | `GM_HUB_SDK_BREAK=1`: the example pushes a wrong record |
 | `cargo-deny-server`, `lock-parity`, `svc-features` | 2, 3 | re-run with the new members (inside `svc-supply`); the hub image builds `-p graph-hub` only | existing |
 | `codegen --check`, graph-core wasm32 build, `svc-*` | 1–5 | unchanged | existing |
 | `motor-lock` | 1–5 | `git diff --exit-code <base> -- Cargo.lock` and graph-core's `[dependencies]` unchanged | a scratch dependency added |
@@ -604,9 +649,12 @@ this order.
       `Cargo.toml` and link each one's `src` with the computed relative path; nothing else
       changes. graph-render-4f receives the diff before it lands.
    3. `server/graph-store`, `deploy/postgres.Dockerfile` (`initdb --encoding=UTF8 --locale=C`),
-      migrations (tables, `links`, `text_sha256`, `epoch_clock`, `hub_next_epoch()`, `hub_meta`,
-      the per-event and `TRUNCATE` triggers `ENABLE ALWAYS`), the writer transaction (§5.1), the
-      streamed materializer, changes, the plugin's records, retention and the sweeper.
+      migrations (tables, `links`, `text_sha256`, `epoch_clock`, `hub_next_epoch()` in
+      microseconds, `hub_meta`, the per-event and `TRUNCATE` triggers `ENABLE ALWAYS` on the
+      tables §5.3 names and no other), the restore detector run on every new connection with the
+      WAL high-water, the writer transaction (§5.1) with `set_config('hub.writer', '1', true)` and
+      the 40P01/40001 retry, the streamed materializer, changes, the plugin's records, retention
+      and the sweeper.
 
    Rows `hub-virtual-root`, `svc-supply`, `hub-seq`, `hub-epoch`, `hub-changes-snapshot`,
    `hub-pg-durability`, and the
@@ -744,7 +792,7 @@ eight revision 2 conditions partly met. The PostgreSQL facts behind N1, N2 and N
 | 5 [L] | H15, §5.3 `/changes` and Epoch triggers, `hub-epoch`, `hub-changes-snapshot` |
 | 8 [L] | `hub-virtual-root` on slices 2, 3 and 5, its negative control on graph-server's subtree |
 | 9 | §5.3 `/layout`: `GRAPH_HUB_LAYOUTS` and its Caveat |
-| 10 [L] | §6 limits and memory: every route under a permit, connection and header terms, the anti-join portal |
+| 10 [L] | §6 limits and memory: every route under a permit, connection and header terms, the anti-join portal. Corrected in §15: `PUT /workspaces` had no permit and SSE pages no M term until revision 5 |
 | 12 | §5.2 map: 408, the 422 split, the 429/503 split, the default row |
 | 13 | `hub-seq`'s `sequence-seq` removes the lock and delays odd commits |
 | 15 [L] | §7 `sync`: `deleted`, `If-Match` on `plugin_seq` |
@@ -801,3 +849,44 @@ Condition 18 holds: the revision 3 verdict is recorded in the ADR.
 | hub-report | 1. every row and negative control on the landing commit; a green negative control is a failure | §8 preamble, §10 slice 5 |
 | | 2. the (b) diff and the virtual-root diffs of slices 2, 3 and 5 | §10 slice 5 |
 | | 3. the verdict recorded in the ADR | `docs/decisions/graph-hub.md` |
+
+## 15. Verdict conditions and defects, revision 4 → 5
+
+The 2026-10-05 revision 4 BLOCK (`docs/decisions/graph-hub.md`) found 11 defects (R1–R11), carried
+by R3 and R1. The physical-restore facts behind R3 are measured in
+`docs/measurements/hub-pg-epoch-probe.md` (`run3.sh`, `out3.txt`).
+
+**(a) Defects.**
+
+| Defect | Fix | Where |
+|---|---|---|
+| R1 trigger set unnamed; runbook and detector bump unguarded | triggers only on the tables with a workspace column; none on `epoch_clock`, `hub_meta`, idempotency; the detector runs under `hub.writer`; runbook and detector bump in `hub-epoch` | §5.3 Epoch triggers, §8 `hub-epoch` |
+| R2 empty `hub_meta`, atomicity | no row is a mismatch; bump and rewrite in one transaction, upsert on `one` | §5.3 Restore detector |
+| R3 detector at start only; physical restores keep every key; PITR and promotion unmeasured; L75 false | the detector on every new connection; the WAL-file timeline (measured to change at once on promotion, the checkpoint's lags); the LSN high-water for a volume or base-backup restore under a running hub; a restore with the hub also restarted in the Caveat; H15 cites what each run measured | H15, §5.1 step 8, §5.3, §8 `hub-epoch`, probe `out3.txt` |
+| R4 SSE pages outside M; `PUT /workspaces` without a permit; mid-stream pool timeout unstated | `GRAPH_HUB_SSE_PAGE` = 256 and its M term (about 4 MiB); the create under `WRITERS`; mid-stream timeout sends `event: busy` (see the deviation below); §14(a) row 10 corrected | §5.3 SSE, §6, §7, §8 `hub-limits`, `hub-events` |
+| R5 `hub-virtual-root` negative control cannot fail in slice 2 | the scratch copy injects a `tokio` feature absent from graph-server's baseline subtree, so the no-`default-members` tree must differ | §8 |
+| R6 run-ahead in ms; deltas read as counts | microsecond epochs (about 1.79 × 10^15, below 2^53); the run-ahead in the Caveat; "moved" | H15, §5.3, §7 |
+| R7 one key can hold both writer permits | `GRAPH_HUB_WRITERS_PER_KEY` = 1 | §6, `hub-limits` |
+| R8 manual SQL and a batch deadlock | 40P01/40001 retried once, then 503 with `Retry-After: 1` | §5.1, `hub-epoch` |
+| R9 wrong citation | `config.rs:232-235` | §6 |
+| R10 `SET LOCAL` outside a transaction | every write path is one explicit transaction opened by `set_config('hub.writer', '1', true)` | §4, §5.1, §5.3 |
+| R11 probe misquoted | `rc headers\|5`, then `rc ops\|2` | §5.3 `/changes` |
+
+**(b) Deviation from the verdict's fix.** R4's fix sends `event: resync` on a mid-stream pool
+timeout. Revision 5 sends `event: busy` instead: the cursor is still valid, and a resync makes
+every subscriber read the whole `/graph` while the pool is already short. `busy` reconnects from
+the cursor with a backoff; an invalid cursor on that reconnect still gets `resync`.
+
+**(c) Conditions per slice**, added to §14(c).
+
+| Slice | Condition | Where |
+|---|---|---|
+| hub-store | 7. [L] R1, R2, R3: the trigger tables, the detector per connection with the high-water, `hub-epoch` with every case of §8 and its five negative controls | §5.3, §8 |
+| | 8. R10: `set_config` in an explicit transaction on every write path, the detector included | §5.1, §5.3 |
+| | 9. R8: the 40P01/40001 retry and its `hub-epoch` case | §5.1 |
+| | 10. R6: microsecond epochs | §5.3 |
+| | 11. R5: the injected-feature negative control in slice 2 | §8 `hub-virtual-root` |
+| hub-api | 9. R4: `GRAPH_HUB_SSE_PAGE`, its M term measured in `hub-memory`, the create under `WRITERS`, `event: busy` | §5.3, §6, §8 |
+| | 10. R7: `GRAPH_HUB_WRITERS_PER_KEY` | §6, `hub-limits` |
+| hub-sdk | 5. `event: busy` backoff; the µs cursor parsed exactly | §7, `hub-sdk` |
+| hub-report | 4. the revision 4 verdict and the revision 5 verdict recorded in the ADR | `docs/decisions/graph-hub.md` |
