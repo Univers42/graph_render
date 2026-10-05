@@ -1,18 +1,15 @@
 // What a parsed query means over one node, and what a filter document means as the two
 // masks the painter already reads. Every field, every operator, every boolean shape and
 // every `hiddenOf` branch is pinned here, on a graph built by hand so that each node
-// differs from its neighbour on exactly one thing. The last section runs the same code
-// over the fixture that carries what the sources do not.
+// differs from its neighbour on exactly one thing. The fixture that carries what the
+// sources do not is read in `./query-fixture.test.ts`.
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { parseQuery } from "../src/console/parse.ts";
 import type { Query, QueryField } from "../src/console/parse.ts";
 import { matchesQuery, rowOf, type QueryRow } from "../src/console/queryMatch.ts";
 import { hiddenOf, highlightOf } from "../src/look/visibleOf.ts";
-import { normaliseIngest, type IngestEdge, type IngestNode } from "../src/source/ingest.ts";
-import { UNGROUPED, metaOf, type Ends, type GraphMeta } from "../src/source/meta.ts";
+import { UNGROUPED, type GraphMeta } from "../src/source/meta.ts";
 import type { Filter } from "../src/state/settings.ts";
 
 // Every filter member, filled: the mask is a function of the whole document, so a test
@@ -247,91 +244,3 @@ test("both masks are one byte per node", () => {
   assert.equal(hidden[0], 0);
   assert.equal(lit[1], 1);
 });
-
-// The fixture: what the wasm contract cannot carry. Read as a file, because a
-// generated document would only pin the generator.
-const FIXTURE = new URL("fixtures/keys.json", import.meta.url);
-
-async function fixtureMeta(): Promise<GraphMeta> {
-  const { doc } = normaliseIngest(await readFile(FIXTURE, "utf8"), "fixtures/keys.json");
-  return metaOf(doc.nodes, doc.nodes.map((node) => node.id), endsOf(doc.nodes, doc.edges));
-}
-
-function found(meta: GraphMeta, text: string): readonly string[] {
-  const query = parseQuery(text);
-  return Array.from({ length: meta.nodeCount }, (_, i) => i)
-    .filter((i) => matchesQuery(query, rowOf(meta, i)))
-    .map((i) => meta.ids[i] ?? "");
-}
-
-test("the fixture normalises, and its comment is said to be dropped", async () => {
-  const { doc, notes } = normaliseIngest(await readFile(FIXTURE, "utf8"), "fixtures/keys.json");
-  assert.equal(doc.nodes.length, 12);
-  assert.equal(doc.edges.length, 10);
-  assert.ok(notes.includes("dropped annotation `_comment`"));
-});
-
-test("the fixture's three columns are exactly these, in the document's order", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual(meta.tags, [
-    ["index"], ["atlas", "index"], ["atlas"], ["draft", "atlas"], ["draft"], [], ["colour"],
-    ["colour"], ["atlas", "colour"], ["draft"], [], [],
-  ]);
-  assert.deepEqual(meta.dbs, [
-    "db-core", "db-core", "db-core", "db-notes", "db-notes", "db-notes",
-    "db-tags", "db-tags", "db-stamp", "", "db-core", "",
-  ]);
-  assert.deepEqual(meta.paths, [
-    "vault/index.json", "vault/atlas.json", "", "notes/loop.md", "notes/two.md", "notes/orphan.md",
-    "", "", "drafts/stamp.json", "drafts/one.json", "", "notes/lonely.md",
-  ]);
-});
-
-test("the fixture has the four shapes every filter needs", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual([...meta.degree], [3, 3, 3, 3, 2, 0, 2, 2, 2, 0, 0, 0]);
-  assert.equal(meta.degree.filter((degree) => degree === 0).length, 4);
-  assert.deepEqual([...new Set(meta.kinds)].sort(), ["database", "note", "record", "tag"]);
-  assert.equal(new Set(meta.dbs).size, 5);
-  assert.equal(meta.tags.filter((tags) => tags.length === 2).length, 3);
-  assert.equal(meta.tags.filter((tags) => tags.length === 0).length, 3);
-  assert.equal(meta.paths.filter((path) => path === "").length, 4);
-  assert.equal(meta.labels.filter((label) => label.includes(" ")).length, 10);
-});
-
-test("queries parsed from text find what the fixture was built to find", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual(found(meta, "tag:#atlas"), ["n-atlas", "n-bridge", "n-note-loop", "n-stamp"]);
-  assert.deepEqual(found(meta, "db:db-notes"), ["n-note-loop", "n-note-two", "n-note-orphan"]);
-  assert.deepEqual(found(meta, "path:notes/loop.md"), ["n-note-loop"]);
-  assert.deepEqual(found(meta, "kind:tag"), ["t-red", "t-blue"]);
-  assert.deepEqual(found(meta, "degree:>2"), ["n-vault", "n-atlas", "n-bridge", "n-note-loop"]);
-  assert.deepEqual(found(meta, "atlas"), ["n-atlas"]);
-});
-
-// A label with a space needs a quoted value; what the parser makes of the quotes is the
-// parser's business, and what the quoted text then means is pinned here.
-test("a quoted value is just text, spaces and all", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual(found(meta, '"Vault index"'), ["n-vault"]);
-  const quoted: Query = { kind: "text", text: "Vault index" };
-  assert.deepEqual(meta.ids.filter((_, i) => matchesQuery(quoted, rowOf(meta, i))), ["n-vault"]);
-});
-
-test("the fixture's orphans are exactly the four the filter hides", async () => {
-  const meta = await fixtureMeta();
-  const hidden = mask(hiddenOf(meta, filter({ orphans: true })));
-  assert.deepEqual(meta.ids.filter((_, i) => hidden[i] === 1), ["n-note-orphan", "n-draft-only", "n-vault-mirror", "n-note-lonely"]);
-  assert.deepEqual(mask(hiddenOf(meta, filter({ query: "tag:#colour" }))), [1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1]);
-  assert.deepEqual(mask(highlightOf(meta, filter({ text: "vault" }))), [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
-});
-
-/** The snapshot a build produces for this document: node index order, so the columns are
- *  read against known indices rather than a permutation nobody here can predict. */
-function endsOf(nodes: readonly IngestNode[], edges: readonly IngestEdge[]): Ends {
-  const slot = new Map(nodes.map((node, i) => [node.id, i]));
-  return {
-    source: Uint32Array.from(edges, (edge) => slot.get(edge.source) ?? 0),
-    target: Uint32Array.from(edges, (edge) => slot.get(edge.target) ?? 0),
-  };
-}
