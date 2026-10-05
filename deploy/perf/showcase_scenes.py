@@ -144,17 +144,23 @@ MILLION = [
     ("run", "appearance.glow", {"on": False}),
     ("run", "appearance.background", {"mode": "theme"}),
     ("run", "appearance.scale", {"factor": 0.3}),
-    ("run", "view.zoom", {"factor": 40}),
     ("chrome", False),
+    # The view fits itself once the load settles, after the store does; a zoom sent before
+    # that fit is lost, so wait it out and fit explicitly first.
+    ("hold", 2.0),
+    ("run", "view.fit"),
+    ("run", "view.zoom", {"factor": 40}),
     ("roll",),
     ("hold", 1.5),
     ("still", "09-million-close"),
     ("glide", {"zoom": 1 / 40, "ms": 7000}),
     ("hold", 1.5),
     ("still", "10-million"),
-    ("caption", "A million-node transition", "spiral to grid, tweened on the GPU"),
-    *layout("grid", 3.0),
-    ("still", "10b-million-grid"),
+    ("caption", "A million-node transition", "spiral to Graphviz twopi rings, tweened on the GPU"),
+    *layout("twopi", 3.0),
+    ("run", "view.fit"),
+    ("hold", 2.0),
+    ("still", "10b-million-twopi"),
 ]
 
 OUTRO = [
