@@ -1,0 +1,10 @@
+== as hub (non-superuser)
+sysid|7693021827088707599
+tli|1
+dboid|16385
+== dump/restore: are triggers created after data?
+NOTICE:  fired
+3418; 0 16386 TABLE DATA public t hub
+3272; 2620 16390 TRIGGER public t tr hub
+restored rows: 1
+r dboid|16391

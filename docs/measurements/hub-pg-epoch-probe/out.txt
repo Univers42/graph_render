@@ -1,0 +1,46 @@
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+ server_encoding 
+-----------------
+ UTF8
+(1 row)
+
+ datcollate | datctype 
+------------+----------
+ C          | C
+(1 row)
+
+ c_order 
+---------
+ Z,a,z,é
+(1 row)
+
+== 1 multi-event with transition tables
+psql:/probe/probe.sql:25: ERROR:  transition tables cannot be specified for triggers with more than one event
+== 2 per-event triggers
+                            step                            |     epoch     | delta 
+------------------------------------------------------------+---------------+-------
+ 0 created by hub                                           | 1791171175153 |      
+ 1 hub write (expect same)                                  | 1791171175153 |     0
+ 2 manual insert (expect new)                               | 1791171175156 |     3
+ 3 manual update (expect new)                               | 1791171175157 |     1
+ 4 manual delete (expect new)                               | 1791171175158 |     1
+ 5 hub sweeper-like delete (expect same)                    | 1791171175158 |     0
+ 6 manual head_seq edit (expect new, no recursion)          | 1791171175159 |     1
+ 7 truncate (expect new)                                    | 1791171175161 |     2
+ 8 manual insert before replica (expect new)                | 1791171175162 |     1
+ 9 replica role, ENABLE (expect same: bypass)               | 1791171175162 |     0
+ 10 replica role, ENABLE ALWAYS (expect new)                | 1791171175163 |     1
+ 11 manual delete+recreate with epoch 1 (expect new, > all) | 1791171175165 |     2
+ 12 COPY FROM (expect new)                                  | 1791171175166 |     1
+ 13 clock rewound to 0 (PITR), new epoch (expect > all)     | 1791171175168 |     2
+(14 rows)
+
+== 12 REPEATABLE READ vs concurrent prune
+pruned|5
+headers|10
+
+ops|10
+rc headers|5
+
+rc ops|2
