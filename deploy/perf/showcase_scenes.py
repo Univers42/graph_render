@@ -121,6 +121,9 @@ ANALYSIS = [
     ("run", "appearance.theme", {"name": "scigraphs"}),
     ("run", "appearance.colour", {"by": "group"}),
     ("run", "appearance.size", {"by": "weight"}),
+    # A load re-runs the persisted analysis (studio/plan.ts `asked`): betweenness is O(nm), so
+    # left on it hangs the million-node load that follows.
+    ("run", "analysis.run", {"id": "off"}),
 ]
 
 SPACE = [
@@ -140,7 +143,9 @@ MILLION = [
     ("caption", "1 000 000 nodes", "generated, laid out and drawn in the browser"),
     ("cut",),
     ("run", "layout.run", {"id": "layout.spiral"}),
+    ("run", "appearance.edgecolour", {"mode": "flat"}),
     synthetic(nodes=1000000, degree=1, shape="random"),
+    ("run", "appearance.labels", {"mode": "none"}),
     ("run", "appearance.glow", {"on": False}),
     ("run", "appearance.background", {"mode": "theme"}),
     ("run", "appearance.scale", {"factor": 0.3}),
