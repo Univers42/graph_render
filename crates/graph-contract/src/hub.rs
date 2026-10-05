@@ -26,7 +26,8 @@
 //! Error *codes* are deliberately absent: the strings belong to the service's own error
 //! envelope (`docs/contract/service-api.md`), not to the contract that decides the class.
 
-mod breaks;
+pub mod batch;
+pub mod breaks;
 mod error;
 mod ids;
 pub mod manifest;

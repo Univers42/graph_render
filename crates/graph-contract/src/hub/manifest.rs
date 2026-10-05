@@ -98,10 +98,9 @@ pub fn manifest_json(m: &Manifest) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!(
-        "{{\"collections\":[{collections}],\"manifestVersion\":{},\"name\":{},\"version\":{}}}",
+        "{{\"collections\":[{collections}],\"manifestVersion\":{},\"name\":{},\"version\":{VERSION}}}",
         m.version,
         quoted(&m.name),
-        m.version,
     )
 }
 
@@ -195,20 +194,18 @@ fn qualify_links(
                 what: format!("`{}` is not one qualified id", link.collection),
             });
         }
-        // A bare target is this plugin's own collection. A qualified one is left exactly
-        // as written: re-qualifying it would give `tracker.other.c`, and it is the
-        // *other* plugin's collection that is named.
+        // A bare target is this plugin's own collection, so this manifest must declare it:
+        // a client pointing a field at a collection it did not declare is a mistake, and
+        // every record already stored under that field would carry the mistake.
         if !link.collection.contains('.') {
-            link.collection = qualify(plugin, &link.collection);
-        }
-        let target = link.collection.clone();
-        let known = target.starts_with(&format!("{plugin}."))
-            && declared.contains(&target);
-        if !known {
-            return Err(HubError::Invalid {
-                path: format!("{path}.fields[{i}].link.collection"),
-                what: format!("link target `{target}` is not declared by this manifest"),
-            });
+            let target = qualify(plugin, &link.collection);
+            if !declared.contains(&target) {
+                return Err(HubError::Invalid {
+                    path: format!("{path}.fields[{i}].link.collection"),
+                    what: format!("link target `{target}` is not declared by this manifest"),
+                });
+            }
+            link.collection = target;
         }
     }
     Ok(())

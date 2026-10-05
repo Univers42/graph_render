@@ -31,14 +31,15 @@ fn a_two_collection_manifest_reads_sorted_with_its_link_targets_qualified() {
 /// on the *first* dot, so a target that could be split two ways is a mistake.
 #[test]
 fn a_link_target_is_qualified_once_and_only_once() {
-    let one =
-        read_manifest(&TWO.replace("\"collection\": \"note\"", "\"collection\": \"other.c\""), "other")
-            .expect("a qualified target reads");
+    let qualified = TWO.replace("\"collection\": \"note\"", "\"collection\": \"other.c\"");
+    let m = read_manifest(&qualified, "tracker").expect("a cross-plugin target reads");
     assert_eq!(
-        one.collections[1].fields[1].link.as_ref().map(|l| l.collection.clone()),
+        m.collections[1].fields[1].link.as_ref().map(|l| l.collection.clone()),
         Some("other.c".to_owned()),
         "an already-qualified target must not be qualified twice"
     );
+    // Two dots cannot be split: the qualified form is `plugin.coll` and neither grammar
+    // contains a dot, so a third segment is a target this contract cannot name.
     let bad = TWO.replace("\"collection\": \"note\"", "\"collection\": \"a.b.c\"");
     assert_eq!(
         read_manifest(&bad, "tracker").unwrap_err().to_string(),
@@ -55,12 +56,12 @@ fn a_manifest_that_breaks_the_contract_is_refused_naming_the_path() {
         (
             "unknown member",
             TWO.replace(r#""name": "Tasks","#, r#""name": "Tasks","extra": 1,"#),
-            "the manifest: unknown member `extra`",
+            "the document: unknown member `extra`",
         ),
         (
-            "version 2",
-            TWO.replace(r#""manifestVersion": 1"#, r#""manifestVersion": 2"#),
-            "manifestVersion: unsupported hub manifest version 2",
+            "a wire version this contract does not read",
+            TWO.replace(r#""version": 1"#, r#""version": 2"#),
+            "version: unsupported hub manifest version 2",
         ),
         (
             "duplicate collection id",
@@ -68,7 +69,7 @@ fn a_manifest_that_breaks_the_contract_is_refused_naming_the_path() {
                 r#"{ "id": "note", "name": "Notes""#,
                 r#"{ "id": "task", "name": "Notes""#,
             ),
-            "collections[0].id: duplicate collection id `task`",
+            "collections[1].id: duplicate collection id `task`",
         ),
         (
             "duplicate field id",
@@ -119,7 +120,9 @@ fn a_manifest_over_a_cap_is_refused_as_a_size() {
                     {{"id":"t","name":"T","role":"title","link":null}}]}}"#
             ));
         }
-        format!(r#"{{"manifestVersion":1,"name":"n","collections":[{collections}]}}"#)
+        format!(
+            r#"{{"version":1,"manifestVersion":1,"name":"n","collections":[{collections}]}}"#
+        )
     };
     assert!(read_manifest(&many(64), "tracker").is_ok());
     assert_eq!(
@@ -129,16 +132,19 @@ fn a_manifest_over_a_cap_is_refused_as_a_size() {
             limit: MAX_COLLECTIONS
         }
     );
+    // `titleField` names a real field, or the *title* check would refuse it before the
+    // field cap is ever reached and the cap would be untested.
     let fields = |count: usize| {
         let mut text = String::from(
-            r#"{"manifestVersion":1,"name":"n","collections":[{"id":"c","name":"C","titleField":"t","fields":["#,
+            r#"{"version":1,"manifestVersion":1,"name":"n","collections":[{"id":"c","name":"C","titleField":"f0","fields":["#,
         );
         for i in 0..count {
             if i > 0 {
                 text.push(',');
             }
+            let role = if i == 0 { "title" } else { "scalar" };
             text.push_str(&format!(
-                r#"{{"id":"f{i}","name":"F","role":"scalar","link":null}}"#
+                r#"{{"id":"f{i}","name":"F","role":"{role}","link":null}}"#
             ));
         }
         text.push_str(r#"]}]}"#);
@@ -153,7 +159,7 @@ fn a_manifest_over_a_cap_is_refused_as_a_size() {
         }
     );
     let huge = format!(
-        r#"{{"manifestVersion":1,"name":"{}","collections":[]}}"#,
+        r#"{{"version":1,"manifestVersion":1,"name":"{}","collections":[]}}"#,
         "n".repeat(MAX_MANIFEST_BYTES as usize)
     );
     assert_eq!(
@@ -175,15 +181,14 @@ fn what_the_writer_writes_reads_back_to_the_same_manifest() {
     let second = read_manifest(&text, "tracker").expect("the writer's own output reads");
     assert_eq!(first, second);
     assert_eq!(manifest_json(&second), text);
-    // Keys in byte order, like every canonical text this crate writes.
-    let collections = text.find("\"collections\"").unwrap();
-    let manifest_version = text.find("\"manifestVersion\"").unwrap();
-    let name = text.find("\"name\"").unwrap();
-    let version = text.find("\"version\"").unwrap();
+    // Keys in byte order, like every canonical text this crate writes. The document's
+    // own keys only — each collection has its own `name`, `id` and `fields` below.
+    let document = &text[text.find("\"collections\":").unwrap()..];
+    let at = |key: &str| document.rfind(key).unwrap();
     assert!(
-        collections < manifest_version
-            && manifest_version < name
-            && name < version,
+        at("\"collections\"") < at("\"manifestVersion\"")
+            && at("\"manifestVersion\"") < at("\"name\"")
+            && at("\"name\"") < at("\"version\""),
         "{text}"
     );
 }

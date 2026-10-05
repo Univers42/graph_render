@@ -5,7 +5,7 @@
 //! second manifest say about the first".
 
 use super::super::manifest::{Growth, growth, read_manifest};
-use super::support::{BUMP, TWO, at, v1};
+use super::support::{TWO, at, v1};
 
 /// Growth, the whole rule in one test: manifests only grow, the same version is either a
 /// no-op or a conflict, and a lower version is a conflict.
@@ -60,9 +60,10 @@ fn a_removed_or_changed_declaration_is_a_conflict() {
     let cases = [
         (
             "a removed field",
+            // `up` is the task collection's last field, so removing it is removing the
+            // line and the comma before it.
             TWO.replace(
-                r#",
-            { "id": "up", "name": "Up", "role": "parent", "link": null }"#,
+                ",\n        { \"id\": \"up\", \"name\": \"Up\", \"role\": \"parent\", \"link\": null }",
                 "",
             ),
         ),
@@ -74,10 +75,18 @@ fn a_removed_or_changed_declaration_is_a_conflict() {
             ),
         ),
         (
+            // The whole `task` collection, comma and all. `note` is kept because
+            // `task.peer` links to it: removing `note` first would make the *reader*
+            // refuse the fixture, and then the growth rule would never be reached.
             "a removed collection",
             TWO.replace(
-                r#"{ "id": "note", "name": "Notes", "titleField": "title",
-      "fields": [ { "id": "title", "name": "Title", "role": "title", "link": null } ] },"#,
+                ",\n    { \"id\": \"task\", \"name\": \"Tasks\", \"titleField\": \"name\",\
+                 \n      \"fields\": [\
+                 \n        { \"id\": \"name\", \"name\": \"Name\", \"role\": \"title\", \"link\": null },\
+                 \n        { \"id\": \"peer\", \"name\": \"Peer\", \"role\": \"link\",\
+                 \n          \"link\": { \"collection\": \"note\", \"cardinality\": \"one\", \"symmetric\": false } },\
+                 \n        { \"id\": \"up\", \"name\": \"Up\", \"role\": \"parent\", \"link\": null }\
+                 \n      ] }",
                 "",
             ),
         ),
