@@ -69,7 +69,7 @@ pub fn manifest_change_json(head: &ChangeHead<'_>, manifest: &Manifest) -> Strin
         ("plugin", quote(head.plugin)),
         ("seq", head.seq.to_string()),
     ]);
-    format!("{{{body}}}")
+    body
 }
 
 /// A notice: the envelope with no payload. It says the stream moved and carries nothing
