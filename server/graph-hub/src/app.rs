@@ -4,7 +4,9 @@
 
 use std::sync::Arc;
 
+use crate::config::Settings;
 use crate::hooks::Hooks;
+use crate::keys::Keyring;
 
 /// Where one JSON log line goes: stdout in the binary, a buffer in tests.
 pub type LogSink = Arc<dyn Fn(&str) + Send + Sync>;
@@ -13,17 +15,27 @@ pub type LogSink = Arc<dyn Fn(&str) + Send + Sync>;
 pub struct App {
     /// The log line sink.
     pub log: LogSink,
+    /// §6's settings, read once at start.
+    pub settings: Settings,
+    /// The credential pair: the key set and the grants, swapped together on `SIGHUP`.
+    pub keys: Keyring,
     /// The test seams; empty unless the `test-hooks` feature is on.
     pub hooks: Hooks,
 }
 
 impl App {
-    /// The state with nothing but a log sink, which is all the two routes of Task 1 need.
-    pub fn new(log: LogSink) -> Arc<App> {
-        Arc::new(Self {
+    /// The state `settings` and `log` describe, reading both credential files.
+    ///
+    /// The refusal is a message for the start path and never holds a line of either file: both are
+    /// credentials, and `KeySet::load`'s own error names a line number and a reason only.
+    pub fn from_settings(settings: &Settings, log: LogSink) -> Result<Arc<App>, String> {
+        let keys = Keyring::load(&settings.keys_file, &settings.grants_file)?;
+        Ok(Arc::new(Self {
             log,
+            settings: settings.clone(),
+            keys,
             hooks: Hooks::new(),
-        })
+        }))
     }
 
     /// Writes one JSON log line.

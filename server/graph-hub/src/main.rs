@@ -3,8 +3,9 @@
 //! the file, never a value.
 
 use graph_hub::app::App;
-use graph_hub::{health, serve};
-use std::net::{IpAddr, SocketAddr};
+use graph_hub::config::{ConfigError, Settings};
+use graph_hub::{health, observe, serve};
+use std::net::SocketAddr;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: graph-hub [healthcheck | --version]";
@@ -27,48 +28,64 @@ fn main() -> ExitCode {
     }
 }
 
-/// Task 1 serves what exists: the state, the two routes of the table and §6's connection limits
-/// read straight from the environment. Task 2 makes it `Settings::from_env` then
-/// `Settings::check`, so this is the shape `main` converges on, not a parallel path.
+/// Reads the settings, refuses what §6 refuses, opens the store, checks the database and serves.
+///
+/// The order is fixed and is the whole of §6's "start checks": nothing is bound before every check
+/// has passed, so a hub that fails one never answers a request. A refusal is exit 2 with
+/// `name: reason` on stderr and never a value.
 fn serve_from_env() -> ExitCode {
-    let log = graph_hub::observe::stdout_sink();
-    let app = App::new(log);
-    serve::run(addr_from_env(), serve::Limits::default(), app)
+    let lookup = |name: &str| std::env::var_os(name);
+    let log = observe::stdout_sink();
+    log(&Settings::start_line(&lookup));
+    let settings = match Settings::from_env(&lookup) {
+        Ok(settings) => settings,
+        Err(refused) => return refuse_config(&refused),
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+        Ok(runtime) => runtime,
+        Err(error) => return fail(&error.to_string()),
+    };
+    let result = runtime.block_on(start(settings, log));
+    runtime.shutdown_timeout(serve::RUNTIME_GRACE);
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(refused) => refuse(&refused),
+    }
 }
 
-/// `GRAPH_HUB_BIND`/`GRAPH_HUB_PORT`, read here for Task 1 and by `config::Settings::from_env`
-/// from Task 2 on. Caveat: an unparsable address refuses the start with exit 2, naming the
-/// variable and never its value, which is the same refusal `ConfigError` makes.
-fn addr_from_env() -> SocketAddr {
-    let bind = match std::env::var("GRAPH_HUB_BIND") {
-        Ok(text) => match text.parse::<IpAddr>() {
-            Ok(bind) => bind,
-            Err(_) => refuse_ip("GRAPH_HUB_BIND: is malformed"),
-        },
-        Err(_) => IpAddr::from([127, 0, 0, 1]),
-    };
-    let port = match std::env::var("GRAPH_HUB_PORT") {
-        Ok(text) => match text.parse::<u16>() {
-            Ok(port) => port,
-            Err(_) => refuse_ip("GRAPH_HUB_PORT: is malformed"),
-        },
-        Err(_) => 8080,
-    };
-    SocketAddr::new(bind, port)
+/// The store, the start checks and the listener, in that order.
+async fn start(settings: Settings, log: graph_hub::LogSink) -> Result<(), String> {
+    let mut store = settings.store.clone();
+    store.url = settings.db_url.clone();
+    let db = graph_store::Store::connect(&store)
+        .await
+        .map_err(|error| format!("GRAPH_HUB_DB_URL: {}", error.code()))?;
+    db.ping()
+        .await
+        .map_err(|error| format!("GRAPH_HUB_DB_URL: {}", error.code()))?;
+    settings
+        .check(&db)
+        .await
+        .map_err(|refused| refused.to_string())?;
+    let addr = SocketAddr::new(settings.bind, settings.port);
+    let app = App::from_settings(&settings, log)?;
+    serve::serve_forever(addr, &settings.connections, app).await
 }
 
-fn refuse_ip(message: &str) -> ! {
+fn refuse_config(refused: &ConfigError) -> ExitCode {
+    refuse(&refused.to_string())
+}
+
+fn fail(message: &str) -> ExitCode {
     eprintln!("graph-hub: {message}");
-    std::process::exit(2)
+    ExitCode::FAILURE
 }
 
 fn healthcheck() -> ExitCode {
-    let port = match std::env::var("GRAPH_HUB_PORT") {
-        Ok(text) => match text.parse::<u16>() {
-            Ok(port) => port,
-            Err(_) => return refuse("GRAPH_HUB_PORT: is malformed"),
-        },
-        Err(_) => 8080,
+    let lookup = |name: &str| std::env::var_os(name);
+    let port = match graph_hub::config::port(&lookup) {
+        Ok(port) => port,
+        Err(refused) => return refuse_config(&refused),
     };
     if health::healthcheck(port) {
         ExitCode::SUCCESS

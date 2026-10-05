@@ -9,10 +9,14 @@
 //! never names a handler that does not exist yet.
 
 pub mod app;
+pub mod auth;
 pub mod breaks;
+pub mod config;
 pub mod error;
+pub mod grants;
 pub mod health;
 pub mod hooks;
+pub mod keys;
 pub mod observe;
 pub mod serve;
 
