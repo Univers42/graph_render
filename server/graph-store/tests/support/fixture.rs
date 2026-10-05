@@ -34,6 +34,9 @@ pub fn batch_of(upserts: &[(&str, &str, u32, &str)], deletes: &[(&str, &str)]) -
         .map(|(c, id)| format!(r#"{{"collection":"{c}","id":"{id}"}}"#))
         .collect::<Vec<_>>()
         .join(",");
-    read_batch(&format!(r#"{{"upserts":[{ups}],"deletes":[{dels}]}}"#), &LIMITS)
-        .expect("the batch reads")
+    read_batch(
+        &format!(r#"{{"upserts":[{ups}],"deletes":[{dels}]}}"#),
+        &LIMITS,
+    )
+    .expect("the batch reads")
 }

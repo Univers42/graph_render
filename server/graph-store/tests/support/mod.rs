@@ -12,3 +12,4 @@ pub mod db;
 pub mod fixture;
 pub mod rng;
 pub mod step;
+pub mod workspace;
