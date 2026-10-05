@@ -112,6 +112,20 @@ impl Params {
             search_size: SEARCH_SIZE,
         }
     }
+
+    /// What `dot_position` (`position.c:142`) passes with no `nslimit` attribute set: the
+    /// left-right balance, no iteration cap, the default search size.
+    ///
+    /// The two constructors are the whole reason this struct exists: the engine is one engine
+    /// run twice over two different graphs, and a caller cannot reach one of those two
+    /// configurations without seeing the other.
+    pub fn left_right() -> Self {
+        Self {
+            balance: Balance::LeftRight,
+            maxiter: i32::MAX,
+            search_size: SEARCH_SIZE,
+        }
+    }
 }
 
 /// The simplex's own state: the reference's `network_simplex_ctx_t` minus the graph

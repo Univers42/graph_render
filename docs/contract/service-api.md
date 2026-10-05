@@ -1,8 +1,8 @@
 # Service API v1: graph-motor as an HTTP microservice
 
-Status: **blocked, 2026-10-04 (round 2, docs/reviews/review-svc-r2.md); round 3 pending**. The 13
-conditions under "Verdict" bind the code and override the draft text above them. Conditions 1–3 must
-hold before the re-submission.
+Status: **PROCEED-WITH-CONDITIONS, 2026-10-04 (round 3, docs/reviews/review-svc-r3.md:1)**, after a
+round-2 BLOCK; its five conditions are met (docs/reports/service-dod.md §5: 114/114 on `77b68d9b`).
+The 13 conditions under "Verdict" bind the code and override the draft text above them.
 It implements `docs/decisions/server-and-write-path.md` with that ADR's first version narrowed. There is
 no PostgreSQL, no Redis and no write path yet: each waits for a caller.
 

@@ -119,7 +119,7 @@ fn each_knob_names_its_own_variable_and_record() {
     assert_eq!(
         Knob::ALL.len(),
         PARAMETER_KNOBS.len() + knobs::all().count() + COMPUTE_TIER_KNOBS.len(),
-        "every knob is a parameter control, one of the twenty-six per-stage controls, or \
+        "every knob is a parameter control, one of the thirty per-stage controls, or \
          one of the compute-tier controls"
     );
     for (env, record) in PARAMETER_KNOBS {
@@ -164,7 +164,7 @@ fn knob_named(env: &str) -> Knob {
         .unwrap_or_else(|| panic!("{env} is read"))
 }
 
-/// The twenty-one per-stage controls are one table, and the enum's arms are held to it: an
+/// The thirty per-stage controls are one table, and the enum's arms are held to it: an
 /// arm whose variable, record or stage a table disagrees with would perturb a stage nobody
 /// asked for, and — the failure mode that matters most — a control that perturbs nothing
 /// would pass as green.

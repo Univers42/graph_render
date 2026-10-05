@@ -22,6 +22,7 @@ mod circular_hierarchy;
 mod cli;
 mod closed_form;
 pub mod conformance;
+mod dot;
 mod fa2;
 mod fdp;
 mod graphviz;

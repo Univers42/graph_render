@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The `dot` layering and ordering probe: one row per seed, ranks and within-rank order.
+"""The `dot` layering and ordering probe: one row per seed, ranks, within-rank order and the
+printed coordinate of every node.
 
 `-Tplain` prints a coordinate per node and no rank, no order and no crossing count, so both
 are *derived* from the printed coordinates, in this order:
@@ -16,11 +17,16 @@ are *derived* from the printed coordinates, in this order:
 
 The digest is one line per seed:
 
-    seed n  t,h t,h ...  <n ranks>  <n order>
+    seed n  t,h t,h ...  <n ranks>  <n order>  <n xs>  <n ys>
 
 where `order` is the per-rank left-to-right node lists concatenated, rank 0 first, so a
-reader splits the line into `2 * n` trailing fields after the edges. `dot/oracle_probe.rs`
-parses exactly this, and the 1000-seed order sweep asserts against it.
+reader splits the line into `4 * n` trailing fields after the edges: the ranks, the order,
+then the two coordinate columns, in that order and each `n` tokens wide. The last two are
+the **inch strings `-Tplain` printed** per node, in node-index order `n0, n1, ...`, carried
+verbatim: the consumer compares them byte for byte against the plain format's own precision,
+so re-printing a parsed float here would grade our arithmetic against the oracle's rounding
+rather than against its text. `dot/oracle_probe.rs` parses exactly this, and the 1000-seed
+order sweep asserts against it.
 
 Run in the ge-graphviz-oracle image, which carries both the engine and python3:
 
@@ -42,6 +48,7 @@ import json
 import os
 import sys
 import tempfile
+from collections import namedtuple
 
 sys.dont_write_bytecode = True
 
@@ -53,17 +60,27 @@ from gv_plain import POINTS_PER_INCH, graphviz_version, run_engine, write_dot
 # Every fixture node has the default height, so the step is exact rather than approximate.
 RANK_STEP = (0.5 + 0.5) * POINTS_PER_INCH
 
+# One probe row: everything one `-Tplain` run produced for one seed. A namedtuple rather
+# than a bare tuple because the row grew two columns and `probe_record` already returned
+# seven values positionally; a ninth positional unpack misreads silently, while `row.xs`
+# names the column it meant.
+Row = namedtuple("Row", "seed count source target ranks order xs ys worst")
+
 USAGE = (
     "usage: oracle-dot-probe.py <fixtures-dir> [--fixtures=dot.jsonl] --digest=PATH\n"
     "       oracle-dot-probe.py <fixtures-dir> --table=N [--start=N]\n"
-    "  --digest=PATH  write the per-seed rank and order rows to PATH\n"
+    "  --digest=PATH  write the per-seed rank, order and printed coordinate rows to PATH\n"
     "  --table=N      print the rank table for the first N seeds, and nothing else\n"
     "  --start=N      the -Gstart value (default 1); measured inert for dot\n"
 )
 
 
 def printed_nodes(text, count):
-    """`{node id: [x, y]}` in points, refusing a node count that is not the fixture's.
+    """`{node id: (x string, y string)}`, refusing a node count that is not the fixture's.
+
+    The strings are `-Tplain`'s own and they stay strings to the digest line, because the
+    comparison downstream is byte for byte; the rank and the order are derived from them by
+    [`point_in_points`] below.
 
     `gv_plain.parse_plain` reads this and the graph line as well; the probe wants the
     refusal and the coordinates, and nothing in it needs the bounding box.
@@ -72,59 +89,87 @@ def printed_nodes(text, count):
     for line in text.splitlines():
         parts = line.split()
         if parts and parts[0] == "node" and len(parts) >= 4:
-            nodes[parts[1]] = [
-                float(parts[2]) * POINTS_PER_INCH,
-                float(parts[3]) * POINTS_PER_INCH,
-            ]
+            nodes[parts[1]] = (parts[2], parts[3])
     if len(nodes) != count:
         sys.exit(f"plain output has {len(nodes)} nodes, expected {count}")
     return nodes
 
 
+def point_in_points(node):
+    """`(x, y)` in points, parsed from one node's two printed inch strings."""
+    return [float(node[0]) * POINTS_PER_INCH, float(node[1]) * POINTS_PER_INCH]
+
+
+def printed_columns(nodes, count):
+    """`(xs, ys)`: the printed inch strings of every node, in node-index order.
+
+    Indexed by the id (`n<k>` -> index `k`) and not by the plain format's line order, exactly
+    as the rank column already is: a node the engine dropped or renamed is a `KeyError` here
+    rather than a silently short row, and the count check in [`printed_nodes`] is what refuses
+    a drawing with a node too many.
+    """
+    return (
+        [nodes[f"n{i}"][0] for i in range(count)],
+        [nodes[f"n{i}"][1] for i in range(count)],
+    )
+
+
 def ranks_and_order(nodes, count):
     """`(ranks, order, worst grid distance)` for one printed drawing.
 
-    `nodes` is what [`printed_nodes`] returned. The three answers are the rank of every node
-    by index, the within-rank order as one concatenated list (rank 0 first), and how far the
-    worst printed y sits from the 72-point grid — the measurement that says the rank column
-    is a rank and not a rounded guess at one.
+    `nodes` is what [`printed_nodes`] returned, so every coordinate is parsed here out of the
+    oracle's own inch strings. The three answers are the rank of every node by index, the
+    within-rank order as one concatenated list (rank 0 first), and how far the worst printed
+    y sits from the 72-point grid — the measurement that says the rank column is a rank and
+    not a rounded guess at one.
     """
-    top = max(coord[1] for coord in nodes.values())
-    raw = [(top - nodes[f"n{i}"][1]) / RANK_STEP for i in range(count)]
+    at = [point_in_points(nodes[f"n{i}"]) for i in range(count)]
+    top = max(coord[1] for coord in at)
+    raw = [(top - coord[1]) / RANK_STEP for coord in at]
     worst = max(abs(value - round(value)) for value in raw)
     ranks = [round(value) for value in raw]
     order = []
     for rank in range(max(ranks) + 1):
         here = [i for i in range(count) if ranks[i] == rank]
         # x ascending, then name, so the sort is total (D5) even where two x tie.
-        order.extend(sorted(here, key=lambda i: (nodes[f"n{i}"][0], f"n{i}")))
+        order.extend(sorted(here, key=lambda i: (at[i][0], f"n{i}")))
     return ranks, order, worst
 
 
 def probe_record(record, tmp, start):
-    """One seed: write the DOT graph, run `dot`, read the ranks and the order back."""
+    """One seed: write the DOT graph, run `dot`, read the ranks, order and coordinates back."""
     path = os.path.join(tmp, f"g{record['seed']}.dot")
     write_dot(path, record["n"], record["source"], record["target"])
     nodes = printed_nodes(run_engine("dot", path, start), record["n"])
     ranks, order, worst = ranks_and_order(nodes, record["n"])
-    return record["seed"], record["n"], record["source"], record["target"], ranks, order, worst
+    xs, ys = printed_columns(nodes, record["n"])
+    return Row(
+        record["seed"], record["n"], record["source"], record["target"],
+        ranks, order, xs, ys, worst,
+    )
 
 
-def digest_line(seed, count, source, target, ranks, order):
-    """One digest row: `seed n`, the edges, the ranks, then the order."""
-    pairs = " ".join(f"{s},{t}" for s, t in zip(source, target))
+def digest_line(row):
+    """One digest row: `seed n`, the edges, the ranks, the order, then the two coordinates.
+
+    Four trailing groups of `row.count` tokens, the last two of them the oracle's own printed
+    inch strings with nothing done to them.
+    """
+    pairs = " ".join(f"{s},{t}" for s, t in zip(row.source, row.target))
     return " ".join(
-        [str(seed), str(count), pairs]
-        + [str(r) for r in ranks]
-        + [str(o) for o in order]
+        [str(row.seed), str(row.count), pairs]
+        + [str(r) for r in row.ranks]
+        + [str(o) for o in row.order]
+        + list(row.xs)
+        + list(row.ys)
     )
 
 
 def print_table(rows):
     """The rank table `dot/rank_tests.rs` pins, one line per seed."""
     print("seed n ranks")
-    for seed, count, _source, _target, ranks, _order, _worst in rows:
-        print(f"{seed} {count} " + " ".join(str(r) for r in ranks))
+    for row in rows:
+        print(f"{row.seed} {row.count} " + " ".join(str(r) for r in row.ranks))
 
 
 def parse_options(argv):
@@ -165,7 +210,7 @@ def main(argv):
         for record in records:
             row = probe_record(record, tmp, options["start"])
             rows.append(row)
-            worst = max(worst, row[6])
+            worst = max(worst, row.worst)
             if options["table"] is not None and len(rows) >= options["table"]:
                 break
     if options["table"] is not None:
@@ -174,9 +219,9 @@ def main(argv):
     if options["digest"] is None:
         sys.exit(USAGE)
     with open(options["digest"], "w") as out:
-        out.write("# seed n t,h ... ranks order -- harness/oracle-dot-probe.py\n")
-        for seed, count, source, target, ranks, order, _worst in rows:
-            out.write(digest_line(seed, count, source, target, ranks, order) + "\n")
+        out.write("# seed n t,h ... ranks order xs ys -- harness/oracle-dot-probe.py\n")
+        for row in rows:
+            out.write(digest_line(row) + "\n")
     print(f"{len(rows)} seeds -> {options['digest']}")
     print(f"largest distance from the rank grid: {worst:.4f} of a step")
 

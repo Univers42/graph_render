@@ -11,12 +11,13 @@
 //! itself — the fifteen parameter controls, the fifteen ANALYSIS and POST controls, and
 //! the two compute-tier controls, each held against the variable and record it claims.
 //! [`neato`] holds the Graphviz stress engine's tolerance control, which is the first one
-//! here that perturbs a *parameter* rather than re-drawing a model's size, and [`osage`]
-//! the Graphviz packing engine's, which is the control `layout.packing.osage` needed before
-//! the ledger could call that row `gated`.
+//! here that perturbs a *parameter* rather than re-drawing a model's size, [`osage`] the
+//! Graphviz packing engine's and [`dot`] the Graphviz layered engine's — the two controls
+//! those rows needed before the ledger could call them `gated`.
 
 mod controls;
 mod coverage;
+mod dot;
 mod ids;
 mod neato;
 mod osage;

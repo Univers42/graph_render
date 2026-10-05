@@ -17,8 +17,14 @@
 //!   real per-stage controls that predate `knobs::all()` and live in the `Knob` enum rather
 //!   than the stage tables, so a naive read of `knobs::all()` alone would wrongly list them.
 //! - **`NO_CONTROL`** — nothing moves this stage but the reference model, which moves every
-//!   stage at once. These are the genuine remaining holes, and they are pre-existing: this
-//!   job added knobs for the two 3D layouts it names and did not open new ones elsewhere.
+//!   stage at once. These are the genuine remaining holes, and they are pre-existing.
+//!
+//! **`layout.dag.dot` is not one of them any more.** It was, until
+//! `knobs::DOT_LAYOUT_STAGES` filed `GM_MUTATE_DAG_DOT_NODES` under it and `hashgate/tests/
+//! knob/dot.rs` held that control to moving this stage alone; the exemption above would have
+//! failed `the_allow_list_is_sorted_names_real_ids_and_exempts_nothing_that_is_tabled` had it
+//! stayed, which is that test doing its job. Like `layout.packing.osage` above, it was a
+//! `Gap::NoControl` row the ledger could not call `gated` behind.
 //!
 //! Split from `ids.rs` by the house's 300-line limit.
 

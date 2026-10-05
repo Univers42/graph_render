@@ -45,7 +45,7 @@ use graph_core::post::separate::SeparateParams;
 /// gate's model at fixed conventions, so each re-draws *its own* model with one more node
 /// through [`Setting::stage_nodes`] and moves that stage alone. They are tabulated in
 /// [`knobs`] (the fifteen in [`knobs::ANALYSIS_POST_STAGES`], the six igraph layouts in
-/// [`knobs::IGRAPH_LAYOUT_STAGES`], the five 3D layouts in
+/// [`knobs::IGRAPH_LAYOUT_STAGES`], the seven 3D layouts in
 /// [`knobs::THREE_D_LAYOUT_STAGES`]), and
 /// `the_analysis_and_post_controls_are_the_knobs_table` holds this enum's arms to them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,6 +262,14 @@ pub enum Knob {
     /// [`knobs::OSAGE_LAYOUT_STAGES`] for why this row is what `layout.packing.osage` needs
     /// before the ledger can call the capability `gated` rather than `implemented`.
     PackingOsageNodes,
+    /// `GM_MUTATE_DAG_DOT_NODES`: `layout.dag.dot`'s own model.
+    ///
+    /// The re-drawn-model probe again, and for `dot` it is not merely the available one but
+    /// the only one: the port publishes no `Params` and has no `impl Stage`, saying a `Params`
+    /// here would buy a knob with nothing behind it (`dot.rs:169-172`), and what the layout
+    /// reads is the whole `Topology`. See [`knobs::DOT_LAYOUT_STAGES`] for why this row is what
+    /// `layout.dag.dot` needs before the ledger can call the capability `gated`.
+    DagDotNodes,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
     /// Names which gathered pass's merge reads a neighbouring node's delta. The full argument

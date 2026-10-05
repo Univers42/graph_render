@@ -174,6 +174,18 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
                 "oracle-scale"
             };
             (record, "topology", Status::Implemented)
+        } else if r.id == "layout.dag.dot" {
+            // The mirror of `unproven.rs`'s `layout.dag.dot` arm. The row now names
+            // `oracle-dot` — the differential landed with the knob — and is still
+            // `implemented`, which is the point of the arm: `docs/measurements/p13-gv2-dot.md`'s
+            // "Differential" section measures a worst gap of 1.851e+04 points with only 2 of
+            // 1000 seeds at the printed resolution, so the 1e5 ceiling records a
+            // disagreement and `gated` would claim an agreement the tree does not have. Both
+            // halves of the evidence the row needs are present; the oracle's verdict is what
+            // withholds the promotion. Naming `oracle-dot` rather than falling into the
+            // `roundtrip` arm below is also the point — `roundtrip` has no hand oracle for
+            // this id and records neither, so the default would be a claim nothing backs.
+            ("oracle-dot", r.id, Status::Implemented)
         } else {
             ("roundtrip", r.id, Status::Gated)
         };
