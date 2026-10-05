@@ -11,14 +11,10 @@ use std::sync::atomic::AtomicU64;
 
 use graph_store::StoreError;
 
+use tokio::io::{AsyncBufReadExt, BufReader};
+
 use crate::support::fixtures::{hub_db, ready, upsert};
 use crate::support::{Hub, db};
-
-/// The name of the key every fixture mints, which is what a subscriber slot is counted under.
-///
-/// The slot is counted by key **name**, never by the secret: the hub only ever learns the name, so
-/// a case that counted by the token would find nothing.
-pub const KEY: &str = crate::support::KEY_NAME;
 
 /// A short read budget, so a case waiting for a line the hub will not send fails instead of hanging.
 pub const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
@@ -58,7 +54,6 @@ pub async fn open(url: &str, path: &str, key: &str) -> tokio::net::TcpStream {
 /// The status line comes first so a case can assert a 429 without reading a single event, and the
 /// body lines are what §5.3's wire claims are about.
 pub async fn raw_events(url: &str, path: &str, key: &str, lines: usize) -> Vec<String> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
     let stream = open(url, path, key).await;
     let mut reader = BufReader::new(stream);
     let mut out = Vec::new();
@@ -72,17 +67,6 @@ pub async fn raw_events(url: &str, path: &str, key: &str, lines: usize) -> Vec<S
             _ => return out,
         }
     }
-    if std::env::var("GM_DEBUG_RAW").is_ok() {
-        use tokio::io::AsyncReadExt;
-        let mut raw = Vec::new();
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_millis(1500),
-            reader.read_to_end(&mut raw),
-        )
-        .await;
-        eprintln!("RAWALL {:?}", String::from_utf8_lossy(&raw));
-        return out;
-    }
     read_body(&mut reader, &mut out, lines).await;
     out
 }
@@ -92,7 +76,7 @@ async fn read_body<R>(reader: &mut R, out: &mut Vec<String>, count: usize)
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+    use tokio::io::AsyncReadExt;
     let mut taken = 0;
     while taken < count {
         let mut size_line = String::new();
@@ -118,9 +102,6 @@ where
         }
         let mut trailer = [0u8; 2];
         let _ = reader.read_exact(&mut trailer).await;
-        if std::env::var("GM_DEBUG_RAW").is_ok() {
-            eprintln!("RAW line={:?} size={size} bytes={:?}", size_line, String::from_utf8_lossy(&chunk));
-        }
         for line in String::from_utf8_lossy(&chunk).lines() {
             out.push(line.to_owned());
             taken += 1;
@@ -133,7 +114,6 @@ async fn read_line<R>(reader: &mut R, out: &mut Vec<String>)
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
-    use tokio::io::AsyncBufReadExt;
     let mut line = String::new();
     if let Ok(Ok(_)) = tokio::time::timeout(PATIENCE, reader.read_line(&mut line)).await {
         out.push(line.trim_end().to_owned());
@@ -154,21 +134,41 @@ pub fn read_for_real(app: &Arc<graph_hub::App>) {
     clear(&app.hooks.page_fault);
 }
 
-/// Count every request that admitted a permit, which is how a case proves a reconnect made none.
+/// Count the `/graph` reads of this process, which is how a case proves a reconnect made none.
 ///
-/// Caveat: the counter is on `pause_after_admit`, which every route calls *after* its permit and
-/// *before* its work, so a non-zero count means "some route ran", not "some `/graph` ran". The case
-/// that uses it asserts zero, which is the direction where the distinction does not matter.
-pub fn count_admitted(app: &Arc<graph_hub::App>) -> Arc<AtomicU64> {
+/// The count is on `pause_after_admit`, which every route calls *after* its permit and *before* its
+/// work, and the hook is told the route's name: `/graph` is the only one that increments, so a
+/// non-zero count is a `/graph` read and not merely "some request".
+pub fn count_graph_reads(app: &Arc<graph_hub::App>) -> Arc<AtomicU64> {
     let seen = Arc::new(AtomicU64::new(0));
     let counter = Arc::clone(&seen);
-    let hook: graph_hub::hooks::AsyncHook = Arc::new(move || {
+    let hook: graph_hub::hooks::AsyncHook = Arc::new(move |route| {
         let counter = Arc::clone(&counter);
+        let graph = route == "graph";
         Box::pin(async move {
-            counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if graph {
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
         })
     });
     install(&app.hooks.pause_after_admit, hook);
+    seen
+}
+
+/// Record how many change headers each stream read returned, in order.
+///
+/// This is §6's `SSE_PAGE` seen from the store's side: the wire cannot show how many headers one
+/// *read* took, only how many notices arrived, so the cap is asserted where it is applied.
+pub fn count_headers(app: &Arc<graph_hub::App>) -> Arc<std::sync::Mutex<Vec<u64>>> {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = Arc::clone(&seen);
+    let hook: graph_hub::hooks::CountHook = Arc::new(move |count| {
+        recorder
+            .lock()
+            .expect("the header log is not poisoned")
+            .push(count);
+    });
+    install(&app.hooks.count_headers, hook);
     seen
 }
 
@@ -200,18 +200,73 @@ pub async fn epoch_of(hub: &Hub, ws: &str) -> String {
         .to_string()
 }
 
-/// Wait until `key` holds a subscriber slot, so a case's writes land after the stream is connected.
+/// Wait until the hub holds `count` subscriber slots in total.
 ///
-/// The alternative is a sleep, and a sleep is a race that passes on a fast host and fails on a slow
-/// one; the count is the fact the case actually needs.
-pub async fn until_subscribed(hub: &Hub) {
-    for _ in 0..200 {
-        if hub.app.gates.subscribers.of(KEY) > 0 {
+/// WHY a poll and not a sleep: a client that has written its request head knows nothing about whether
+/// the handler has run, and a case that asserts on the cap needs the *count*, not a delay that
+/// happens to be long enough. The count is the fact; the deadline is only the failure mode.
+pub async fn until_count(hub: &Hub, count: usize) {
+    for _ in 0..400 {
+        if hub.app.gates.subscribers.total() == count {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
-    panic!("the stream never took a subscriber slot");
+    panic!("the hub never held {count} subscriber slots");
+}
+
+/// [`until_count`] for the one stream a case has just connected.
+pub async fn until_subscribed(hub: &Hub) {
+    until_count(hub, 1).await;
+}
+
+/// The status line and body lines of a stream that is **already connected**, decoded.
+///
+/// The split from [`open`] is what several cases need: a stream has to be connected before the
+/// workspace moves underneath it (a promotion, a fault), so the case cannot read the answer from a
+/// connection it opens afterwards.
+pub async fn read_events(stream: tokio::net::TcpStream, lines: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut reader = BufReader::new(stream);
+    read_line(&mut reader, &mut out).await;
+    loop {
+        let mut line = String::new();
+        match tokio::time::timeout(PATIENCE, reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => return out,
+            Ok(Ok(_)) if line.trim().is_empty() => break,
+            Ok(Ok(_)) => out.push(line.trim_end().to_owned()),
+            _ => return out,
+        }
+    }
+    read_body(&mut reader, &mut out, lines).await;
+    out
+}
+
+/// The same read, leaving the connection **open**.
+///
+/// The write half is returned rather than dropped: dropping it would close the socket, and a closed
+/// socket is not the "before the close" that `the_busy_slot_is_free_before_the_close` is about.
+pub async fn events_holding(
+    url: &str,
+    path: &str,
+    key: &str,
+    lines: usize,
+) -> (tokio::net::tcp::OwnedWriteHalf, Vec<String>) {
+    let (read, write) = open(url, path, key).await.into_split();
+    let mut out = Vec::new();
+    let mut reader = BufReader::new(read);
+    read_line(&mut reader, &mut out).await;
+    loop {
+        let mut line = String::new();
+        match tokio::time::timeout(PATIENCE, reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => break,
+            Ok(Ok(_)) if line.trim().is_empty() => break,
+            Ok(Ok(_)) => out.push(line.trim_end().to_owned()),
+            _ => break,
+        }
+    }
+    read_body(&mut reader, &mut out, lines).await;
+    (write, out)
 }
 
 /// Write `hook` into `slot`, replacing whatever was there.

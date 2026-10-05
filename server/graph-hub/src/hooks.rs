@@ -25,8 +25,12 @@ use std::sync::{Arc, Mutex};
 
 /// A hook's body: a future a test drives, boxed so the seam costs no generic plumbing at each call
 /// site. `Send` because every seam runs on a request task.
+///
+/// The `&'static str` is the route's own name, which is what lets one hook tell two routes apart: a
+/// case that must prove a reconnect read no `/graph` needs to count `/graph` and nothing else.
 #[cfg(feature = "test-hooks")]
-pub type AsyncHook = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+pub type AsyncHook =
+    Arc<dyn Fn(&'static str) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// A counting hook's body: the number it is handed, and nothing else.
 #[cfg(feature = "test-hooks")]
@@ -114,9 +118,8 @@ pub async fn pause_after_admit(hooks: &Hooks, route: &'static str) {
         .ok()
         .and_then(|held| held.clone());
     if let Some(hook) = hook {
-        hook().await;
+        hook(route).await;
     }
-    let _ = route;
 }
 
 /// Pause after a route admitted its permit. A no-op without `test-hooks`, so the optimizer removes

@@ -3,7 +3,9 @@
 //! Every case drives the real hub over a real socket, so what is asserted is §5.3's wire text rather
 //! than a typed event: the `id:` line, the `event:` name and the `data:` body a client parses.
 
-use crate::common::{epoch_of, hub_with_one_change, raw_events, serve, until_subscribed};
+use crate::common::{
+    count_headers, epoch_of, hub_with_one_change, raw_events, serve, until_count, until_subscribed,
+};
 use crate::support::db;
 use crate::support::fixtures::hub_db;
 use crate::support::fixtures::{ready, upsert};
@@ -30,12 +32,15 @@ async fn a_reconnect_while_four_writers_commit_has_no_gap_and_no_duplicate() {
         .await;
     }
     let lines = stream.await.expect("the subscriber task");
-    let seqs: Vec<u64> = ids_of(&lines);
-    assert!(!seqs.is_empty(), "the subscriber saw the writes: {lines:?}");
-    let expected: Vec<u64> = (2..=seqs.len() as u64 + 1).collect();
+    let seqs = ids_of(&lines);
     assert_eq!(
-        seqs, expected,
-        "every seq after the cursor exactly once, in order, from epoch {epoch}: {lines:?}"
+        seqs.len(),
+        4,
+        "the subscriber saw all four writes, on epoch {epoch}: {lines:?}"
+    );
+    assert!(
+        seqs.windows(2).all(|pair| pair[1] == pair[0] + 1),
+        "no gap and no duplicate: {seqs:?}"
     );
 }
 
@@ -56,24 +61,30 @@ async fn a_stream_resumed_100_000_changes_back_reads_at_most_256_headers_per_rea
         )
         .await;
     }
+    let counts = count_headers(&hub.app);
     let url = serve(hub.router.clone()).await;
     let epoch = epoch_of(&hub, &ws).await;
     let lines = raw_events(
         &url,
         &format!("/v1/workspaces/{ws}/events?since={epoch}.0"),
         &hub.key,
-        24,
+        40,
     )
     .await;
-    assert!(
-        lines.iter().any(|line| line == "event: change"),
-        "the resumed stream pages through the log: {lines:?}"
+    assert_eq!(
+        ids_of(&lines),
+        vec![1, 2, 3, 4, 5],
+        "the resumed stream pages through the whole log, in order: {lines:?}"
+    );
+    let reads: Vec<u64> = counts.lock().expect("the header log").clone();
+    assert_eq!(
+        reads.len(),
+        3,
+        "five changes at two per read is three reads: {reads:?}"
     );
     assert!(
-        lines
-            .windows(2)
-            .all(|w| !(w[0] == "" && w[1] == "event: change")),
-        "no two changes in one frame, so every read's page was bounded: {lines:?}"
+        reads.iter().all(|count| *count <= 2),
+        "and no read passed GRAPH_HUB_SSE_PAGE: {reads:?}"
     );
 }
 
@@ -85,12 +96,11 @@ async fn the_per_key_subscriber_cap_is_429() {
     let ws = db::unique("perkey");
     ready(&hub, &ws, "task").await;
     let url = serve(hub.router.clone()).await;
-    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
-    assert_eq!(hub.app.gates.subscribers.of(crate::common::KEY), 1);
+    let _held = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
+    until_subscribed(&hub).await;
     let second = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 12).await;
     let status = status_of(&second);
     assert_eq!(status, 429, "the second stream on one key: {second:?}");
-    drop(first);
 }
 
 /// The total cap is a 429 as well, and it counts across keys: two keys at one stream each fill a
@@ -105,11 +115,10 @@ async fn the_total_subscriber_cap_is_429() {
     let ws = db::unique("total");
     ready(&hub, &ws, "task").await;
     let url = serve(hub.router.clone()).await;
-    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
-    assert_eq!(hub.app.gates.subscribers.total(), 1);
+    let _held = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
+    until_count(&hub, 1).await;
     let second = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 12).await;
     assert_eq!(status_of(&second), 429, "{second:?}");
-    drop(first);
 }
 
 /// The first notice after a reconnect is the cursor's successor, or the stream resyncs: a stream that

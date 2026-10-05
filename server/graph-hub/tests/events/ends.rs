@@ -10,7 +10,8 @@ use std::sync::atomic::Ordering;
 use graph_store::StoreError;
 
 use crate::common::{
-    epoch_of, fault_on_reads, hub_with_one_change, raw_events, read_for_real, serve,
+    epoch_of, events_holding, fault_on_reads, hub_with_one_change, raw_events, read_for_real,
+    serve, until_count,
 };
 use crate::support::db;
 use crate::support::fixtures::{hub_db, ready};
@@ -50,12 +51,20 @@ async fn resync_for_a_since_above_head() {
 #[tokio::test]
 async fn resync_after_an_epoch_change() {
     let (hub, ws) = hub_with_one_change(&[], "promoted").await;
-    promote(&ws).await;
+    let epoch = epoch_of(&hub, &ws).await;
     let url = serve(hub.router.clone()).await;
-    let lines = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 8).await;
+    // Connected **before** the promotion, so its cursor belongs to the old epoch; a stream that
+    // connected afterwards would be handed the new epoch and have nothing to resync from.
+    let held = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
+    until_count(&hub, 1).await;
+    promote(&ws).await;
+    write(&hub, &ws, "after").await;
+    // The answer is read from the connection that was open *before* the promotion: a stream that
+    // connected afterwards is handed the new epoch and has nothing to resync from.
+    let lines = crate::common::read_events(held, 8).await;
     assert!(
         lines.iter().any(|line| line == "event: resync"),
-        "a promoted workspace resyncs: {lines:?}"
+        "a promoted workspace resyncs, from epoch {epoch}: {lines:?}"
     );
 }
 
@@ -91,19 +100,24 @@ async fn the_busy_slot_is_free_before_the_close() {
     ready(&hub, &ws, "task").await;
     fault_on_reads(&hub.app, || StoreError::Busy { retry_after: 1 });
     let url = serve(hub.router.clone()).await;
-    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
-    let lines = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 12).await;
+    let (_held, lines) =
+        events_holding(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 8).await;
     assert!(
         lines.iter().any(|line| line == "event: busy"),
-        "the second stream was admitted and met the fault, rather than a 429: {lines:?}"
+        "the stream met the fault rather than a 429, so the key had room when it arrived: {lines:?}"
     );
-    // The first connection is still open, and the count is back: the cap is per key and it is 1.
+    // The connection is still open on this side, and the count is already back: the `Subscriber`
+    // was dropped before the `busy` event was written, which is the whole claim.
     assert_eq!(
         hub.app.gates.subscribers.total(),
         0,
-        "the faulted stream gave its slot back before the close reached the client"
+        "the slot came back before the close reached the client"
     );
-    drop(first);
+    let again = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 8).await;
+    assert!(
+        !again.iter().any(|line| line.starts_with("HTTP/1.1 429")),
+        "so a subscriber on the same key is admitted while the old one is still open: {again:?}"
+    );
 }
 
 /// A reconnect after `busy` reads **no** `/graph`: the cursor is still valid, and a whole document
@@ -111,7 +125,7 @@ async fn the_busy_slot_is_free_before_the_close() {
 #[tokio::test]
 async fn the_busy_reconnect_reads_no_graph() {
     let (hub, ws) = hub_with_one_change(&[], "nograph").await;
-    let graphs = crate::common::count_admitted(&hub.app);
+    let graphs = crate::common::count_graph_reads(&hub.app);
     let url = serve(hub.router.clone()).await;
     let path = format!("/v1/workspaces/{ws}/events");
     fault_on_reads(&hub.app, || StoreError::Busy { retry_after: 1 });
@@ -122,7 +136,8 @@ async fn the_busy_reconnect_reads_no_graph() {
     );
     // The SDK reconnects from its cursor. The fault is gone, so this stream reads for real.
     read_for_real(&hub.app);
-    let again = raw_events(&url, &path, &hub.key, 12).await;
+    let epoch = epoch_of(&hub, &ws).await;
+    let again = raw_events(&url, &format!("{path}?since={epoch}.0"), &hub.key, 12).await;
     assert!(
         !again.iter().any(|line| line == "event: resync"),
         "the cursor was never invalid, so the reconnect must not resync: {again:?}"
@@ -131,7 +146,11 @@ async fn the_busy_reconnect_reads_no_graph() {
         again.iter().any(|line| line == "event: change"),
         "and it resumes the feed rather than reading the document: {again:?}"
     );
-    assert_eq!(graphs.load(Ordering::Relaxed), 0, "no request was counted");
+    assert_eq!(
+        graphs.load(Ordering::Relaxed),
+        0,
+        "no /graph read happened at any point of this case"
+    );
 }
 
 /// A cursor pruned during the client's reconnect backoff gets a `resync`, never a silently short
@@ -146,7 +165,14 @@ async fn a_cursor_pruned_during_the_backoff_gets_resync() {
     assert!(first.iter().any(|line| line == "event: busy"), "{first:?}");
     read_for_real(&hub.app);
     promote(&ws).await;
-    let again = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 12).await;
+    let epoch = epoch_of(&hub, &ws).await;
+    let again = raw_events(
+        &url,
+        &format!("/v1/workspaces/{ws}/events?since={epoch}.999999"),
+        &hub.key,
+        12,
+    )
+    .await;
     assert!(
         again.iter().any(|line| line == "event: resync"),
         "a cursor that went void in the backoff window resyncs: {again:?}"
@@ -200,6 +226,22 @@ async fn a_notice_carries_the_contract_own_text() {
             "the notice carries {member}: {body}"
         );
     }
+}
+
+/// One more batch in `ws`, which is what makes a promoted stream's next read happen.
+async fn write(hub: &crate::support::Hub, ws: &str, id: &str) {
+    let reply = hub
+        .post(
+            &format!("/v1/workspaces/{ws}/plugins/task/batches"),
+            crate::support::fixtures::upsert("task", id, "n"),
+        )
+        .await;
+    assert_eq!(
+        reply.code(),
+        200,
+        "the write after the promotion: {}",
+        reply.body()
+    );
 }
 
 /// Bump `ws`'s epoch from a second session, which is what a restore promotion does and what no hub

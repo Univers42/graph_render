@@ -209,13 +209,12 @@ impl Sub {
                 }
                 continue;
             }
-            let step = self.page().await;
-            // An empty page means caught up with nothing to send, so the next turn waits rather than
-            // spinning: this is where a subscriber already at `head_seq` spends its first turn.
-            self.caught_up = self.caught_up || self.pending.is_empty();
-            if !step.keep {
+            // `None` is the one case that is not an answer: the page came back empty, so there is
+            // nothing to send and nothing to refuse, and the next turn waits instead of spinning.
+            if let Some(step) = self.page().await {
                 return step;
             }
+            self.caught_up = true;
         }
     }
 
@@ -225,11 +224,14 @@ impl Sub {
     /// reports and no header is read, so every seq between the old cursor and the new one is
     /// skipped. That is the claim row `negctl-skip-event` breaks — a stream driven by notifications
     /// rather than by the log has gaps — and it is why the shipped loop reads the log at all.
-    async fn page(&mut self) -> Step {
+    async fn page(&mut self) -> Option<Step> {
         if crate::breaks::on("skip-event") {
+            // The cursor jumps to the position the watch reports and no header is read, so every
+            // seq between the old cursor and the new one is skipped: a stream driven by
+            // notifications rather than by the log has gaps, which is the claim this break denies.
             let (epoch, seq) = *self.receiver.borrow();
             self.cursor = Cursor { epoch, seq };
-            return Step::more(heartbeat());
+            return None;
         }
         let request = PageReq {
             ws: self.ws.clone(),
@@ -242,12 +244,12 @@ impl Sub {
             // A page answered from another epoch is a promotion, which the store reports as `Gone`
             // for a cursor of the old epoch and as a foreign `epoch` in a page that came back: both
             // are the same `resync`.
-            Ok(_) | Err(StoreError::Gone) => return Step::last(close(RESYNC)),
-            Err(_) => return Step::last(self.busy()),
+            Ok(_) | Err(StoreError::Gone) => return Some(Step::last(close(RESYNC))),
+            Err(_) => return Some(Step::last(self.busy())),
         };
         self.caught_up = answer.next.seq >= answer.head_seq;
         self.pending = answer.heads;
-        self.next_notice()
+        (!self.pending.is_empty()).then(|| self.next_notice())
     }
 
     /// The store read itself, with the pool wait and the test seam around it.
@@ -348,8 +350,6 @@ fn heartbeat() -> Event {
 
 /// One change notice: `event: change`, `id: <epoch>.<seq>`, `data: <notice_json>`.
 fn notice(head: &Head, epoch: u64) -> Event {
-    eprintln!("DEBUG notice seq={}", head.seq);
-    let _ = epoch;
     Event::default()
         .event(CHANGE)
         .id(Cursor {
