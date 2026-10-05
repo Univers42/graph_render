@@ -1,9 +1,12 @@
-# `layout.graphviz.dot` — Graphviz's `dot`: the measurements, the blockers, and the draft of what is left
+# `layout.dag.dot` — Graphviz's `dot`: the measurements, the blockers, and the three ported passes
 
-**Status: not implemented. The `GRAPHVIZ_DOT` row stays as it was.** What this file
-records is the measurement the job asked for first, the two named blockers, and the
-draft of what is left, so the next attempt starts from facts rather than from a
-re-derivation of them.
+**Status: three of the four passes ported and registered as `layout.dag.dot`.** The
+rank pass, the mincross pass and the position pass are ported; the fourth, splines, is not
+needed because the motor emits polylines through the chain dummies. The two blockers below
+were measured before the port and one of them — the node width — is now *settled as a
+finding* rather than closed: the width table the ADR names does not reproduce the oracle's
+node width, which the "Position" section below measures and names. The differential and the
+hash gate knob are the next job.
 
 # What was measured
 
@@ -239,6 +242,184 @@ inversions between two edges *out of the same node* against each other's port po
 this port has no ports), and the edge `ordering` attribute's virtual edges (a no-op when the
 attribute is absent, which it always is here).
 
+# Position
+
+`position.rs` and its five children, ported from `position.c:127-153` and the frame. The pass is
+five steps in the reference's order: `set_ycoords`, `create_aux_edges` (the rank constraints and
+the edge pairs), **a second run of the same network simplex with `LR_balance`**, `set_xcoords` with
+`remove_aux_edges`, and the frame. The second simplex is a call through `simplex::Params`, not a
+copy, which is what `Params` was split into `top_bottom()` and `left_right()` for.
+
+## What the pass costs, and the 1757 s that was not the pass
+
+**The reviewer's hypothesis was wrong and the measurement says so: `fdeb` is not the cost.**
+`fdeb::run` over `layout.dag.dot`'s geometry on `fixtures/post/hairball.json` (42 nodes, 178
+edges) takes **3.1 ms** in debug and survives 158 pairs. The layout alone takes 2.81 s in debug
+after the fix below and 1758 s before it.
+
+The cost was the pass's own **x-coordinate simplex**, and specifically the `#[cfg(test)]`
+invariant re-derivation that `rank2` runs after **every pivot**
+(`dot/simplex/checks.rs`). The rank pass checks a 42-node graph; the position pass checks the
+*auxiliary* graph, and the auxiliary graph carries one chain dummy per rank an input edge spans,
+so the hairball arrives as **3860 nodes and 8170 edges** (1864 after `class2`, 1996 slack nodes
+from `make_edge_pairs`, 1824 rank constraints and 3992 pair edges). `check_cut_values` was
+`O(n * (n + m))` per call — one depth-first walk of the tree and one sweep of every edge *per
+tree edge* — so it cost about **1.2 s per pivot** over ~1550 pivots.
+
+Measured per step, debug, after the fix:
+
+| step | before | after |
+|---|---|---|
+| `rank` | 1.14 ms | 0.33 ms |
+| `mincross` | 318.8 ms | 237.9 ms |
+| `Rows::of` | — | 0.29 ms |
+| `ycoords::run` | — | 0.06 ms |
+| `aux::build` | — | 1.27 ms |
+| **`simplex::rank2` (the x pass)** | **1757.76 s** | **2.55 s** |
+| `xcoords::run` | — | 0.02 ms |
+| `frame::run` | — | 0.02 ms |
+| **position total** | **1757.76 s** | **2.57 s** |
+| `dot` total | 1758.08 s | 2.81 s |
+
+`graph-cli snapshot --seed 0 --nodes 42 --layout layout.dag.dot`, release, three runs: **0.02 s
+of user CPU** each (0.27–0.30 s wall, which is the cargo wrapper). So the whole 1757 s was the
+test-only check and the shipped library was never slow — which is also why the reviewer saw it
+in a test binary and not in a gate row.
+
+**The fix, and why it is not a weakened assertion.** `check_cut_values` now derives every tree
+edge's cut value from **one** pre-order walk of the tree and one reverse pass, instead of one
+per edge: the cut value is the outgoing weight of the subtree at the edge's *deeper* endpoint
+less the incoming weight there, negated when that endpoint is the edge's head. That negation is
+`x_val`'s `dir` and it is the one thing that makes the identity exact — dropping it is what made
+the first attempt of this fix disagree on half the test suite. The number is the same one the
+per-edge loop summed (an interior edge adds its weight to both totals and cancels, a leaving
+edge adds, an entering edge subtracts, and an interior tree edge's own cut value telescopes into
+the same sum), and it is still a **from-scratch** recomputation: it reads only the tree's shape
+and the edge weights, never the incremental cut values the pass maintains. Every assertion stands,
+the cost is `O(n + m)` per check, and all 59 `dot::` tests pass unchanged — including the 1000-seed
+rank and order sweeps, which are the two things that would catch a wrong cut value.
+
+The graph size is *not* the bug and was not touched: Graphviz builds the same dummies, and the
+reference has no per-pivot check to slow down.
+
+### The two timings the reviewer asked for
+
+| measurement | before | after |
+|---|---|---|
+| `cargo test -p graph-core --lib fdeb_surviving_pairs` | **1335 s** (reviewer's measurement, /proc utime, one test thread) | **5.32 s** wall / 0.02 s user (`test result: ok. 1 passed`) |
+| `cargo test -p graph-core --test geometry_invariants` | develop: 697.76 s, 53 tests | **291.99 s** wall / **291.67 s** test time, **56 tests** |
+
+`geometry_invariants` benefits from the same fix, because it runs every registered layout and
+`layout.dag.dot` is one of them.
+
+## The line the reference hides in a macro
+
+`allocate_aux_edges` (`position.c:201-217`) looks like a capacity hint and is not one.
+`alloc_elist` (`lib/common/types.h:267-270`) sets a list's **size to zero** and hands it a fresh
+array, so the graph the x-coordinate simplex walks holds **only** the constraints the position
+pass is about to make — the graph's own edges are not in it, and `remove_aux_edges` puts them
+back afterwards. That is what leaves two nodes joined by one edge directly above each other with
+the *same* x: the edge pair says their centres are not the same point, and one point of
+separation satisfies it at zero cost. Keep the real edges and every node is pushed one point
+right of its in-neighbour, which is what the two-node closed case measures. Measured both ways
+on that case: 27 and 27 points with the macro's meaning, 27 and 28 with the other reading.
+
+## The six closed cases: exact
+
+Every row of the table under "The six closed cases" below reproduces **byte for byte** in the
+plain format's own frame, at the printed precision (five significant digits, in inches), and in
+points. Pinned twice in `dot/position_tests.rs`: once as the oracle's inch strings and once as
+the measurement table's points, plus one test per step in `dot/position_steps.rs`.
+
+**One correction to that table, and it is a table error rather than a port error.** The 6-branch
+row there is the **seven-edge** graph (`n0 -- n1, n0 -- n2, n0 -- n3, n1 -- n4, n2 -- n4,
+n3 -- n4, n4 -- n5`); `dot/order_tests.rs` calls a five-edge graph by the same name, without the
+two `n4` edges. Both rank to `0, 1, 1, 1, 2, 3` and both order to `[0] [1 2 3] [4] [5]`, which is
+why no rank or order test could tell them apart — but only the seven-edge graph puts `n4` and
+`n5` under `n0` and `n2`, which is what the table records and what the oracle prints
+(checked: `dot -Tplain` on the five-edge graph prints `n4` at `0.375`, on the seven-edge graph at
+`1.375`). The seven-edge graph is what `position_tests.rs` uses.
+
+## The twenty fixture seeds: 5 of 20, and both causes are named
+
+| seed set | labels | exact |
+|---|---|---|
+| 0 to 8 | two characters | 5 of 9 |
+| 9 to 19 | three characters | 0 of 11 |
+
+`dot/position_fixture_points.rs` holds all twenty of the oracle's printed rows and
+`dot/position_tests.rs` asserts the measured count, naming every disagreeing seed. The two causes are separated by that split, and each is
+pinned as its own test:
+
+**Cause 1, seeds 9 to 19, all eleven: the width table is the default box below four
+characters.** `node_width(text_width(id))` is the formula of record,
+`max(0.75 in, text + 2 * 0.11 in)`, and for `n0`…`n99` it returns exactly 54 points — the default
+box. The oracle prints 0.80475 in = **57.942 pt** for `n10` and 0.97719 in = **70.358 pt** for
+`n100` (measured, `dot -Tplain` on one-node graphs). So every seed whose ids reach three
+characters is drawn with boxes three to sixteen points too narrow, and the x simplex is asked to
+satisfy constraints that much too short. The relation that *does* reproduce the oracle's four
+node-width rows is the one `text_width.rs`'s own module doc names,
+`node = 1.37952 * label_box + 0.30669` inches, checked against all three rows to within 2e-4 inch
+in `the_width_table_is_the_default_box_below_four_characters_and_the_oracle_is_wider`. **It is
+not used**: this job's contract names `node_width(text_width(id))` as the only source of node
+widths, and `text_width.rs` is outside this change. Settling it is one constant pair in that
+module. This is Blocker 1 discharged as a measurement rather than closed as a defect.
+
+**Cause 2, seeds 2, 4, 5 and 7, the four two-character seeds that still disagree: a chain
+dummy's slot inside its rank.** The rank and order sweeps both call these seeds agreements
+because they compare the *real* nodes of a rank, and a chain dummy is not one — so an order can
+agree while the row the x constraints read does not. Seed 2 is the smallest witness: the
+two-rank edge `n3 -- n0` puts a dummy on the middle rank beside `n1` and `n2`; the oracle draws
+them **110** points apart and this port **72**. 110 is exactly the two constraint lengths of a row
+ordered `n1, dummy, n2` (`27 + 10 + 18` and `10 + 27 + 18`, the dummy being a one-point box
+widened by `nodesep / 2` on each side) and 72 is the single constraint of `n1, n2, …`. Pinned in
+`the_disagreements_are_chain_dummy_slots_inside_a_rank`.
+
+## The 1000-seed sweep
+
+Population: the seeds whose **order** already agrees in every rank, because a coordinate is only
+comparable when the row it sits on is the same row. Comparison: every node's centre against the
+oracle's own printed strings, byte for byte, at five significant digits in inches.
+
+| measurement | count |
+|---|---|
+| seeds whose every rank's order agrees (the population) | **408** |
+| of those, every node's centre printed exactly as the oracle prints it | **10** |
+| the exact seeds | **0, 1, 3, 6, 8, 600, 601, 603, 606, 608** |
+
+```sh
+scripts/orch/gr cargo run -q -p graph-cli --release -- \
+    emit-graphviz-fixtures --engine twopi --seeds 1000 --out target/dot-probe1000
+cp target/dot-probe1000/twopi.jsonl target/dotfix/dot.jsonl
+cp target/dot-probe1000/twopi-manifest.json target/dotfix/dot-manifest.json
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+    python3 harness/oracle-dot-probe.py target/dotfix --fixtures=dot.jsonl \
+    --digest=target/probe/dot1000.txt
+# 1000 seeds -> target/probe/dot1000.txt
+# largest distance from the rank grid: 0.0000 of a step
+scripts/orch/gr cargo test -p graph-core --lib --release -- --ignored \
+    position_agreement_over_1000_seeds --nocapture
+# 408 of 1000 seeds agree on every rank's order; of those 10 print every node centre
+# exactly as the oracle prints it
+# exact seeds: [0, 1, 3, 6, 8, 600, 601, 603, 606, 608]
+# 1743 s in release, one pass per seed
+```
+
+**The probe's digest now carries the printed coordinates**, additively: `seed n t,h ... <ranks>
+<order> <xs> <ys>`, the last two groups `n` tokens each being `-Tplain`'s own inch strings per
+node in node-index order. Every existing column keeps its position, which is what keeps the rank
+and order sweeps reading the same file; the parse in `dot/oracle_digest.rs` splits the trailing
+`4 * count` fields rather than `2 * count`.
+
+**What the ten are.** Every one of them is a graph with no chain dummy on a row that matters, so
+the two causes above cannot both bite and often neither does. They are not the ten "easyest"
+graphs in any measured sense — 600 and 600 + 8 are the same two shapes as 0 and 8 with four-
+character ids, and they agree, which is a second statement of cause 1: for a shape whose rows
+hold one node each, the box width never becomes a constraint length that the answer depends on.
+
+**A disagreement is a finding with its seed, not a reason to stop.** All fifteen of the 408 are
+accounted for by the two causes above, neither of which is an algorithmic difference in the pass.
+
 # What is ported
 `crates/graph-core/src/layout/graphviz/dot.rs` and its children, with their own tests:
 - `fast.rs`, `fast/edge.rs`, `fast/node.rs` — the fast graph: `node_t`/`edge_t` as dense
@@ -260,11 +441,20 @@ attribute is absent, which it always is here).
 - `mincross.rs` and `mincross/{ranks,build,median,transpose,crossings,driver}.rs` — the
   order pass: the per-rank rows, the two initial walks, `medians`/`reorder`, `transpose`,
   `rcross`/`ncross` and the three passes with `save_best`/`restore_best`.
-- `rank_tests.rs` (the six closed cases and twenty fixture seeds), `order_tests.rs` (the
-  same twenty, ordered), `mincross_tests.rs` (one closed case per step),
+- `position.rs` and `position/{rows,ycoords,aux,xcoords,frame}.rs` — `dot_position`: the
+  rank heights, the auxiliary graph (`make_LR_constraints`' zero-weight neighbour constraints
+  and `make_edge_pairs`' weighted pair per input edge), **a second run of the same simplex with
+  `LR_balance`**, `set_xcoords` with `remove_aux_edges`, and the frame. Each step is described
+  in the port's own words above it, and every omission is named where it is dropped.
+- `position_tests.rs` (the six closed cases, byte for byte at the printed precision and again in
+  points), `position_fixture_points.rs` (the twenty fixture seeds' printed rows, and the count
+  the pass agrees on), `position_findings.rs` (both measured causes of the disagreements, each
+  with its seeds), `position_steps.rs` (one closed
+  case per step), `rank_tests.rs` (the six closed cases and twenty fixture seeds),
+  `order_tests.rs` (the same twenty, ordered), `mincross_tests.rs` (one closed case per step),
   `class2_tests.rs` (each of `class2`'s three outcomes), `oracle_crossings.rs` (the one
   crossing count both sides of an oracle comparison can be computed with) and
-  `oracle_probe.rs` (both 1000-seed sweeps, `#[ignore]`d, which also holds the shared
+  `oracle_probe.rs` (all three 1000-seed sweeps, `#[ignore]`d, which also holds the shared
   scaffolding). `simplex/checks.rs` re-derives the pass's invariants from scratch under
   `cfg(test)` after **every** pivot.
 
@@ -315,6 +505,15 @@ Closing this means a text-measurement table taken from the oracle image and pinn
 here, which is a decision for the ADR (`docs/decisions/graphviz-oracle.md`), not for
 this job.
 
+**Now measured, and the finding is about the table rather than the port.** The ADR's table
+exists and `position.rs` reads it, by exactly the formula the ADR and the job name:
+`node_width(text_width(id))`. That formula returns **the 0.75 inch default box for every id of
+two or three characters**, against an oracle that prints 57.942 points for `n10` and 70.358 for
+`n100`. So blocker 1 is **not closed** by shipping the pass: it is *settled as a measurement*,
+the escape hatch is named (one constant pair in `text_width.rs`), and the cost is a known
+constant on every graph whose ids reach three characters. The "Position" section above carries
+the numbers and the seeds.
+
 # Blocker 2 — the port does not fit one job
 `dot` is four passes, and three of them are large:
 | pass | reference | size | ported |
@@ -357,14 +556,19 @@ branch), `reorder`, `transpose`, `rcross`/`ncross`, `save_best`/`restore_best`.
 **Not** ported, with the measured reason in the mincross section: the same-rank edge
 precedence matrix (no fixture seed of the 1000 has a same-rank edge), the port-local half
 of the crossing count (no ports) and the cluster path (no clusters).
-! 5. **`position.rs`.** `set_ycoords` (rank heights, `pht1`/`pht2`, `ranksep`), then
-!    `create_aux_edges` = `make_LR_constraints` + `make_edge_pairs`, `rank(g, 2, …)`,
-!    `set_xcoords`, `set_aspect` (a no-op at the default ratio), `remove_aux_edges`.
-! 6. **The frame.** `dotneato_postprocess` translates so the drawing's lower-left *node
-box* corner is the origin, which for the six closed cases is the offsets in the
-table below. This is part of the answer, not presentation: the closed cases are
-compared byte for byte against `-Tplain`'s printed text, so the translation has to
-be applied on our side too or nothing can match.
+5. **`position.rs`. Done** — `set_ycoords` (rank heights, `ranksep`), then
+   `create_aux_edges` = `allocate_aux_edges` + `make_LR_constraints` + `make_edge_pairs`,
+   `rank(g, 2, …)`, `set_xcoords`, `remove_aux_edges`. `set_aspect` is a no-op at the
+   default ratio and `pos_clusters`/`compress_graph` are clusters, so both are named as
+   omissions rather than ported.
+6. **The frame. Done** — `dotneato_postprocess` translates so the drawing's lower-left *node
+   box* corner is the origin, which for the six closed cases is the offsets in the table
+   below. This is part of the answer, not presentation: the closed cases are compared byte
+   for byte against `-Tplain`'s printed text, so the translation has to be applied on our
+   side too or nothing can match. The vertical offset is **zero**, and that is measured
+   rather than assumed: `set_ycoords` already puts the lowest rank's line at its own
+   half-height, and a one-node graph on the default box and on `height=1` both print their
+   centre unchanged.
 ! 7. **The differential.** `crates/graph-cli/src/oracle_python/dot.rs` as a `Differential`
 (shape: `oracle_python/osage.rs`), one `by_engine` arm and one `ENGINES` entry, and
 a `DOT_CLOSED` table in `harness/oracle-graphviz.py:144` for the six closed cases.
@@ -385,6 +589,8 @@ ranks are 72 points apart and same-rank neighbours 72 points apart.
 | 4-cycle | 4 | `n0` (54, 234), `n1` (27, 162), `n2` (27, 90), `n3` (54, 18) |
 | 5-star | 5 | `n0` (135, 90), `n1` (27, 18), `n2` (99, 18), `n3` (171, 18), `n4` (243, 18) |
 | 6-branch | 6 | `n0` (99, 234), `n1` (27, 162), `n2` (99, 162), `n3` (171, 162), `n4` (99, 90), `n5` (99, 18) |
+
+**The 6-branch's edges**, since `dot/order_tests.rs` uses the name for a *different* graph with the same ranks and the same order: `n0 -- n1, n0 -- n2, n0 -- n3, n1 -- n4, n2 -- n4, n3 -- n4, n4 -- n5` — seven edges. The five-edge graph in that file drops `n2 -- n4` and `n3 -- n4` and draws `n4` and `n5` under `n1` instead; measured against the oracle, it prints `n4` at 27 points where this table's prints 99. See the "Position" section above.
 The 4-cycle is the case that discriminates: `acyclic` must reverse `n3 -> n0`, which
 puts `n3` on rank 3 and `n0` on rank 0, and the x-coordinates are off-centre by 27
 points on the top and bottom ranks — a port that got the cycle-breaking direction wrong, or
@@ -400,13 +606,24 @@ dot -Tplain -Gstart=1 /tmp/cyc4.dot
 ```
 
 # Ceiling
-**Not set.** The job's rule is that the ceiling is the next power of ten above the
-worst gap measured over 1000 seeds, and there is no measured gap because there is no
-`dot` arm to measure against — so writing a number here would be inventing it. When
-the differential lands, the first thing to record is the gap on the `n <= 10` seeds,
-where every label is two characters and every box is the `0.75` inch minimum, because
-**that is the set on which byte-exactness is reachable at all** given blocker 1. The
-row's status must be `Status::Implemented`, never `gated`: a layout that agrees only
-where every node box is the default is not a gated layout, and `layout.packing.osage`
-sets the precedent for saying so in `docs/measurements/scigraphs-coverage.md` rather
-than in a ceiling.
+**Derived, and labelled as such: 9 200 000**, the topology layer's own ceiling
+(`graph-cli capabilities`' `MAX_SCALE_CEILING` is the same constant, and a row above it is
+refused outright). It is not a guess at where `dot` stops working — it is where it cannot be
+*asked* to work, because the layout's input is a `Topology` and that layer's ceiling bounds the
+node count such a value can carry. What is **not** claimed is that `dot` lays out 9 200 000
+nodes: it does not, and the differential that would measure where it becomes unusable is the
+next job. `graph-core/tests/memory.rs` is the tool for restating this as a measurement, the
+way `GRID_CEILING` restates its own.
+
+The row's status is `Status::Implemented`, never `gated`, on the precedent this section already
+set and `layout.packing.osage` established: a layout that agrees only where every node box is
+the default is not a gated layout. `crates/graph-cli/src/capabilities/registry/unproven.rs`
+carries the arm, naming the `unproven` record, because the graph-cli differential and the hash
+gate knob are both the next job and an id in no arm at all would be an unstated claim rather
+than a decision.
+
+**When the differential lands, the first thing to record is the gap on the `n <= 10` seeds**,
+where every label is two characters and every box *is* the `0.75` inch minimum. The Position
+section above measures why that set is the one: the width table returns the default box for
+every label of up to three characters, so above `n <= 10` the drawing is wrong by a known
+constant rather than by anything algorithmic.

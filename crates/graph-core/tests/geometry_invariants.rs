@@ -181,6 +181,13 @@ mod geometry_invariants {
             // non-finite z refuses the run as `StageError::NonFinite` before this point, so
             // the sweep still cannot pass with a NaN in it.
             ["layout.force.yifan_hu.3d", WHOLE, layout_force_yifan_hu_3d],
+            // p13-gv3-dot-position: Graphviz's own layered engine, appended after the 3D
+            // arms for the same reason they were — the registry is append-only and this list
+            // must name it in order. The assertions are the same as every other row's (D9:
+            // no NaN or infinite coordinate reaches the output), which for `dot` is the whole
+            // of what this sweep can say: the layout's own agreement is
+            // `dot/position_tests.rs` and the 1000-seed sweep in `dot/oracle_probe.rs`.
+            ["layout.dag.dot", WHOLE, layout_dag_dot],
         ]
     }
 
