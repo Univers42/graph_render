@@ -40,6 +40,14 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
         .batch_execute("ALTER ROLE hub SET deadlock_timeout = '200ms'")
         .await
         .expect("shorten the hub role's deadlock_timeout");
+    // The manual session raises its own back to 5 s, and raising a GUC a role's default names needs
+    // `SET` on that parameter — which `hub-pg.sh` grants for `hub.writer` only. So the case grants
+    // it here and takes it back at the end, rather than the manual session silently sharing the
+    // batch's 200 ms and leaving the victim to PostgreSQL's cost heuristic.
+    admin
+        .batch_execute("GRANT SET ON PARAMETER deadlock_timeout TO hub")
+        .await
+        .expect("let the hub role raise its own deadlock_timeout");
 
     // The record the manual session will lock, written by the batch itself so no other case's setup
     // is a precondition of this one.
@@ -104,19 +112,70 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
             )
             .await
     });
-    // Let the manual statement reach its trigger and block on the workspace row.
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // Wait for the manual statement to be *waiting on a lock*, not merely to have had time: the
+    // cycle exists only once both sides are blocked, and a fixed sleep would make the case a race
+    // that passes on a fast host and fails on a loaded one.
+    let blocked = wait_for_lock_waiter(&mut admin).await;
+    if !blocked {
+        // A manual statement that *ended* rather than waiting is the case's real failure, and its
+        // error says why (a refused trigger, a missing row), so it is read before anything else.
+        if blocker.is_finished() {
+            let ended = blocker.await.expect("the manual task did not panic");
+            panic!("the manual statement ended instead of blocking: {ended:?}");
+        }
+        let manual_rows: i64 = client
+            .query_one(
+                "SELECT count(*) FROM records WHERE ws = 'ws' AND qcoll = 'tracker.task' \
+                 AND id = '1'",
+                &[],
+            )
+            .await
+            .expect("count the seeded record")
+            .get(0);
+        let rows = admin
+            .query(
+                "SELECT pid, state, wait_event_type, wait_event, left(query, 60) FROM \
+                 pg_stat_activity WHERE datname = current_database()",
+                &[],
+            )
+            .await
+            .expect("read the activity");
+        let seen: Vec<String> = rows
+            .iter()
+            .map(|row| {
+                format!(
+                    "pid={} state={} wait={:?} query={}",
+                    row.get::<_, i32>(0),
+                    row.get::<_, String>(1),
+                    row.get::<_, Option<String>>(2),
+                    row.get::<_, String>(4)
+                )
+            })
+            .collect();
+        panic!(
+            "the manual session is waiting on a lock; seeded rows: {manual_rows}; \
+             activity: {seen:?}"
+        );
+    }
 
     // Release the batch, which now wants the record row the manual session holds: the cycle closes.
     std::fs::write(&done, b"").expect("release the batch");
     let outcome = batch.await.expect("the batch task did not panic");
-    let blocked = blocker.await.expect("the manual task did not panic");
-    let _ = blocked;
+    let manual_result = blocker.await.expect("the manual task did not panic");
+    assert!(
+        manual_result.is_ok(),
+        "the manual statement is expected to have been the cycle's other half; it ended: \
+         {manual_result:?}"
+    );
 
     admin
         .batch_execute("ALTER ROLE hub RESET deadlock_timeout")
         .await
         .expect("restore the role default");
+    admin
+        .batch_execute("REVOKE SET ON PARAMETER deadlock_timeout FROM hub")
+        .await
+        .expect("take the parameter grant back");
     let _ = std::fs::remove_file(&arm);
 
     assert!(
@@ -147,3 +206,37 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
         }
     }
 }
+
+/// Has some backend in this database started waiting on a lock?
+///
+/// Caveat: it asks about the whole database rather than about the manual session's backend, so it
+/// can be satisfied by another case's contention. That is why the case also holds `CLUSTER` and
+/// gives every other statement in this binary its own database — and why the deadlock, not this
+/// predicate, is what the assertions rest on: a false positive here makes the cycle happen a moment
+/// later, and the batch is still blocked on it.
+///
+/// Caveat: the bound is [`HOOK_BOUND`] and not the seam's own two seconds, because a poll that
+/// outlives the seam is worse than useless — the batch gives up waiting, runs its transaction
+/// uncontended, commits and closes its connection, and the cycle this case is here to form never
+/// exists. The seam's bound is a short one on purpose (`hooks.rs`), so the poll has to be faster.
+async fn wait_for_lock_waiter(admin: &mut Client) -> bool {
+    for _ in 0..HOOK_BOUND {
+        let waiting: i64 = admin
+            .query_one(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() \
+                 AND wait_event_type = 'Lock'",
+                &[],
+            )
+            .await
+            .expect("read pg_stat_activity")
+            .get(0);
+        if waiting > 0 {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    false
+}
+
+/// Polls of 50 ms, which is a shade under the seam's own two-second bound.
+const HOOK_BOUND: u32 = 30;

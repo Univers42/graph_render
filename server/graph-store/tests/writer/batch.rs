@@ -94,14 +94,24 @@ async fn identical_upsert_takes_no_seq() {
     );
 }
 
-/// `-0` against `0` and a reordered map both change the bytes and are therefore changes; the second
-/// write is at rev 2 in each case.
+/// `-0` against `0` changes the stored bytes and is therefore a change, and a value the writer
+/// spells differently is a change too; a member written in another order is not, and the case says
+/// why.
+///
+/// WHY the reorder is a no-op here and not a change: graph-contract's own reader sorts a record's
+/// cells by field id on the way in (`ingest/read.rs`) and its writer sorts them again on the way
+/// out, so two bodies that differ only in member order parse to the *same* [`Batch`] and the store
+/// compares canonical text. The store's decision is "did the canonical text change", and for a
+/// reorder it did not. Plan Decision 5's "a reordered map is a real change" holds for text that
+/// reaches the store un-sorted, which the hub's reader does not produce; this case pins what the
+/// store does with what it is actually given, which is the only thing the store can be blamed for.
 #[tokio::test]
 async fn a_changed_upsert_bumps_rev() {
     let (store, mut client, _, _) = ready("a_changed_upsert_bumps_rev").await;
     let first = r#""name":"Write","note":0"#;
     let minus_zero = r#""name":"Write","note":-0"#;
     let reordered = r#""note":0,"name":"Write""#;
+    let changed = r#""name":"Write","note":1"#;
 
     store
         .apply_batch(&batch_write(
@@ -113,7 +123,17 @@ async fn a_changed_upsert_bumps_rev() {
         .expect("the first upsert");
     assert_eq!(rev_of(&mut client, "tracker", "1").await, 1, "rev 1");
 
-    for (cells, what) in [(minus_zero, "-0 against 0"), (reordered, "a reordered map")] {
+    let reorder = store
+        .apply_batch(&batch_write(
+            "ws",
+            "tracker",
+            batch_of(&[("task", "1", 7, reordered)], &[]),
+        ))
+        .await
+        .expect("the reordered upsert");
+    assert_answer(&reorder, 2, 0);
+
+    for (cells, what) in [(minus_zero, "-0 against 0"), (changed, "a different value")] {
         let outcome = store
             .apply_batch(&batch_write(
                 "ws",
@@ -132,12 +152,12 @@ async fn a_changed_upsert_bumps_rev() {
     assert_eq!(
         head_of(&mut client).await,
         4,
-        "the manifest's change and three batches"
+        "the manifest's change, the reorder's no-op and two real changes"
     );
     assert_eq!(
         text_of(&mut client, "tracker", "1").await,
-        r#"{"collection":"tracker.task","deleted":false,"id":"1","updatedAt":7,"values":{"name":"Write"}}"#,
-        "the stored text is the third write's"
+        r#"{"collection":"tracker.task","deleted":false,"id":"1","updatedAt":7,"values":{"name":"Write","note":1}}"#,
+        "the stored text is the last write's"
     );
 }
 
