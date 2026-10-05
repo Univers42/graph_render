@@ -11,9 +11,10 @@ use super::support::*;
 
 /// The three committed fixtures of `fixtures/ingest`, compiled in: a missing or renamed
 /// one is a build failure rather than a test that quietly checks nothing.
-const EXPECTED_GRAPH: &str = include_str!("../../../../../fixtures/ingest/expected-graph.json");
-const ROWS: &str = include_str!("../../../../../fixtures/ingest/rows.json");
-const NOTION: &str = include_str!("../../../../../fixtures/ingest/notion.json");
+pub(super) const EXPECTED_GRAPH: &str =
+    include_str!("../../../../../fixtures/ingest/expected-graph.json");
+pub(super) const ROWS: &str = include_str!("../../../../../fixtures/ingest/rows.json");
+pub(super) const NOTION: &str = include_str!("../../../../../fixtures/ingest/notion.json");
 
 /// The gate every refusal above has to clear. `expected-graph.json`'s `ingest` member is
 /// the document `graph-core`'s convergence test, `graph-wasm`'s contract test and
@@ -42,7 +43,7 @@ fn every_committed_ingest_fixture_still_reads() {
 
 /// The named member of a two-member fixture, back as wire text: `graph-core` and
 /// `graph-wasm` do the same round trip through `read_value`/`to_json_value`.
-fn ingest_member(text: &str) -> String {
+pub(super) fn ingest_member(text: &str) -> String {
     let value = read_value(text).expect("the fixture is JSON");
     let JsonValue::Map(members) = value else {
         panic!("the fixture's root is not an object");

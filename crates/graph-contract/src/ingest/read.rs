@@ -9,8 +9,10 @@ mod cell;
 pub(in crate::ingest) use cell::cell;
 
 impl IngestError {
-    /// A refusal, or the JSON fault underneath.
-    pub(super) fn from_json(err: JsonError) -> Self {
+    /// A refusal, or the JSON fault underneath. `pub(crate)` because the hub readers
+    /// re-wrap the same JSON faults as `HubError::Shape`: one set of JSON rules, one
+    /// reader of them.
+    pub(crate) fn from_json(err: JsonError) -> Self {
         Self::Json(err)
     }
 }

@@ -10,9 +10,12 @@
 use super::{Collection, Field, Ingest, JsonValue};
 use core::fmt::Write;
 
+mod pieces;
 mod value;
 
 use value::value as write_value;
+
+pub use pieces::*;
 
 /// The canonical wire text of one document.
 ///
@@ -27,18 +30,30 @@ pub fn to_json(doc: &Ingest) -> String {
         doc.version,
         super::VERSION,
     );
-    let mut out = String::new();
-    write_members(
+    let mut out = String::from(DOC_HEAD);
+    push_pieces(
         &mut out,
-        &[
-            ("collections", collections(&doc.collections)),
-            ("records", records(&doc.records)),
-            ("source", quoted(&doc.source)),
-            ("version", doc.version.to_string()),
-        ],
+        doc.collections.iter().map(collection_piece).collect::<Vec<_>>(),
     );
-    out.push('\n');
+    out.push_str(DOC_MIDDLE);
+    push_pieces(
+        &mut out,
+        doc.records.iter().map(record_piece).collect::<Vec<_>>(),
+    );
+    out.push_str(&doc_tail(&doc.source));
     out
+}
+
+/// The pieces joined by [`DOC_SEPARATOR`], with no leading or trailing separator: an
+/// empty list writes nothing at all, so a document with no collections still has one
+/// `[]` rather than a stray comma.
+fn push_pieces(out: &mut String, pieces: Vec<String>) {
+    for (i, piece) in pieces.iter().enumerate() {
+        if i > 0 {
+            out.push_str(DOC_SEPARATOR);
+        }
+        out.push_str(piece);
+    }
 }
 
 /// The canonical wire text of one value: no newline, no enclosing document.
@@ -56,12 +71,7 @@ pub fn read_value(text: &str) -> Result<JsonValue, super::IngestError> {
     )
 }
 
-fn collections(items: &[Collection]) -> String {
-    let rows: Vec<String> = items.iter().map(collection).collect();
-    format!("[{}]", rows.join(","))
-}
-
-fn collection(c: &Collection) -> String {
+pub(crate) fn collection(c: &Collection) -> String {
     let mut out = String::new();
     write_members(
         &mut out,
@@ -115,12 +125,7 @@ fn link_json(link: &super::Link) -> String {
     out
 }
 
-fn records(items: &[super::Record]) -> String {
-    let rows: Vec<String> = items.iter().map(record).collect();
-    format!("[{}]", rows.join(","))
-}
-
-fn record(r: &super::Record) -> String {
+pub(crate) fn record(r: &super::Record) -> String {
     let cells = cells(r);
     let mut out = String::new();
     write_members(
@@ -187,7 +192,7 @@ fn write_members(out: &mut String, rows: &[(&str, String)]) {
 /// escape where one exists, `\u00XX` otherwise). Every other character — including
 /// `U+007F`, `/`, and everything non-ASCII — is written literally as UTF-8, which is
 /// what a JavaScript `JSON.stringify` reader sees identically.
-fn quoted(text: &str) -> String {
+pub(crate) fn quoted(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('"');
     for c in text.chars() {

@@ -71,19 +71,24 @@
 
 mod collection;
 mod error;
-mod read;
+// `pub(crate)` for the three the hub readers reuse: one set of JSON rules, one reader of
+// them, rather than a second copy that could drift from the first.
+pub(crate) mod read;
 #[cfg(feature = "codegen")]
 pub mod schema;
 #[cfg(test)]
 mod tests;
-mod validate;
-mod write;
+pub(crate) mod validate;
+pub(crate) mod write;
 
 pub use collection::Collection;
 pub use error::IngestError;
 
 pub use read::read;
-pub use write::{read_value, to_json, to_json_value};
+pub use write::{
+    DOC_HEAD, DOC_MIDDLE, DOC_SEPARATOR, collection_piece, doc_tail, frame_bytes, read_value,
+    record_piece, to_json, to_json_value,
+};
 
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;

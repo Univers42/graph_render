@@ -2,6 +2,7 @@
 //! house's 300-line limit; `support.rs` holds the minimal document they share.
 
 mod fixtures;
+mod pieces;
 mod reader;
 mod roles;
 mod scaling;
