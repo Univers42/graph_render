@@ -30,6 +30,10 @@ pub(super) fn spanning_tree(work: &Work) -> Tree {
             descend(start, &kept, &mut visited, &mut parents, &mut rows);
         }
     }
+    #[cfg(test)]
+    if super::trace::for_block(nodes) {
+        super::trace::parents(&parents);
+    }
     Tree {
         parents,
         degrees: rows.iter().map(|row| row.len() as u32).collect(),
@@ -78,22 +82,17 @@ pub(super) fn longest_path(tree: &Tree) -> Vec<u32> {
     let mut leaves = Best::of(nodes);
     for node in 0..nodes as u32 {
         if tree.degrees[node as usize] == 1 {
+            #[cfg(test)]
+            if super::trace::for_block(nodes) {
+                super::trace::leaf(node);
+            }
             measure(node, node, 0, &mut leaves, tree);
         }
     }
-    let mut path = Vec::new();
-    let mut common = None;
-    let mut longest = 0;
-    for node in 0..nodes as u32 {
-        let length = leaves.longest(node) + leaves.second(node);
-        if length > longest {
-            common = Some(node);
-            longest = length;
-        }
-    }
-    let Some(common) = common else {
-        return path;
+    let Some(common) = branch_of(tree, &leaves) else {
+        return Vec::new();
     };
+    let mut path = Vec::new();
     climb(leaves.best(common), common, tree, &mut path);
     path.push(common);
     if leaves.second(common) > 0 {
@@ -106,6 +105,36 @@ pub(super) fn longest_path(tree: &Tree) -> Vec<u32> {
         path.extend(second);
     }
     path
+}
+
+/// The branch-node scan (`blockpath.c:288-294`): `DISTONE + DISTTWO` over every node in
+/// ascending order, and a **strictly** greater length wins, so a tie leaves the earlier node.
+fn branch_of(tree: &Tree, leaves: &Best) -> Option<u32> {
+    let mut common = None;
+    let mut longest = 0;
+    for node in 0..tree.parents.len() as u32 {
+        let length = leaves.longest(node) + leaves.second(node);
+        #[cfg(test)]
+        if super::trace::for_block(tree.parents.len()) {
+            super::trace::scan(node, length);
+        }
+        if length > longest {
+            common = Some(node);
+            longest = length;
+        }
+    }
+    #[cfg(test)]
+    if super::trace::for_block(tree.parents.len()) {
+        super::trace::branch(common);
+        if let Some(at) = common {
+            super::trace::dist(
+                at,
+                (leaves.longest(at), leaves.second(at)),
+                (leaves.best(at), leaves.runner_up(at)),
+            );
+        }
+    }
+    common
 }
 
 /// `LEAFONE`/`DISTONE` and `LEAFTWO`/`DISTTWO`, per node.

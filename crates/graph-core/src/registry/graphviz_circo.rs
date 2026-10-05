@@ -80,7 +80,10 @@ a source of disagreement — measured in the oracle image, 20 of 20 trials at ea
 141, 552, 1000, 5000, 10000 and 100000 with keys drawn from four values \
 (docs/measurements/p13-gv1-circo.md §8). The 984-of-1000 figure this field used to carry was \
 measured against a crossing count that retired each edge when it closed; the reference's own \
-remove_edge never retires anything, and that, not this sort, is what moved the circle orders. \
+remove_edge never retires anything, and that, not this sort, is what moved the circle orders. A \
+second and separate cause sat in the same pass and is now fixed: the fan branch of the degree \
+top-up counted the fanned neighbour's DEGREE twice, which reorders the very list this marker \
+clears (docs/measurements/p13-gv1-circo.md §9). \
 Ponytail (disconnected input): Graphviz lays out each connected component \
 and then packs them apart with packSubgraphs; this port lays each component out around the \
 origin and leaves them overlapping. Failing input: any graph with two components. Direction: \
