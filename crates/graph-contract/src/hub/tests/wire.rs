@@ -27,22 +27,33 @@ fn each_id_checker_accepts_its_grammar() {
 /// does not say *which* id is unactionable, since one manifest holds several.
 #[test]
 fn each_id_checker_refuses_outside_its_grammar_and_names_the_coordinate() {
-    let cases: [(&str, Result<(), HubError>); 9] = [
-        ("workspace id", check_workspace_id("")),
-        ("plugin id", check_plugin_id("-a")),
-        ("workspace id", check_workspace_id("A")),
-        ("workspace id", check_workspace_id(&SLUG63.to_owned() + "a")),
-        ("collection id", check_collection_id("")),
-        ("collection id", check_collection_id("B.coll")),
-        ("collection id", check_collection_id(&"a".repeat(65))),
-        ("record id", check_record_id("")),
-        ("record id", check_record_id("a:b")),
+    let cases: [(&str, &str, Result<(), HubError>); 9] = [
+        ("workspace id", "", check_workspace_id("")),
+        ("plugin id", "-a", check_plugin_id("-a")),
+        ("workspace id", "A", check_workspace_id("A")),
+        (
+            "workspace id",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            check_workspace_id(&format!("{SLUG63}a")),
+        ),
+        ("collection id", "", check_collection_id("")),
+        ("collection id", "B.coll", check_collection_id("B.coll")),
+        (
+            "collection id",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            check_collection_id(&"a".repeat(65)),
+        ),
+        ("record id", "", check_record_id("")),
+        ("record id", "a:b", check_record_id("a:b")),
     ];
-    for (coordinate, refused) in cases {
+    for (coordinate, text, refused) in cases {
         match refused {
-            Err(HubError::Grammar { coordinate: got, value }) => {
+            Err(HubError::Grammar {
+                coordinate: got,
+                value,
+            }) => {
                 assert_eq!(got, coordinate);
-                assert_eq!(value, "", "{coordinate} lost the offending text");
+                assert_eq!(value, text, "{coordinate} lost the offending text");
             }
             other => panic!("{coordinate}: expected a grammar refusal, got {other:?}"),
         }
@@ -130,10 +141,11 @@ fn a_nul_in_a_key_is_refused_with_the_path_of_its_own_name() {
 /// length and not a parse.
 #[test]
 fn a_body_one_byte_over_its_cap_is_refused_as_a_size() {
-    let text = format!("\"{}\"", "x".repeat(64));
-    assert_eq!(parse_strict(&text, 64, "body"), parse_strict(&text, 4096, "body"));
+    let exact = format!("\"{}\"", "x".repeat(62));
+    assert_eq!(exact.len(), 64, "the cap is on the bytes, quotes included");
+    assert!(parse_strict(&exact, 64, "body").is_ok());
     assert_eq!(
-        parse_strict(&text, 63, "body"),
+        parse_strict(&exact, 63, "body"),
         Err(HubError::TooLarge {
             what: "body",
             limit: 63
@@ -187,8 +199,13 @@ fn every_refusal_answers_the_status_its_reason_implies() {
         ),
         (HubError::Cursor { text: String::new() }, 400),
     ];
-    for (error, status) in cases {
+    for (mut error, status) in cases {
         assert_eq!(error.status(), status, "{error:?}");
+        // Every real refusal carries text; the table's are empty strings standing for a
+        // cause, so a message is checked with them filled in rather than not at all.
+        if let HubError::Conflict { what } = &mut error {
+            *what = "manifest v2 removed field `x`".to_owned();
+        }
         assert!(!error.to_string().is_empty(), "{error:?} has no message");
     }
 }

@@ -14,7 +14,7 @@ use crate::ingest::{IngestError, JsonValue};
 /// `NaN`/`Infinity`, but an exponent that overflows `f64` parses as text, so it is
 /// refused here rather than on a derived field — and an integer the `f64` cannot hold
 /// exactly is refused rather than rounded (see [`mutates_the_text`]).
-pub(in crate::ingest) fn cell(value: &Value, path: &str) -> Result<JsonValue, IngestError> {
+pub(crate) fn cell(value: &Value, path: &str) -> Result<JsonValue, IngestError> {
     Ok(match value {
         Value::Null => JsonValue::Null,
         Value::Bool(b) => JsonValue::Bool(*b),

@@ -9,8 +9,8 @@
 //! They exist only under the `negctl` feature: a shipped build never reads
 //! `GM_HUB_BREAK`, and the non-`negctl` `on` is a `const fn` returning `false` so the
 //! check folds away entirely rather than reading an environment at every cell check.
-///
-/// | Break | Turns off | Row that must go red |
+//!
+//! | Break | Turns off | Row that must go red |
 //! |---|---|---|
 //! | `lax-reader` | the NUL walk and the `B.coll` collection-id check | `negctl-lax-reader` |
 //! | `keep-dangling` | pruning a record cell whose target does not exist | `negctl-keep-dangling` |

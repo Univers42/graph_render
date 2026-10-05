@@ -88,7 +88,7 @@ fn check_id_grammar(doc: &Ingest) -> Result<(), IngestError> {
 }
 
 /// A coordinate that goes into a node id: present, and free of `:` (H5).
-fn check_coordinate(coordinate: &'static str, value: &str) -> Result<(), IngestError> {
+pub(crate) fn check_coordinate(coordinate: &'static str, value: &str) -> Result<(), IngestError> {
     check_present(coordinate, value)?;
     if value.contains(':') {
         return Err(IngestError::IdGrammar {
@@ -152,7 +152,7 @@ fn check_fields(
 /// The collection's `titleField` must name a field that exists *and* has the `title`
 /// role. Both directions are refused: a label read from a `group` field would look
 /// right and mean something else, which is the direction that matters.
-fn check_title(collection: &Collection, path: &str) -> Result<(), IngestError> {
+pub(crate) fn check_title(collection: &Collection, path: &str) -> Result<(), IngestError> {
     let title_path = format!("{path}.titleField");
     let Some(field) = collection.field(&collection.title_field) else {
         return Err(shape(
