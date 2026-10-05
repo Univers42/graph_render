@@ -110,7 +110,10 @@ pub async fn run_detector(
 async fn snapshot_for_run(
     detector: &Detector,
     client: &mut Client,
-) -> (Option<String>, std::collections::BTreeMap<String, (u64, u64)>) {
+) -> (
+    Option<String>,
+    std::collections::BTreeMap<String, (u64, u64)>,
+) {
     if breaks::on("hw-after-lsn") {
         let _ = flush_lsn(client).await;
     }
@@ -239,7 +242,10 @@ pub(crate) async fn timeline(client: &mut Client) -> Result<String, StoreError> 
         return Ok(row.get::<_, String>(0));
     }
     let row = client
-        .query_one("SELECT substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8)", &[])
+        .query_one(
+            "SELECT substr(pg_walfile_name(pg_current_wal_lsn()), 1, 8)",
+            &[],
+        )
         .await?;
     Ok(row.get::<_, String>(0))
 }

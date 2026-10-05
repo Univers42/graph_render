@@ -2,7 +2,7 @@
 # hub-pg.sh — the PostgreSQL 17 container every graph-store database row runs against.
 #
 #   hub-pg.sh reset | start | stop | kill | url | ip | wait [secs] | sql "SQL"
-#   hub-pg.sh copy-data | restore-data | switch-wal | replica | replica-promote | pitr "TIME"
+#   hub-pg.sh copy-data | restore-data | switch-wal | replica | replica-promote | pitr "NAME"
 #   hub-pg.sh run [cargo test args...]
 #
 # Every container starts through scripts/orch/drun, never a bare `docker run`
@@ -159,6 +159,14 @@ switch_wal() {
 # switch-wal` has to run BEFORE the copy: a segment still open is lost with the volume, while a
 # completed segment is in the archive.
 copy_data() {
+  # WHY a checkpoint and a segment switch BEFORE the stop: the base copy has to be a consistent
+  # starting point whose own WAL is in the archive. Without them the base's control file can name
+  # a checkpoint whose REDO range was never archived, and recovery from that base then starts PAST
+  # the writes a PITR is supposed to replay — which is exactly the "requested recovery stop point
+  # is before consistent recovery point" failure, wearing a different hat.
+  sql "CHECKPOINT" >/dev/null 2>&1
+  switch_wal >/dev/null 2>&1
+  sleep 2
   docker stop "$name" >/dev/null 2>&1
   "$drun" --rm -v "$data_vol":/from:ro -v "$snap_vol":/to "$image" \
     sh -c 'cd /from && tar cf /to/hub-data.tar .'
@@ -195,9 +203,18 @@ start_recovery() {
     # history file. After a promotion on this cluster that file does not exist, the lookup fails,
     # and recovery never reaches its consistent point. A PITR on the cluster that wrote the
     # archive wants `current`.
+    #
+    # WHY a NAME and not a wall-clock time: the host clock, the container clock and the archived
+    # commit timestamps are three clocks, and a target expressed in one of them is a target the
+    # others may disagree with. A named restore point is a position in the WAL itself.
     if [ -n "$target" ]; then
       printf "recovery_target_timeline = 'current'\n"
-      printf "recovery_target_time = '%s'\n" "$target"
+      printf "recovery_target_name = '%s'\n" "$target"
+      # WHY `promote` and not the default: with `hot_standby = on`, the default action for a named
+      # target is `pause`, which leaves the server read-only and IN RECOVERY forever. The detector
+      # refuses a database in recovery, so a paused PITR would fail the refusal instead of the
+      # bump — the wrong reason, and a test that passes for it proves nothing.
+      printf "recovery_target_action = 'promote'\n"
     else
       printf "recovery_target_timeline = 'latest'\n"
     fi
@@ -235,7 +252,7 @@ replica_promote() {
 
 # Replay the archive to a wall-clock time, then promote.
 pitr() {
-  [ $# -eq 1 ] || { echo "hub-pg: pitr needs a target time" >&2; exit 2; }
+  [ $# -eq 1 ] || { echo "hub-pg: pitr needs a restore point name" >&2; exit 2; }
   start_recovery target "$1"
 }
 
