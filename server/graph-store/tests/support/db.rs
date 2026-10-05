@@ -43,6 +43,18 @@ fn admin_url_for(database: &str) -> String {
     url_for(database).replacen("postgres://hub:hub@", "postgres://postgres:hub@", 1)
 }
 
+/// The file `scripts/orch/hub-pg.sh` writes the current container address to.
+///
+/// WHY it is anchored at the manifest directory and not left relative: cargo runs a test binary
+/// with its CWD at the *package* root, so a bare `target/hub-pg-url` resolves to
+/// `server/graph-store/target/hub-pg-url` — a directory `hub-pg.sh` never writes, and one the
+/// test container would have to create as root. `CARGO_MANIFEST_DIR` is baked in at compile time
+/// and the repository is bind-mounted at the git top level, so two levels up from the manifest is
+/// the one `target/` both sides name.
+fn url_file() -> String {
+    format!("{}/../../target/hub-pg-url", env!("CARGO_MANIFEST_DIR"))
+}
+
 /// The URL the tests should use RIGHT NOW.
 ///
 /// WHY this is not [`url`]: every container-level case (promotion, PITR, volume snapshot,
@@ -51,15 +63,28 @@ fn admin_url_for(database: &str) -> String {
 /// every read-back would come back empty — which is exactly the "the table I wrote is not there"
 /// shape that made the PITR probe look broken when the verbs were fine.
 ///
-/// `scripts/orch/hub-pg.sh url` rewrites `target/hub-pg-url` on every start, and `scripts/orch/gr`
-/// mounts the repository read-write at `/w`, so a test can follow the server across a restore.
-/// The environment variable is the fallback for a run with no `hub-pg.sh` involved.
+/// `scripts/orch/hub-pg.sh url` rewrites that file on every start and on every recovery, and
+/// `scripts/orch/gr` mounts the repository read-write at `/w`, so a test can follow the server
+/// across a restore. The environment variable is the fallback for a run with no `hub-pg.sh`
+/// involved.
 pub fn url_now() -> String {
-    let path = "target/hub-pg-url";
-    match std::fs::read_to_string(path) {
+    match std::fs::read_to_string(url_file()) {
         Ok(text) if !text.trim().is_empty() => text.trim().to_string(),
         _ => url(),
     }
+}
+
+/// The CURRENT address with the *role* replaced by `postgres`, for the container-level cases.
+///
+/// §5.3's own steps need a superuser and no store test may be one: `pg_create_restore_point` is
+/// restricted to `pg_checkpoint`/superuser, and `hub` is deliberately neither. The password is
+/// never printed — a URL that is not the store's own `hub:hub` URL panics without echoing it.
+pub fn admin_now() -> String {
+    let base = url_now();
+    if !base.starts_with("postgres://hub:hub@") {
+        panic!("the current URL is not the store's own hub/hub URL; hub-pg.sh did not write it");
+    }
+    base.replacen("postgres://hub:hub@", "postgres://postgres:hub@", 1)
 }
 
 /// One connected client on the shared database, for reads that must not disturb anything.

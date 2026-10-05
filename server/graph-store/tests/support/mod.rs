@@ -7,5 +7,6 @@
 
 #![allow(dead_code)]
 
+pub mod case;
 pub mod db;
 pub mod step;
