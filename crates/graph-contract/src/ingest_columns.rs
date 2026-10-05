@@ -27,8 +27,8 @@ pub const VERSION: u32 = layout::VERSION;
 /// Which of the two columnar documents a buffer holds: a whole graph, or one extend batch.
 ///
 /// One enum rather than two readers, because the two documents differ in exactly one rule —
-/// what an edge endpoint names — and a second `check_*.rs` beside [`check`] is how the two
-/// would drift. It is threaded through [`layout`], [`check`] and [`row`], and it is decided
+/// what an edge endpoint names — and a second `check_*.rs` beside `check` is how the two
+/// would drift. It is threaded through `layout`, `check` and `row`, and it is decided
 /// once, by the magic word ([`Format::magic`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
@@ -191,7 +191,7 @@ pub fn decode_batch(bytes: &[u8]) -> Result<ColumnsDoc<'_>, ColumnsError> {
 }
 
 /// One walk for both formats, the header word deciding which. Every rule below this line is
-/// shared, and the format reaches the two checks that care about it as [`Shape::format`].
+/// shared, and the format reaches the two checks that care about it as [`layout::Shape::format`].
 fn read(bytes: &[u8], format: Format) -> Result<ColumnsDoc<'_>, ColumnsError> {
     let shape = layout::header(bytes, format)?;
     let layout = layout::layout(bytes, shape)?;

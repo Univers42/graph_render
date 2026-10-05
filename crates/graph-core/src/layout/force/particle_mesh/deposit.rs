@@ -66,7 +66,7 @@ impl Rows {
     }
 
     /// Room for `n` slots over a mesh `side` cells wide, reusing what a same-side mesh
-    /// already holds: [`sort`] counts every start from zero and writes every slot it
+    /// already holds: [`sort`](Self::sort) counts every start from zero and writes every slot it
     /// scatters, so a longer mesh needs the room and none of the contents.
     pub(super) fn grow(&mut self, side: usize, n: u32) {
         if self.starts.len() != side + 1 {

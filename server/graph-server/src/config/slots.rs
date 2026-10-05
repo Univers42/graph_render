@@ -41,7 +41,7 @@ pub const BASE_BYTES: u64 = 11_534_336;
 const CGROUP_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
 
 /// The memory one slot is budgeted for a `GRAPH_MAX_BODY` of `max_body`: the run peak, the body
-/// itself, and the contract ingest peak scaled to it at the [`INGEST_PEAK_BYTES`] to [`BODY_BYTES`]
+/// itself, and the contract ingest peak scaled to it at the `INGEST_PEAK_BYTES` to [`BODY_BYTES`]
 /// ratio. Saturating, so a body past the range `read_limits` accepts cannot wrap a slot figure
 /// around to a small one.
 pub fn per_slot_bytes(max_body: u64) -> u64 {

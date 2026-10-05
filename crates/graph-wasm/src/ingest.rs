@@ -116,7 +116,7 @@ fn ceiling() -> usize {
 /// from the tree reader, and the differential test in [`differential`] is the judge: whole
 /// text validated before any shape check, root checked before any node, every node before
 /// any edge, then `check_ids`. Only tests call it: `gm_build` reads through
-/// [`read_records`] and [`index`], which refuse the same documents.
+/// [`read_records`] and `index`, which refuse the same documents.
 #[cfg(test)]
 pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
     let (nodes, edges) = read_records(bytes)?;
@@ -124,7 +124,7 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestEr
     Ok((nodes, edges))
 }
 
-/// `read` without C12's id pass, for a caller that hands the records to [`index`], which
+/// `read` without C12's id pass, for a caller that hands the records to `index`, which
 /// refuses the same documents.
 pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
     if bytes.len() > ceiling() {

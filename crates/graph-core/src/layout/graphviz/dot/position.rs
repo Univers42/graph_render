@@ -53,7 +53,7 @@ use super::simplex::{self, Error, Params};
 
 pub use rows::Rows;
 
-/// Run the whole position pass over a graph that has been through [`rank`](super::rank) and
+/// Run the whole position pass over a graph that has been through [`rank`](fn@super::rank) and
 /// [`mincross`](super::mincross).
 ///
 /// The graph is left with every node's `coord` in the frame `-Tplain` prints and its `rank`

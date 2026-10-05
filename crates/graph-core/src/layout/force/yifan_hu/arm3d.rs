@@ -4,7 +4,7 @@
 //! than an edit: the coarsening ([`hierarchy`]), the greedy matching, the per-level tick
 //! budget ([`REFINE`]) and the coarse-first order are the 2D arm's own code, called
 //! unchanged. Only two things are new — the settle underneath it
-//! ([`settle3d`](crate::layout::force::barnes_hut::settle3d)) and the prolongation offset,
+//! ([`settle3d`](fn@settle3d)) and the prolongation offset,
 //! which has to leave the plane for the same reason the start does.
 //!
 //! **This is not the `'2Z'` arm, and the difference is the whole point of shipping it.**

@@ -8,7 +8,8 @@
 //! 2. `dot_mincross` — `build_ranks` for the initial order, then median/transpose passes.
 //!    **Ported**; see [`mincross`].
 //! 3. `dot_position` — y from the rank heights, then a second network simplex over an
-//!    auxiliary graph for x, then the frame `-Tplain` prints. **Ported**; see [`position`].
+//!    auxiliary graph for x, then the frame `-Tplain` prints. **Ported**; see
+//!    [`position`](mod@position).
 //! 4. `dot_splines` — edges as splines through the virtual nodes. Not needed: the motor
 //!    emits polylines through the virtual nodes.
 //!
