@@ -581,6 +581,8 @@ worst while every other seed improved. **The ceiling is unchanged at 1e+05** and
 
 ### 8.6 What is still not matching, and where
 
+Narrowed in §9.
+
 The subset rose, so the fix is real and it is not the whole story. On seed 100 (`n = 102`) the
 rescaled gap is 4 687 points and the instrumented build says why, on the block of 74 nodes:
 
@@ -657,3 +659,132 @@ red, not silenced.
 
 The orchestrator adopted the motor sha alone on 2026-10-05, before landing: `graphviz.rs:84` now
 pins `253896a8…`, with the reference sha, the `1e0` ceiling, the tier and the cause unchanged.
+
+## 9. The second cause (2026-10-05)
+
+§8.3 fixed the crossing count and §8.6 stopped one step short of the rest. This section is that
+step: the first divergent value in `remove_pair_edges` on seed 100's 74-node block, what it is,
+and what it costs.
+
+### 9.1 Two corrections to §8.6's record, measured
+
+Both are in §8.6's own quoted numbers and neither changes its conclusion.
+
+- The block runs **`nodeCount - 3` = 71 rounds**, not 41 (`blockpath.c:193`). §8.6's "41 rounds"
+  is a subtraction error.
+- The reference's long path for that block has **35 nodes and starts at `n38`**, which is what
+  §8.6 quotes, but the instrumented build prints one more name in front of it — `n87`. Its
+  `TRACE longest_path` line is 36 names long. §8.6 dropped the leading `n87` when it quoted
+  the `LEAFONE` walk. That is the same conclusion the walk is quoted for: `LEAFONE(n0) = n87`
+  and the climb from it is `38-17-28-95-71-48-1-21-16-20-5-26-4-86-63-37-6`.
+
+Both arms' traces come from the instrumented Graphviz 16.1.0 at `$GM_SCRATCH/circo-trace/`
+(`fprintf` traces in `lib/circogen/blockpath.c`, sources in `src/`, **nothing of it in this
+repository**) and from `circo/tests/tree_order.rs` on this port, which prints the same lines in
+the same format. Each round is compared on the node taken off the back of the degree list, the
+`with`/`without` classification, `edge_cnt`, `diff`, the edges dropped from `outg`, and the
+whole sorted degree list — every line kind the reference's build prints except its
+`agfstnode order` dump and its `tree rows`, which restate what the parents already say. After
+the fix in §9.3 **all 71 rounds agree on all five**, `outg` holds the same 106 edges, all 74
+parents match, and all 74 `DISTONE + DISTTWO` values match.
+
+### 9.2 The first divergent step: round 44, `currnode = n16`
+
+Rounds 0 to 43 agree on every one of those. The 44th round (the 45th) is `n16`, whose row is
+`n20 n1 n2`, and both arms classify it the same way and ask for the same top-up:
+
+```
+  REF  TRACE find_pair_edges n=n16 deg=3 edge_cnt=1 with=[n20 n1 ] without=[n2 ]
+  REF  TRACE find_pair_edges diff=1
+  PORT TRACE find_pair_edges n=n16 deg=3 edge_cnt=1 with=[n20 n1] without=[n2]
+  PORT TRACE find_pair_edges diff=1
+```
+
+`diff = 3 - 1 - 1 = 1` and `without` holds one name, so `diff == LIST_SIZE(neighbors_without)`
+and the reference takes its **fan branch** (`blockpath.c:161-172`): one hub, `tp` =
+`neighbors_with[0]` = `n20`, and `agedge(g, n20, n2)` for the single unpaired neighbour. It
+then re-inserts `n16`'s row with `DEGREE(adjNode)--` (`blockpath.c:206-213`) and sorts
+(`blockpath.c:214`). The two arms' lists differ in **one number**:
+
+```
+  REF  ... n49/3 n43/3 n2/10 n20/6 n1/10        <- DEGREE(n2) = 10
+  PORT ... n49/3 n43/3 n2/11 n20/6 n1/10        <- DEGREE(n2) = 11
+```
+
+`DEGREE(n20) = 6` and `DEGREE(n1) = 10` agree. The reference leaves `n2` at **10**; this port
+left it at **11**.
+
+### 9.3 What the reference does that the port did not
+
+`DEGREE` here is not the graph's degree: `clone_graph` sets it once per edge and
+`find_pair_edges` then raises and lowers it **by hand** as it adds and drops edges
+(`blockpath.c:139`, `blockpath.c:167-170`). In the fan branch it raises each endpoint of the
+new edge **exactly once** — `DEGREE(tp)++` guarded by `tp != NULL`, then `DEGREE(hp)++`, both
+inside the loop body and both unconditional with respect to whether `agedge` found an existing
+edge or made a new one.
+
+This port's `Work::link` already does exactly that: it creates the edge if there is none and
+then raises `DEGREE` on **both** endpoints. The fan branch, however, called `link` *and then*
+raised the fanned endpoint a second time by hand, to model the `agedge(g, NULL, hp, NULL, 1)`
+line where `tp` is `NULL` and only `DEGREE(hp)++` survives. So whenever the hub is real — and
+`with` is empty only when `node` has no paired neighbour at all — `n2` was counted **twice**
+for one edge.
+
+That one extra point is the whole of it, and it is enough because `DEGREE` is the sort key:
+the next `LIST_SORT` (`blockpath.c:214`) puts `n2` a place higher, the two arms pop different
+nodes from the back (`blockpath.c:194`), and from round 45 on the working copies `g` are
+different graphs. By the end the reference's `outg` holds 106 edges and this port's held 105,
+the missing one being `n37 -- n6`, and the spanning tree — the tree is spanned over `outg`
+alone — was made of different edges. That is §8.6's symptom, one double-count upstream.
+
+**The fix** is `circo/skeleton/pairs.rs`, `fan_off_hub`: bump by hand **only** when the hub is
+`NULL`, and let `Work::link` do both endpoints otherwise. Integer and index arithmetic only, no
+`HashMap`, no new dependency, no signature changed, and the `Ponytail:` marker on that
+function's caveat stays with the rule it now obeys.
+
+`circo/tests/tree_order.rs` pins it. The smallest block that shows it is six nodes, ten edges,
+one biconnected component — the reference's own `TRACE longest_path` for it is
+`[n3 n2 n4 n1 n5 n0 ]`, and this port read `[n2 n4 n1 n5 n0 ]` before the fix, one node short.
+An exhaustive sweep of every simple graph on 4, 5 and 6 nodes (25 788 blocks) over both
+versions of the function differs on 69 blocks and **every one of them is a 6-node block**:
+nothing under six nodes reaches the fan branch with a real hub, so six is the floor.
+
+### 9.4 What one double-count cost
+
+The same strided 50-seed subset as §8.5, both arms rescaled onto Graphviz's own node-centre
+bounding box with one uniform `max` scale (`harness/gv_closed.py`'s `gap`):
+
+```
+scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine circo --seeds 1000
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+  python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-sub \
+    --differential --shards 20 --shard 0
+```
+
+The baseline is §8.5's "after" row and it reproduced exactly: **4 of 50** within 1 point, **12**
+within 1 000, worst **4.690e+04** points at seed 540 (`n = 542`), 14 of 14 closed cases exact.
+
+| | cases agreeing to within 1 point | within 1 000 points | worst gap | worst seed |
+|---|---|---|---|---|
+| before | 4 of 50 | 12 of 50 | 4.690e+04 points | 540 (`n = 542`) |
+| after | 4 of 50 | **50 of 50** | **583.7 points** | 420 (`n = 422`) |
+
+**38 seeds moved and every one of them moved down.** The 12 that did not move are the 12 that
+were already inside 1 000 points, so nothing regressed: seed 100 from **4 687 to 149**, seed
+520 from 42 399 to 187, seed 540 from 46 903 to 333, seed 560 from 30 040 to **7.07**, seed 340
+from 15 258 to **15.07**, and the twenty-odd others from 8 400–27 600 down into 15–420. The two
+seeds that were exact (0 and 600, the two-node fixture) are still exact, and the 14 closed
+cases are still 14 of 14 byte-exact.
+
+The gap that is left is a different thing from the one §8.5 and §8.6 were chasing. On seed 100
+the block's skeleton, its `outg`, its spanning tree, its `DISTONE`/`DISTTWO` scan and its long
+path now agree with the instrumented reference **exactly** — 71 of 71 rounds, 106 edges of
+`outg`, 74 parents, 74 scan values — so what remains on that seed is downstream of
+`find_longest_path` and inside the crossing reduction and the residual-node pass, not in the
+tree. The ceiling is unchanged at `1e+05` and still holds, with 583.7 points measured against
+it.
+
+The SciGraphs conformance row is **unchanged**: `scripts/scigraphs-conformance.sh` passes and
+its proposed row carries the same motor sha `44c7d912…` the baseline pins, so
+`conformance/baseline/table/graphviz.rs` was not touched. The fan branch does not fire on that
+fixture.

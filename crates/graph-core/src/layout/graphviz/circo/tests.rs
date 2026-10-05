@@ -18,6 +18,7 @@ mod crossings;
 mod path;
 mod seed8;
 mod skeleton;
+mod tree_order;
 
 /// `min_dist + largest_node` = `1.0 + 0.75`, the pair every circle's radius is `N` times over
 /// `2*PI`. In points: `72 * 1.75 = 126`, one node's slot on the circle.

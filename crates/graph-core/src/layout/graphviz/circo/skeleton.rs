@@ -11,9 +11,13 @@
 //! `(uintptr_t)n1 < (uintptr_t)n2` (`blockpath.c:124`), is an allocation-order comparison, and
 //! the derived graph allocates its nodes in ascending id order, which is the local index order.
 
+mod pairs;
+#[cfg(test)]
+mod trace;
 mod tree;
 
 use super::graph::BlockGraph;
+use pairs::find_pair_edges;
 use tree::{longest_path, spanning_tree};
 
 /// The block's nodes in the order the circle will carry them, as block-local indices.
@@ -21,6 +25,12 @@ pub(super) fn order_of(block: &BlockGraph) -> Vec<u32> {
     let work = remove_pair_edges(Work::new(block));
     let tree = spanning_tree(&work);
     longest_path(&tree)
+}
+
+/// Turns the test-only trace on, with the block's node names (`trace::enable`).
+#[cfg(test)]
+pub(super) fn enable_trace(nodes: &[u32]) {
+    trace::enable(nodes);
 }
 
 /// `remove_pair_edges`'s mutable working copy: the block's induced subgraph, plus which of
@@ -120,6 +130,10 @@ impl Work {
                     .unwrap_or(self.rows[node as usize].len());
                 self.rows[node as usize].insert(at, id);
             }
+            #[cfg(test)]
+            if trace::for_block(self.degree.len()) {
+                trace::added(tail, head);
+            }
         }
         self.degree[tail as usize] += 1;
         self.degree[head as usize] += 1;
@@ -138,29 +152,58 @@ fn half_key(ends: &(u32, u32), node: u32) -> (u8, u32) {
 fn remove_pair_edges(mut work: Work) -> Work {
     let mut list: Vec<u32> = (0..work.degree.len() as u32).collect();
     sort_by_degree(&mut list, &work);
-    for _ in 0..work.degree.len().saturating_sub(3) {
+    for number in 0..work.degree.len().saturating_sub(3) {
         let Some(current) = list.pop() else {
             break;
         };
-        let neighbours = work
-            .row(current)
-            .into_iter()
-            .map(|(other, _)| other)
-            .collect::<Vec<_>>();
-        for other in neighbours {
-            list.retain(|&node| node != other);
-        }
-        find_pair_edges(&mut work, current);
-        for (other, _) in work.row(current) {
-            work.degree[other as usize] -= 1;
-            list.push(other);
-        }
-        sort_by_degree(&mut list, &work);
-        for id in work.rows[current as usize].clone() {
-            work.live[id as usize] = false;
-        }
+        thin_one(&mut work, &mut list, current, number);
+    }
+    #[cfg(test)]
+    if trace::for_block(work.degree.len()) {
+        trace::outg(&work);
     }
     work
+}
+
+/// One round (`blockpath.c:194-216`): drop `current`'s neighbours off the degree list so they
+/// can be re-inserted, thin its neighbourhood, put the neighbours back with `DEGREE--`, sort,
+/// then drop `current` itself.
+fn thin_one(work: &mut Work, list: &mut Vec<u32>, current: u32, _number: usize) {
+    #[cfg(test)]
+    let count = work.degree.len();
+    #[cfg(test)]
+    if trace::for_block(count) {
+        trace::round(_number, current, work);
+    }
+    let neighbours = work
+        .row(current)
+        .into_iter()
+        .map(|(other, _)| other)
+        .collect::<Vec<_>>();
+    for other in neighbours {
+        list.retain(|&node| node != other);
+    }
+    #[cfg(test)]
+    if trace::for_block(count) {
+        trace::dl("step dl after neighbour removal", list, work);
+    }
+    find_pair_edges(work, current);
+    for (other, _) in work.row(current) {
+        work.degree[other as usize] -= 1;
+        list.push(other);
+    }
+    #[cfg(test)]
+    if trace::for_block(count) {
+        trace::dl("step dl before sort", list, work);
+    }
+    sort_by_degree(list, work);
+    #[cfg(test)]
+    if trace::for_block(count) {
+        trace::dl("step dl after sort", list, work);
+    }
+    for id in work.rows[current as usize].clone() {
+        work.live[id as usize] = false;
+    }
 }
 
 /// `LIST_SORT(&dl, cmpDegree)`: descending degree.
@@ -174,67 +217,9 @@ fn remove_pair_edges(mut work: Work) -> Work {
 /// 10000, 100000` with keys drawn from four values (`docs/measurements/p13-gv1-circo.md` §8), and
 /// this port's `sort_by_key` is stable, so the two agree on every tie. **A tie is therefore not a
 /// source of disagreement here, and the 984-of-1000 claim that used to sit on this function was
-/// wrong** — the real cause was the crossing count in
-/// [`crate::layout::graphviz::circo::crossings`], not this sort.
+/// wrong** — the causes were the crossing count in
+/// [`crate::layout::graphviz::circo::crossings`] and a double-counted `DEGREE` in [`pairs`],
+/// neither of them this sort (`docs/measurements/p13-gv1-circo.md` §8 and §9).
 fn sort_by_degree(list: &mut [u32], work: &Work) {
     list.sort_by_key(|&node| -work.degree[node as usize]);
-}
-
-/// `find_pair_edges` (`blockpath.c:102-177`): drop the edges inside `node`'s neighbourhood,
-/// then pair up what is left so the skeleton's degree is unchanged.
-fn find_pair_edges(work: &mut Work, node: u32) {
-    let (node_degree, mut edge_count) = (work.degree[node as usize], 0);
-    let mut with = Vec::new();
-    let mut without = Vec::new();
-    for (one, edge) in work.row(node) {
-        let mut paired = false;
-        for (two, other) in work.row(node) {
-            if edge != other && work.find(one, two).is_some() {
-                paired = true;
-                if one < two {
-                    edge_count += 1;
-                    if let Some(found) = work.find(one, two) {
-                        work.keep[found as usize] = false;
-                    }
-                }
-            }
-        }
-        if paired {
-            with.push(one)
-        } else {
-            without.push(one)
-        }
-    }
-    pair_up(work, &with, &without, node_degree - 1 - edge_count);
-}
-
-/// The degree top-up: pair the unpaired neighbours off, two at a time.
-fn pair_up(work: &mut Work, with: &[u32], without: &[u32], mut diff: i32) {
-    if diff <= 0 {
-        return;
-    }
-    if (diff as usize) < without.len() {
-        let mut mark = 0;
-        while mark + 1 < without.len() {
-            work.link(without[mark], without[mark + 1]);
-            diff -= 1;
-            mark += 2;
-        }
-        for mark in 2..without.len() {
-            if diff <= 0 {
-                return;
-            }
-            work.link(without[0], without[mark]);
-            diff -= 1;
-        }
-    } else if diff as usize == without.len() {
-        // `agedge(g, NULL, hp, NULL, 1)` makes an anonymous node the reference never walks
-        // again; only its degree bump on `hp` survives, and that is all this reproduces.
-        for &head in without {
-            if let Some(&root) = with.first() {
-                work.link(root, head);
-            }
-            work.degree[head as usize] += 1;
-        }
-    }
 }
