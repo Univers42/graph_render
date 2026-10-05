@@ -125,11 +125,12 @@ three named volumes (`-data`, `-archive`, `-snapshot`), `start` builds the image
 Caveat: `gr` has no network option and its containers sit on Docker's default bridge, so the tests
 reach PostgreSQL by the container's **bridge IP**, never by `127.0.0.1` and never by a published
 host port. Every verb above that replaces the container (`replica`, `pitr`, `restore-data` +
-`start`) hands the replacement a new bridge IP, and the assert phases re-read
-`target/hub-pg-url` for exactly that reason — measured above: the promotion case dialled
-`172.17.0.21` before the promotion and `172.17.0.8` after it. `hub-pg.sh sql` shares the network
-namespace with `--network container:`, but not the unix socket, so its `psql` needs
-`-h 127.0.0.1`.
+`start`) hands the replacement a bridge IP that Docker may renumber, and the assert phases re-read
+`target/hub-pg-url` for exactly that reason. Observed on this instance: the promotion row dialled
+`172.17.0.21` before `replica` and `172.17.0.8` after it in one run, and the same address twice
+in another — which is exactly why the URL file, not the value `GM_HUB_PG_URL` held at the first
+phase, is what a later phase reads. `hub-pg.sh sql` shares the network namespace with
+`--network container:`, but not the unix socket, so its `psql` needs `-h 127.0.0.1`.
 
 ### What the crash-consistent copy measured
 
@@ -147,6 +148,22 @@ measured threshold — a gap under 10.9 MiB being invisible to the LSN — is re
 construction. The assert phase still asserts the bump, and separately asserts that `head_seq` is
 below the hub's map entry, so the case does not depend on the printed line being favourable.
 
+## Two fixes `hub-pg.sh` needed for these rows
+
+Both were found by running the four rows, and both are one line each.
+
+1. **`start_recovery` never rewrote `target/hub-pg-url`.** `replica`, `replica-promote` and
+   `pitr` all land in it, and every one of them replaces the container — so any test that read the
+   URL between a verb and the next `run` dialled a container that no longer existed. It now calls
+   `url` after `wait_ready`, exactly as `start` does.
+2. **`run` passed `GM_HUB_STEP_DIR=target/hub-steps`,** which resolves inside the test container
+   to `server/graph-store/target/hub-steps` (cargo runs a test binary with its CWD at the *package*
+   root) and, made absolute on the host, would not exist inside the container at all. It now
+   passes `../../target/hub-steps`, which is `/w/target/hub-steps` — the repository's own
+   `target/`, host-visible, and the same string for `tests/support/step.rs` and
+   `src/hooks.rs`. `tests/support/step.rs` and `tests/support/db.rs` anchor their defaults at
+   `CARGO_MANIFEST_DIR` for the same reason.
+
 ## `negctl-checkpoint-timeline` over the promotion case
 
 Row `negctl-checkpoint-timeline` is the promotion row with `GM_HUB_BREAK=checkpoint-timeline` on
@@ -157,7 +174,7 @@ then compared a different key against it. Full run in
 ```
 ---- promotion_phase_assert stdout ----
 
-thread 'promotion_phase_assert' (18) panicked at graph-store/tests/promotion.rs:85:5:
+thread 'promotion_phase_assert' (18) panicked at graph-store/tests/promotion.rs:73:5:
 assertion `left == right` failed: hub_meta.timeline must be the WAL-file timeline key: the break `checkpoint-timeline` reads pg_control_checkpoint(), which lags a promotion and prints the id unpadded, so the key the detector compares with is not the key it stores
   left: "1"
  right: "00000002"
