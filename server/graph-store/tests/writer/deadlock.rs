@@ -7,45 +7,62 @@
 
 use super::*;
 
-/// Cluster-wide settings are per CLUSTER and this crate runs its tests in parallel threads against
-/// one server, so the role default this case changes must be held for its whole body.
+/// `deadlock_timeout` is a role setting here, and it is per CLUSTER, so the case holds this for its
+/// whole body and every other case in the binary that changes a role default does the same.
 static CLUSTER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A deadlock the batch is the victim of ends in a commit or a `retried: true` 503, and the retry
 /// counter moved.
+///
+/// WHY the role default rather than a session `SET`: the store opens its own connection per call, so
+/// there is no session to set it on. `hub-pg.sh` grants the `hub` role `SET` on `hub.writer` only,
+/// so the value is installed by the superuser connection [`support::db::fresh_pair`] hands back.
 #[tokio::test]
 async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
     let _cluster = CLUSTER.lock().await;
-    let (store, client, url, _) = ready("a_deadlock_ends_in_a_commit_or_a_503").await;
+    let (mut client, mut admin, url) =
+        support::db::fresh_pair("a_deadlock_ends_in_a_commit_or_a_503").await;
+    let store = store(&url).await;
+    store
+        .create_workspace("ws", &LIMITS)
+        .await
+        .expect("create the workspace");
+    store
+        .put_manifest(&manifest_write("ws", "tracker"))
+        .await
+        .expect("register the manifest");
 
-    // The victim is the *later* waiter, and which one that is depends on cost. A short
-    // `deadlock_timeout` on the hub's own role is what §5.1 means by "the hub role's
-    // `deadlock_timeout` makes the batch the victim": the manual session keeps PostgreSQL's 1 s
-    // default by setting it back, and the batch gives up long before that and is aborted.
-    client
+    // Which side of a cycle is aborted is PostgreSQL's choice, and it picks the cheaper waiter.
+    // A short `deadlock_timeout` on the hub role is how the batch becomes the one that gives up
+    // (§5.1's "the hub role's `deadlock_timeout` makes the batch the victim"): the manual session
+    // raises its own back to 5 s, so the batch is aborted long before the manual session would be.
+    admin
         .batch_execute("ALTER ROLE hub SET deadlock_timeout = '200ms'")
         .await
         .expect("shorten the hub role's deadlock_timeout");
-    let manual = support::db::more(&url).await;
-    manual
-        .batch_execute("SET deadlock_timeout = '5s'")
-        .await
-        .expect("the manual session keeps a long one");
 
     // The record the manual session will lock, written by the batch itself so no other case's setup
     // is a precondition of this one.
-    store
+    let outcome = store
         .apply_batch(&batch_write(
             "ws",
             "tracker",
             batch_of(&[("task", "1", 7, r#""name":"One""#)], &[]),
         ))
-        .await
-        .expect("write the record the manual session locks");
+        .await;
+    assert!(outcome.is_ok(), "the seeding batch applies: {outcome:?}");
+    let seeded = head_of(&mut client).await;
 
     let step_dir = support::step::dir();
     std::fs::create_dir_all(&step_dir).expect("create the step directory");
     let arm = format!("{step_dir}/writer-after-lock.armed");
+    let ready = format!("{step_dir}/writer-after-lock.ready");
+    let done = format!("{step_dir}/writer-after-lock.done");
+    // A previous run of this case leaves the handshake files behind, and `wait_for` only polls for
+    // `.done`: a `.ready` that is already there would make the "it reached the seam" claim vacuous.
+    for path in [&ready, &done] {
+        let _ = std::fs::remove_file(path);
+    }
     std::fs::write(&arm, b"").expect("arm the after-lock seam");
 
     let batch_store = store.clone();
@@ -59,8 +76,7 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
             .await
     });
 
-    // Wait for the batch to announce it holds the workspace row.
-    let ready = format!("{step_dir}/writer-after-lock.ready");
+    // Wait for the batch to announce that it holds the workspace row.
     let mut held = false;
     for _ in 0..600 {
         if std::path::Path::new(&ready).exists() {
@@ -71,63 +87,63 @@ async fn a_deadlock_ends_in_a_commit_or_a_503_never_a_500() {
     }
     assert!(held, "the batch reached step 1's lock and paused there");
 
-    // Now form the cycle: the manual session takes the record row lock and its trigger wants the
-    // workspace row the batch holds. The manual statement is spawned because it blocks there.
-    let cycle = support::db::more(&url).await;
+    // Now form the cycle: the manual session takes the record row lock and its trigger then wants
+    // the workspace row the batch holds. The statement blocks there, so it runs in its own task.
+    let mut cycle = support::db::more(&url).await;
     cycle
-        .batch_execute("BEGIN")
+        .batch_execute("SET deadlock_timeout = '5s'")
         .await
-        .expect("the manual session begins");
-    let blocking = tokio::spawn(async move {
-        let _ = cycle
+        .expect("the manual session keeps a long one");
+    cycle.batch_execute("BEGIN").await.expect("the manual session begins");
+    let blocker = tokio::spawn(async move {
+        cycle
             .execute(
                 "UPDATE records SET updated_at = 99 WHERE ws = 'ws' AND qcoll = 'tracker.task' \
                  AND id = '1'",
                 &[],
             )
-            .await;
+            .await
     });
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // Let the manual statement reach its trigger and block on the workspace row.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Release the batch, which now wants the record row the manual session holds: 40P01.
-    std::fs::write(format!("{step_dir}/writer-after-lock.done"), b"").expect("release the batch");
+    // Release the batch, which now wants the record row the manual session holds: the cycle closes.
+    std::fs::write(&done, b"").expect("release the batch");
     let outcome = batch.await.expect("the batch task did not panic");
-    let _ = blocking.await;
+    let blocked = blocker.await.expect("the manual task did not panic");
+    let _ = blocked;
 
-    client
+    admin
         .batch_execute("ALTER ROLE hub RESET deadlock_timeout")
         .await
         .expect("restore the role default");
     let _ = std::fs::remove_file(&arm);
 
+    assert!(
+        store.retry_count() > 0,
+        "the batch was the victim of the cycle, so §5.1's one retry ran and the counter moved"
+    );
     match outcome {
         Ok(answer) => {
-            assert!(
-                answer.applied <= 1,
-                "a committed answer counts one upsert: {answer:?}"
-            );
-            assert!(
-                store.retry_count() > 0,
-                "a commit after a deadlock means the one retry ran, so the counter moved"
+            assert_answer(&answer, seeded as u64 + 1, 1);
+            assert_eq!(
+                seqs(&mut client).await,
+                vec![1, seeded + 1],
+                "the retry committed exactly one more change: no gap and no duplicate"
             );
         }
         Err(error) => {
             assert!(
                 matches!(error, StoreError::Serialization { retried: true }),
-                "the second deadlock is `retried: true` (the hub's 503 with Retry-After: 1), \
-                 not a 500: {error}"
+                "a second deadlock is `retried: true` (the hub's 503 with `Retry-After: 1`), \
+                 never a 500: {error}"
             );
-            assert!(
-                store.retry_count() > 0,
-                "the retry that was spent is what the counter counts"
-            );
+            assert_eq!(error.retry_after(), None, "the hub adds `Retry-After` itself");
             assert_eq!(
-                status(&error),
-                "500-class",
-                "and its code maps no other way"
+                seqs(&mut client).await,
+                vec![1, seeded],
+                "the rolled-back batch left the log where it was"
             );
-            assert_eq!(error.retry_after(), None, "the hub adds Retry-After itself");
         }
     }
-    let _ = url;
 }

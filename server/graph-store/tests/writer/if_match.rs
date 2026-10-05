@@ -106,8 +106,8 @@ async fn if_match_ignores_another_plugins_writes() {
     );
     assert_eq!(
         head_of(&mut client).await,
-        4,
-        "the workspace's head_seq did move: 1 manifest + 2 manifests + 3 batches"
+        5,
+        "the workspace's head_seq did move: two manifests and three batches"
     );
 
     let mut req = batch_write(
@@ -123,5 +123,5 @@ async fn if_match_ignores_another_plugins_writes() {
         .apply_batch(&req)
         .await
         .expect("this plugin's own cursor is still current");
-    assert_answer(&outcome, 5, 1);
+    assert_answer(&outcome, 6, 1);
 }

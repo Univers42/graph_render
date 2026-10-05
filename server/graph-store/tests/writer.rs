@@ -285,17 +285,25 @@ pub fn status(error: &StoreError) -> &'static str {
         StoreError::NotFound { .. } => "404",
         StoreError::PreconditionFailed { .. } => "412",
         StoreError::Duplicate { .. } => "409",
-        _ => "500-class",
+        other => {
+            panic!(
+                "the store refused with {other:?}, which maps to no class; a case that expected a \
+                 status must say which one"
+            )
+        }
     }
 }
 
 /// The answer `outcome` carries, asserted in full so a change of the text's shape fails here.
 pub fn assert_answer(outcome: &BatchOutcome, seq: u64, applied: u64) {
     assert_eq!(
+        outcome.seq, seq,
+        "the answer's seq (the workspace's `head_seq` when nothing applied)"
+    );
+    assert_eq!(outcome.applied, applied, "the answer's applied count");
+    assert_eq!(
         outcome.response,
         format!(r#"{{"applied":{applied},"seq":{seq}}}"#),
         "the answer text is graph-contract's answer_json"
     );
-    assert_eq!(outcome.seq, seq, "the answer's seq");
-    assert_eq!(outcome.applied, applied, "the answer's applied count");
 }

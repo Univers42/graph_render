@@ -2,7 +2,10 @@
 
 use super::*;
 
-/// Two upserts apply and answer `{"applied":2,"seq":1}`.
+/// Two upserts apply and answer `{"applied":2,"seq":2}`.
+///
+/// WHY seq 2 and not 1: [`ready`] registers the manifest first, and a manifest that changes takes a
+/// seq (§4), so the workspace's stream is already at 1 before the batch runs.
 #[tokio::test]
 async fn batch_applies_and_answers() {
     let (store, mut client, _, _) = ready("batch_applies_and_answers").await;
@@ -20,17 +23,17 @@ async fn batch_applies_and_answers() {
         ))
         .await
         .expect("apply two upserts");
-    assert_answer(&outcome, 1, 2);
+    assert_answer(&outcome, 2, 2);
     assert_eq!(
         seqs(&mut client).await,
-        vec![1],
-        "one change for the batch, whatever it held"
+        vec![1, 2],
+        "the manifest's change and then one for the batch, whatever the batch held"
     );
     assert_eq!(
         ops(&mut client).await,
         vec![
-            (1, 0, "upsert".to_owned(), "1".to_owned(), 1),
-            (1, 1, "upsert".to_owned(), "2".to_owned(), 1),
+            (2, 0, "upsert".to_owned(), "1".to_owned(), 1),
+            (2, 1, "upsert".to_owned(), "2".to_owned(), 1),
         ],
         "two operations in batch order, both at rev 1"
     );
@@ -54,7 +57,7 @@ async fn identical_upsert_takes_no_seq() {
         ))
         .await
         .expect("the first upsert");
-    assert_answer(&first, 1, 1);
+    assert_answer(&first, 2, 1);
     let before = (
         rev_of(&mut client, "tracker", "1").await,
         head_of(&mut client).await,
@@ -79,7 +82,7 @@ async fn identical_upsert_takes_no_seq() {
     );
     assert_eq!(
         seqs(&mut client).await,
-        vec![1],
+        vec![1, 2],
         "an identical upsert adds no change (Review Focus 5)"
     );
     assert_eq!(
@@ -126,7 +129,11 @@ async fn a_changed_upsert_bumps_rev() {
         3,
         "two changes on top of rev 1"
     );
-    assert_eq!(head_of(&mut client).await, 3, "three changes in all");
+    assert_eq!(
+        head_of(&mut client).await,
+        4,
+        "the manifest's change and three batches"
+    );
     assert_eq!(
         text_of(&mut client, "tracker", "1").await,
         r#"{"collection":"tracker.task","deleted":false,"id":"1","updatedAt":7,"values":{"name":"Write"}}"#,
@@ -153,7 +160,7 @@ async fn deleting_an_absent_record_is_a_noop() {
             seqs(&mut client).await.len() as i64
         ),
         (1, 1),
-        "the manifest's seq 1 is all the stream holds, and it did not move"
+        "the manifest's seq 1 is all the stream holds, and the no-op batch did not move it"
     );
 }
 

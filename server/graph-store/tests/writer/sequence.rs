@@ -18,6 +18,10 @@ const TIGHT: graph_contract::hub::Limits = graph_contract::hub::Limits {
     max_record_bytes: 1 << 20,
 };
 
+/// How many writers hold a connection at once. Bounded by `max_connections`, not by the claim: see
+/// the caveat on the wave.
+const IN_FLIGHT: usize = 16;
+
 /// 100 concurrent batches, one workspace, and the seqs are `1..=100` with no gap and no duplicate.
 ///
 /// WHY the wave includes one batch that is refused: a `SEQUENCE` only differs from a row-locked
@@ -36,14 +40,26 @@ async fn hundred_writers_have_no_gap() {
     // One store per writer: `Store::client` opens a connection per call, and 100 writers sharing one
     // `tokio_postgres::Client` would serialise on the driver's single connection rather than on the
     // workspace row — which is the lock this case is about.
+    //
+    // Caveat: the in-flight writers are bounded at [`IN_FLIGHT`], not at 100. `Store::client` opens
+    // one connection per call and this image's `max_connections` is 100 for the whole cluster, so
+    // 100 simultaneous writers are refused with 53300 alongside this binary's other cases. Sixteen
+    // writers contending one workspace row is the contention this case is about: what a gap would
+    // show up in is the wave's SIZE, not its width.
+    let permits = Arc::new(tokio::sync::Semaphore::new(IN_FLIGHT));
     let barrier = Arc::new(tokio::sync::Barrier::new(WRITERS as usize));
     let mut handles = Vec::new();
     for i in 0..WRITERS {
         let writer = store(&url).await;
         let barrier = Arc::clone(&barrier);
+        let permits = Arc::clone(&permits);
         handles.push(tokio::spawn(async move {
             let id = format!("r{i:03}");
             barrier.wait().await;
+            let permit = permits
+                .acquire()
+                .await
+                .expect("no writer is cancelled while it holds a permit");
             if i == WRITERS / 2 {
                 return refused(writer).await;
             }

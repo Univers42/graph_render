@@ -20,7 +20,11 @@ async fn idem_replay_returns_the_stored_response_and_no_seq() {
         ))
         .await
         .expect("the first request");
-    assert_answer(&first, 2, 2);
+    assert_answer(&first, 2, 1);
+    assert_eq!(
+        first.applied, 1,
+        "the delete named an absent record, so one of the two operations applied"
+    );
     let rows = client
         .query_one("SELECT count(*) FROM idempotency WHERE ws = 'ws'", &[])
         .await
