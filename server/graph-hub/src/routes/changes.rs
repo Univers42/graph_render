@@ -18,7 +18,7 @@ use graph_store::changes::{ChangesReq, CursorState};
 use crate::app::App;
 use crate::auth::Credential;
 use crate::error::HubApiError;
-use crate::routes::{plugins::head_of, write_fault};
+use crate::routes::{plugins::head_of, query_of, write_fault};
 
 /// One page of changes after `?since=`.
 pub async fn get(
@@ -31,8 +31,10 @@ pub async fn get(
     crate::hooks::pause_after_admit(&app.hooks, "changes").await;
     let query = query_of(&uri);
     let store = app.store().await?;
-    let (epoch, _head) = head_of(store, &ws).await?;
-    let since = since_of(&query, epoch)?;
+    // The head is read first so a workspace that is not there is a 404 before any cursor work, and
+    // so `check` below has the store's own bounds to compare against.
+    head_of(store, &ws).await?;
+    let since = since_of(&query)?;
     check(store, &ws, since).await?;
     let page = graph_store::changes::page(
         store,
@@ -100,7 +102,7 @@ fn page_body(page: &graph_store::changes::ChangePage) -> Response {
 /// Caveat: `since` has no default. A cursor needs an epoch and only the workspace's own row has
 /// one, so a missing `since` cannot be filled in without a read whose answer the caller did not ask
 /// for; §5.2's row always names the parameter.
-fn since_of(query: &BTreeMap<String, String>, epoch: u64) -> Result<Cursor, HubApiError> {
+fn since_of(query: &BTreeMap<String, String>) -> Result<Cursor, HubApiError> {
     let raw = query
         .get("since")
         .ok_or(HubApiError::BadRequest("since is required, as <epoch>.<seq>"))?;
@@ -119,28 +121,4 @@ fn limit(query: &BTreeMap<String, String>, app: &App) -> Result<u64, HubApiError
         return Err(HubApiError::BadRequest("limit is at least 1"));
     }
     Ok(crate::config::capped(asked.min(app.settings.sse_page)))
-}
-
-/// The request's own query string, percent-decoded, first value per name.
-///
-/// WHY not `axum::extract::Query`: it is behind a feature the hub's edge deliberately does not
-/// carry (plan fact 1), and this is the whole of the query reader the hub needs.
-pub(crate) fn query_of(uri: &Uri) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    for pair in uri.query().unwrap_or("").split('&').filter(|p| !p.is_empty()) {
-        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let name = decode(name);
-        if out.contains_key(&name) {
-            continue;
-        }
-        out.insert(name, decode(value));
-    }
-    out
-}
-
-/// One percent-decoded query token.
-fn decode(text: &str) -> String {
-    percent_encoding::percent_decode_str(&text.replace('+', " "))
-        .decode_utf8_lossy()
-        .into_owned()
 }
