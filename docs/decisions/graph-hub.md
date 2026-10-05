@@ -1,7 +1,7 @@
 # ADR — graph-hub: a stateful service that plugins feed
 
-- Status: **proposed**, revision 4 re-submitted to the `devil` on 2026-10-05. No hub code
-  before a verdict of PROCEED or PROCEED-WITH-CONDITIONS is recorded here.
+- Status: **accepted with conditions**, revision 5: PROCEED-WITH-CONDITIONS from the `devil` on
+  2026-10-05. Hub code may start; each slice meets its conditions (spec §12–§16) before it lands.
 - Date: 2026-10-05
 - Design: `docs/superpowers/specs/2026-10-05-graph-service-plugins-design.md`
 - Continues: `docs/decisions/server-and-write-path.md`, phase D1 (the store and the write path).
@@ -77,7 +77,18 @@ wrong citations), R10 (`SET LOCAL` outside a transaction). The physical restores
 `docs/measurements/hub-pg-epoch-probe.md` ("Physical restores"); spec §15 maps every fix and the one
 deviation (`event: busy` instead of `event: resync`).
 
-**Revision 5: pending.** Its verdict is recorded here when it comes.
+**Revision 5: PROCEED-WITH-CONDITIONS (2026-10-05).** Axes: blast radius 3, reversibility 3, cost
+on failure 4, confidence 3; the worst is cost on failure. R1–R11 are met, and the `event: busy`
+deviation is accepted on its merits. Seven new defects become conditions: S1, a small-gap restore
+that passes the LSN compare (fixed by a per-workspace last-seen map checked on every new
+connection); S2, an order of high-water reads that bumps a live database under write load (the
+high-water snapshotted before the LSN read and lowered only after COMMIT, under a mutex); S3, a
+"measured" claim for triggers the probe never set to `ALWAYS` (reworded; a catalog assertion); S4,
+a durability premise checked only on the gate's image (`synchronous_commit` on per writer
+transaction, `fsync` and `full_page_writes` checked per connection, the flush LSN); S5, stale status
+lines; S6, two guard bypasses missing from the Caveat; S7, a deadlock case that could not fail.
+Spec revision 5.1 folds the fixes into the body, and its §16 lists the conditions: hub-store 12–18,
+hub-api 11, hub-sdk 6, hub-report 5.
 
 ## Agreements before slice 2
 
