@@ -30,13 +30,14 @@ const FULL = JSON.stringify({
 test("a full document passes through with no notes and the ten members in contract order", () => {
   const result = normaliseIngest(FULL, "full.json");
   assert.deepEqual(result.notes, []);
-  assert.deepEqual(Object.keys(JSON.parse(result.json).nodes[0]), CONTRACT_MEMBERS);
-  assert.deepEqual(Object.keys(JSON.parse(result.json).edges[0]), [
-    "id", "source", "target", "kind", "label", "strength",
-    "directed", "record_id", "child_first",
-  ]);
-  assert.equal(result.json, FULL.replace('"tags":["Zed","alpha"],"path":"n/a.md"', '"tags":["Zed","alpha"],"path":"n/a.md"')
-    .replace('"nodes":[{"id":"a"', '"nodes":[{"id":"a"'));
+  assert.equal(result.json, '{"version":1,"nodes":[' +
+    '{"id":"a","kind":"note","database_id":"db","source":"git","label":"A","group":"G",' +
+    '"weight":0.25,"version":7,"has_note":true,"icon":"star"}],"edges":[' +
+    '{"id":"e","source":"a","target":"a","kind":"tag","label":"L","strength":1,' +
+    '"directed":true,"record_id":"db","child_first":true}]}');
+  // `tags` and `path` ride in `doc`, never on the wire: `gm_build` refuses an unknown member.
+  assert.deepEqual(result.doc.nodes[0]?.tags, ["Zed", "alpha"]);
+  assert.equal(result.doc.nodes[0]?.path, "n/a.md");
 });
 
 test("every note of a ragged document, in the order they happen", () => {
@@ -54,16 +55,17 @@ test("every note of a ragged document, in the order they happen", () => {
   }), "ragged.json");
   assert.deepEqual(result.notes, [
     "dropped annotation `about`",
+    "no `version` member: assumed 1",
     "dropped annotation `nodes[0].role`",
     "defaulted 9 member(s) on node \"a\"",
     "dropped `nodes[0].tags`: not a list of strings",
     'node "b" was given as a bare id',
-    "defaulted 8 member(s) on node \"b\"",
-    "defaulted 7 member(s) on node \"c\"",
-    "defaulted 7 member(s) on edge \"e\"",
-    "mapped edge `type` \"child_of\" to kind \"hierarchy\"",
+    "defaulted 9 member(s) on node \"b\"",
+    "defaulted 5 member(s) on node \"c\"",
     "dropped annotation `edges[0].colour`",
-    "defaulted 9 member(s) on edge \"f\"",
+    "mapped edge `type` \"child_of\" to kind \"hierarchy\"",
+    "defaulted 6 member(s) on edge \"e\"",
+    "defaulted 6 member(s) on edge \"f\"",
   ]);
   assert.equal(result.doc.edges[0]?.kind, "hierarchy");
   assert.equal(result.doc.edges[1]?.kind, "relation");
