@@ -165,15 +165,17 @@ fn remove_pair_edges(mut work: Work) -> Work {
 
 /// `LIST_SORT(&dl, cmpDegree)`: descending degree.
 ///
-/// **Ponytail (tie order): this is a stable sort and the reference's is `qsort`**
-/// (`lib/util/list.c:363`), which glibc 2.41 does not make stable. Failing input: two nodes of
-/// equal degree in a block of four nodes or more, measured, that is 984 of the 1000 gate
-/// seeds, and the worst differential gap over them is 6.460e+04 points
-/// (`docs/measurements/p13-gv1-circo.md`). Direction: the first tie decides which node is
-/// thinned first, so the block's **circle order** differs from Graphviz's: a different
-/// drawing of the same blocks at the same radii, not a wrong one. Escape hatch: the fourteen
-/// analytically determined closed cases in this module's `tests`, whose blocks are small enough
-/// that no tie decides anything, and which agree with Graphviz byte for byte.
+/// **Tie order: a stable sort, and the reference's `qsort` is stable too.** `cmpDegree`
+/// (`blockpath.c:78-88`) returns 0 for equal degrees, so the order among equals is the order the
+/// list held before the sort — and `gv_list_sort_` calls `qsort` (`lib/util/list.c:354-366`) on a
+/// list it has already rotated flat (`gv_list_sync_`, `list.c:322-352`), so "the list order" is
+/// the logical order and not a ring-buffer artefact. glibc 2.41 sorts with a stable merge sort,
+/// measured in the oracle image over 20 trials at each of `n = 5, 20, 141, 552, 1000, 5000,
+/// 10000, 100000` with keys drawn from four values (`docs/measurements/p13-gv1-circo.md` §8), and
+/// this port's `sort_by_key` is stable, so the two agree on every tie. **A tie is therefore not a
+/// source of disagreement here, and the 984-of-1000 claim that used to sit on this function was
+/// wrong** — the real cause was the crossing count in
+/// [`crate::layout::graphviz::circo::crossings`], not this sort.
 fn sort_by_degree(list: &mut [u32], work: &Work) {
     list.sort_by_key(|&node| -work.degree[node as usize]);
 }

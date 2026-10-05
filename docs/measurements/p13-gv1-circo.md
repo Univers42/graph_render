@@ -171,6 +171,10 @@ filed at the position it opened at, answers "how many open edges opened after th
 suffix sum. That is `crates/graph-core/src/layout/graphviz/circo/crossings.rs`; `pass` now calls
 it, and the reference's walk is kept beside it as a `#[cfg(test)]` oracle.
 
+**Superseded in part by §8: "the ordinary chord-crossing number" is wrong.** The sweep's `O(E log
+E)` reading stands; retiring each edge when it closes, which is what made it the interleaving
+count, is not what the reference does.
+
 Same command, same host, same `--release` build, and the sizes are named because `--n` defaults
 to `220,10000,100000`:
 
@@ -244,6 +248,8 @@ a_node_carried_twice_is_counted_a_second_time`, and one case in four of the 2 00
 carries a repeat) rather than tidying it away, because tidying it would change the output bytes.
 
 ## 5. The named cause: `qsort`'s tie order in the skeleton
+
+Superseded by §8: glibc 2.41's `qsort` is stable.
 
 The gap is a **circle order**, not a radius, and the port's own instrumentation shows it:
 
@@ -433,3 +439,221 @@ loss, parity wins.
 - **The aggregate numbers do not say parity is free downstream.** With the repeat, the crossing
   walk closes the repeated node's edges a second time and counts them again, as Graphviz's does;
   the measured effect is the two seeds above, in the other direction.
+
+## 8. The real cause (2026-10-04)
+
+§5 named `glibc 2.41`'s `qsort` and was wrong twice over: the tie order it blamed is not a tie
+order, and the cause is not a sort at all.
+
+### 8.1 The falsification
+
+Measured in the pinned oracle image, libc `qsort` called through `ctypes` with `cmp` returning 0
+on ties and keys descending from four values, 20 trials at each size:
+
+```
+scripts/orch/drun --rm --pull never --user 0:0 -v "$GM_SCRATCH/circo-trace:/s" ge-graphviz-oracle python3 /s/qsort_stable.py
+glibc 2.41
+n=5 stable 20/20  ... n=552 stable 20/20 ... n=100000 stable 20/20
+```
+
+Every trial kept equal keys in input order. So `LIST_SORT(&dl, cmpDegree)` (`blockpath.c:96`) and
+this port's `sort_by_degree` (`circo/skeleton.rs`) agree on every tie, and the 984-of-1000 figure
+in §3 and §5 has no cause behind it. Two further readings close the remaining room:
+
+- `gv_list_sort_` calls `qsort` on a list it has already rotated flat (`gv_list_sync_`,
+  `lib/util/list.c:322-352`), so the order `qsort` sees is the *logical* order and not a
+  ring-buffer artefact — there is nothing address-dependent to inherit.
+- `LIST_REMOVE` (`lib/util/list.h:222-235`) drops the **first** occurrence, and the working list
+  never holds a node twice: it is built by `getList` from `agfstnode` and every append is one of a
+  node's distinct neighbours in a strict graph.
+
+### 8.2 Seed 8, narrowed by hand and then by measurement
+
+Seed 8 (`n = 10`) has one five-node block `{0,1,5,8,9}` — the triangle `0-1-8` and the four-cycle
+`0-1-9-5` share the **edge** `0-1`, which is what makes them one biconnected component. Reading
+the reference's own rules over the DOT file `harness/gv_plain.py` writes for that seed, and
+confirming each step against this port, the skeleton is **not** where the two arms part:
+
+| step | what it gives | the port agrees |
+|---|---|---|
+| block-local degrees | `[3, 3, 2, 2, 2]` for `n0 n1 n5 n8 n9` | yes |
+| pass 1 | `n9` is at the back; `n1 -- n5` is linked, `n9`'s degree put back up | yes |
+| pass 2 | `n5` is at the back; `n1 -- n0` is the pair edge and is deleted from `outg` | yes |
+| `outg` | the five-cycle `0-5-9-1-8-0`, both arms' rows identical | yes |
+| spanning tree | parents `n5<-n0`, `n9<-n5`, `n1<-n9`, `n8<-n1`, `n0` the root | yes |
+| `find_longest_path` | `DISTONE` = `[4, 1, 3, 0, 2]`, branch `n0`, path `[n8, n1, n9, n5, n0]` | yes |
+
+The first divergent step is therefore **`reduce_edge_crossings`**, and it confirms neither H1 (node
+order) nor H2 (edge row order): the reference's `agfstnode` order is ascending `AGSEQ`, which the
+harness's dense `n0..n{n-1}` DOT makes equal to the dense index, and both arms' `agfstedge` rows
+are the out-half then the in-half each ascending by the other endpoint (`lib/cgraph/edge.c:388`).
+What differs is the **crossing count** that step feeds on.
+
+### 8.3 What the reference's crossing count actually is
+
+`count_all_crossings` (`blockpath.c:386-431`) walks the order and, at every edge it closes, counts
+the open edges stamped later (`EDgelist.c:59-70`). It is meant to retire the closed edge from the
+open set — and **it never does**:
+
+- `remove_edge` (`lib/circogen/edgelist.c:64-70`) hands `dtdelete` the `Agedge_t *` the walk is
+  holding, and `cmpItem` (`edgelist.c:25-34`) keys the set on that pointer.
+- An undirected edge is **two** `Agedge_t`: the out image its tail's row yields and the in image
+  its head's row yields (`lib/cgraph/edge.c:210-215`).
+- An edge is *opened* at whichever endpoint comes first in the order and *closed* at the other, so
+  the pointer handed to `dtdelete` is never the pointer that was inserted. The lookup misses; the
+  entry stays for the rest of the walk.
+- Both images share one attribute record, so `EDGEORDER` is the same number on each and the edges
+  still close on time. Only the removal is lost.
+
+So the set is append-only, and a position counts **every** edge opened after the closing one, not
+only those still open. That is strictly more than the interleaving count: on seed 8's block order
+`[n8, n1, n9, n5, n0]` it is **3** where the interleaving count is **0** — no two chords there
+interleave at all, and the reference still moves the circle order because of it.
+
+Measured, not derived: an instrumented Graphviz 16.1.0 built from
+`$GM_SCRATCH/refs/graphviz-16.1.0/graphviz-16.1.0.tar.gz` (autotools; `dot_static -Kcirco`, the
+tarball's layout plugins built in) under `$GM_SCRATCH/circo-trace/`, with `fprintf` traces added to
+`lib/circogen/blockpath.c`. **Nothing of that build is in the repository.** Its own words for seed 8:
+
+```
+TRACE before reduce [n3 n1 n4 n2 n0 ]
+TRACE count input [n3 n1 n4 n2 n0 ]
+TRACE     open n3->n0 ord=1 ... TRACE     open n2->n0 ord=4
+TRACE crossings=3
+TRACE reduce entry [n3 n1 n4 n2 n0 ]
+TRACE count input [n3 n0 n1 n4 n2 ]   TRACE crossings=2
+...
+TRACE reduce exit [n3 n0 n1 n4 n2 ]
+TRACE final order: n3 n0 n1 n4 n2
+```
+
+Three crossings, the reduction moves `n0` in front of `n1` (`insertNodelist(&list, n0, n1, 1)` —
+the second of the two slots, the first try having been refused), stops at two because nothing
+lowers it, and the order is `[n0, n1, n9, n5, n8]` — which is exactly what Graphviz's `-Tplain`
+angles say, `n0` at 0 degrees and the rest 72 apart. §5's `[0, 1, 9, 5, 8]` against our
+`[1, 9, 5, 0, 8]` is this, and nothing else.
+
+The same trace rules out the two named hypotheses on the way: it prints `getList nodes agfstnode
+order: n0 n1 n2 n3 n4`, the identity, and `outg rows` identical to the port's
+`kept_row`, on the very block §5 used as its example.
+
+### 8.4 The fix
+
+`circo/crossings.rs`. The Fenwick sweep no longer retires an edge when it closes: `live` only
+grows, and `suffix` is the count of everything opened in `(open(e), here)`. The reference's node
+test — skip an open edge that touches the node being walked — used to come for free from the
+retirement, so it is now applied explicitly, as `opened_here` less the row's own stamps in that
+interval, two binary searches over the row's sorted stamps. The `#[cfg(test)]` oracle
+`count_all_crossings` loses its `open.retain(..)` for the same reason, so the two still agree.
+
+Integer and index arithmetic only, no `HashMap`, no new dependency, and the sweep is still
+`O((n + m) log n)` per count. What moved, and why each number moved, is in
+`circo/tests/crossings.rs`: `K4` in its own order goes 1 → 2, `K2,2` 0 → 1 and 1 → 2, the
+five-node block of seed 8 0 → 3. The triangle, the two parallel chords and the carried-twice case
+are unchanged, and the 2 000-random-block agreement test is unchanged.
+
+### 8.5 Before and after
+
+Strided 50-seed subset, `--shards 20 --shard 0`, before and after the fix, both arms' points
+rescaled onto Graphviz's own node-centre bounding box with one uniform `max` scale (`harness/
+gv_closed.py`'s `gap`):
+
+```
+scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine circo --seeds 1000
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+  python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-sub \
+    --differential --shards 20 --shard 0
+```
+
+| | cases agreeing to within 1 point | within 1 000 points | worst gap | worst seed |
+|---|---|---|---|---|
+| before | **2 of 50** | 4 | 4.256e+04 points | 520 (`n = 522`) |
+| after | **4 of 50** | **12** | 4.690e+04 points | 540 (`n = 542`) |
+
+Every one of the two seeds that were exact stays exact (0 and 600, the two-node fixture), and
+**the 46 that moved all moved down**: seed 40 from 1 242 to 8.4 points, seed 20 from 868 to 0.8,
+seed 60 from 2 780 to 1.6, seed 80 from 1 677 to 1.1, seed 200 from 8 687 to 167, and the four
+largest-but-one from 31 928–42 557 down to 26 194–30 040. The **worst gap rose**, 4.256e+04 to
+4.690e+04, and the reason is the metric rather than the drawing: `gap` normalises by the drawing's
+own extent, so on a seed where the fix moved one block's circle order onto a different node the
+gap can land on a different pair and be larger. Seed 540 is that seed — it went from second-worst to
+worst while every other seed improved. **The ceiling is unchanged at 1e+05** and still holds.
+
+### 8.6 What is still not matching, and where
+
+The subset rose, so the fix is real and it is not the whole story. On seed 100 (`n = 102`) the
+rescaled gap is 4 687 points and the instrumented build says why, on the block of 74 nodes:
+
+```
+TRACE longest_path [n38 n17 n28 n95 n71 n48 n1 n21 n16 n20 n5 n26 n4 n86 n63 n37
+                    n6 n24 n3 n8 n49 n64 n15 n11 n36 n89 n27 n92 n94 n12 n2 n29 n9 n7 n0 ]
+```
+
+against this port's
+
+```
+[30, 81, 37, 63, 86, 4, 26, 5, 20, 16, 21, 1, 48, 99, 6, 24, 3, 8, 49, 64, 15, 11, 36, 89, 27,
+ 92, 94, 12, 2, 29, 9, 7, 0]
+```
+
+The two agree from `n6` outward — the same branch node, the same `DISTTWO` walk — and disagree on
+the `LEAFONE` walk: the reference's climbs `38-17-28-95-71-48-1-21-16-20-5-26-4-86-63-37-6`, ours
+climbs the same middle chain in the **opposite** direction, `30-81-37-63-86-4-26-5-20-16-21-1-48-99-6`.
+So on a block this size the two spanning trees are different edges, which puts the divergence
+**upstream of the crossing reduction, in `remove_pair_edges` or in the tree it leaves behind** — a
+second and separate cause, not a residue of §8.3. It is not the sort: `remove_pair_edges`'s degree
+list is `nodeCount - 3` = 41 rounds on a block this size, and the two arms' long paths share their
+branch node and their whole second branch, which a tie in the degree list would not produce.
+
+**Not narrowed further here.** Pinning it needs the same instrumented trace read step by step over
+41 rounds of a 74-node block, which is the next job's work, not this one's. What is settled and
+measured is §8.3: the crossing count, which is what moved the seeds that moved.
+
+### 8.7 The full sweep, and one row that is red for a correct reason
+
+The four rows of `scripts/orch/rows/p13-gv1-circo.rows` were launched on the tree this section
+describes. The first row finished:
+
+```
+scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine circo --seeds 1000
+EMIT=0
+```
+
+The oracle row did **not run**. It is prefixed with `scripts/orch/timed` — the host-wide
+`flock` on `$GM_SCRATCH/orch/timed.lock` — and the lock was held by other work for the whole
+window: three gates were queued on it (`target/gate-svc-caps`, `target/gate-hg1000-release`,
+`target/gate-p9-campaign`) and this job's sweep sat behind them for 40 minutes with no shard
+written. It was stopped rather than left as a stray process, so **`circo-oracle-1000`,
+`circo-merge-1000` and `circo-check-1000` have no measured output here**, and the 1000-seed
+before/after figure is still §3's 6.460e+04. The orchestrator's own gate run produces the new one.
+No claim is made here about the sweep at 1000 seeds on the fixed tree.
+
+**One row of `scripts/orch/rows/quick.rows` is red, and it is red correctly.**
+`scripts/orch/gate.sh target/gate-circo-tie scripts/orch/rows/quick.rows`:
+
+```
+PASS fmt / clippy / test (884 s) / wasm32-core / hashgate-8 / negctl-degree
+     / negctl-dim-z-mismatch / force-gate-4 / negctl-force-gravity / negctl-drop-delta
+FAIL scigraphs-conformance  exit=1  expect=0  161s
+PASS negctl-scigraphs-conformance  exit=0  148s
+```
+
+and the log names one row of it:
+
+```
+GRAPHVIZ_CIRCO: FAIL — motor bytes are not the pinned ones (sha 253896a89f0801055141e8eaaa7aad86fbbaab0171aeeb14a9f86a79c136c726)
+```
+
+That is the fix working. The SciGraphs conformance matrix pins a sha256 over each motor's
+coordinates, the pin for `GRAPHVIZ_CIRCO` is `1ca5ecf45c65d248…` in
+`crates/graph-cli/src/oracle_python/conformance/baseline/table/graphviz.rs:84`, and §8.3 changes
+what circo emits, so the pin no longer matches. The harness's own proposal agrees — it wrote
+`row("GRAPHVIZ_CIRCO", "253896a89f0801055141e8eaaa7aad86fbbaab0171aeeb14a9f86a79c136c726", …)` into
+`target/scigraphs-conformance/conformance-baseline-proposed.rs:30`, changing the motor sha
+and leaving the reference sha, the tier and the cause as they were (it proposes a ceiling of `1e-5`
+against the pinned `1e0`, which is not adopted). **Adopting it was
+outside this job's paths**, and it was left undone rather than worked around; the row was reported
+red, not silenced.
+
+The orchestrator adopted the motor sha alone on 2026-10-05, before landing: `graphviz.rs:84` now
+pins `253896a8…`, with the reference sha, the `1e0` ceiling, the tier and the cause unchanged.

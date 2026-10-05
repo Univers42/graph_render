@@ -37,9 +37,11 @@ cost is not the O(n + m) headline either — the crossing reduction is O(k^3) in
 block's size k, and the measured per-node cost climbs about 5x per doubling past 256 nodes \
 (149 ms at 256, 894 ms at 512, 5 557 ms at 1 024, 33 982 ms at 2 000), so a graph whose blocks \
 are large rather than numerous costs far more per node than a graph of the same size with many \
-small blocks. Past the ceiling there is no truncation and no fallback: the one escape from the \
-cubic is Graphviz's own -Goneblock, which skips the crossing reduction and returns a worse \
-drawing, and this port exposes no such knob";
+small blocks. That cubic is paid, not skipped: the reduction fires on a block whenever the \
+reference's own crossing count is non-zero at the long path's order, which is most blocks of \
+four nodes or more (docs/measurements/p13-gv1-circo.md §8). Past the ceiling there is no \
+truncation and no fallback: the one escape from the cubic is Graphviz's own -Goneblock, which \
+skips the crossing reduction and returns a worse drawing, and this port exposes no such knob";
 
 pub(super) const CIRCO: Metadata = Metadata {
     tier: 1,
@@ -59,10 +61,12 @@ ORDER, not a radius: the block decomposition, the radius N*(min_dist+largest_nod
 a 4-cycle, a 5-cycle, a 6-cycle, a chorded 5-cycle, K4, K5, a 5-star and two glued blocks) all \
 agree, the last group byte for byte at the plain format's own printed precision — ours node by \
 node in crates/graph-core/src/layout/graphviz/circo/tests.rs, Graphviz's in the harness — \
-because a tolerance is weaker than the truth those cases carry. What differs is which node \
-takes which slot on a block's circle, because remove_pair_edges orders its degree list with \
-LIST_SORT (qsort, which glibc 2.41 does not make stable) and this port sorts stably; see the \
-Ponytail (tie order in the skeleton) marker below and docs/measurements/p13-gv1-circo.md",
+because a tolerance is weaker than the truth those cases carry. What differed was which node \
+takes which slot on a block's circle, and the cause was the crossing count reduce_edge_crossings \
+feeds on: the reference's open-edge set never loses an entry (its remove_edge looks up the other \
+Agedge_t of an undirected edge than the one it opened with), so it counts edges the port's \
+counter had already retired and moves the circle order where the port's did not; see the \
+Ponytail (tie order in the skeleton) marker below and docs/measurements/p13-gv1-circo.md §8",
     complexity: "O(n + m) to find the blocks and O(k^3) to order each one, where k is the \
 largest block's node count: per block a lowlink pass, then the skeleton pass (at most k - 3 \
 rounds over the node's own edges), a spanning tree, the longest-path walk, a residual pass, and \
@@ -70,17 +74,14 @@ up to ten crossing-reduction rounds that each move a node twice per incident edg
 every crossing of the block",
     scale_ceiling: GRAPHVIZ_CIRCO_CEILING,
     degradation: DEGRADATION,
-    ponytail: "Ponytail (tie order in the skeleton): remove_pair_edges sorts its degree list with \
-LIST_SORT, which is qsort (lib/util/list.c:363), and glibc 2.41 does not make that stable, so \
-this port's stable sort is a different — and, as far as the algorithm says, equally valid — \
-choice on a tie. Failing input: a block with two nodes of equal degree, which is most blocks \
-of four nodes or more: measured, 984 of the 1000 gate seeds land on a different circle order \
-than Graphviz's and the worst gap is 6.460e+04 points. Direction: a different DRAWING, not a \
-wrong one — the blocks, the radii and the 14 closed cases all agree, and only which node sits in \
-which slot differs, so the gap is about the size of the circle rather than a misplaced node. \
-Escape hatch: one of the closed cases, where no skeleton pass runs at all, and the per-n table \
-in docs/measurements/p13-gv1-circo.md; matching Graphviz exactly here needs glibc's qsort, not \
-a better algorithm. Ponytail (disconnected input): Graphviz lays out each connected component \
+    ponytail: "Ponytail (tie order in the skeleton): the degree list remove_pair_edges sorts is \
+ordered by a STABLE sort here and by glibc 2.41's qsort there, and the two agree, so a tie is not \
+a source of disagreement — measured in the oracle image, 20 of 20 trials at each of n = 5, 20, \
+141, 552, 1000, 5000, 10000 and 100000 with keys drawn from four values \
+(docs/measurements/p13-gv1-circo.md §8). The 984-of-1000 figure this field used to carry was \
+measured against a crossing count that retired each edge when it closed; the reference's own \
+remove_edge never retires anything, and that, not this sort, is what moved the circle orders. \
+Ponytail (disconnected input): Graphviz lays out each connected component \
 and then packs them apart with packSubgraphs; this port lays each component out around the \
 origin and leaves them overlapping. Failing input: any graph with two components. Direction: \
 overlap, the cosmetic one — every node still lands at a finite point on its own block's circle, \
