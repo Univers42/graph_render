@@ -36,7 +36,11 @@ fn head() -> ChangeHead<'static> {
 
 #[test]
 fn a_change_writes_its_members_in_byte_order_with_the_literals_it_is_given() {
-    let text = change_json(&head(), &[(record("r1"), 4)], &[("t.c".into(), "r2".into(), 7)]);
+    let text = change_json(
+        &head(),
+        &[(record("r1"), 4)],
+        &[("t.c".into(), "r2".into(), 7)],
+    );
     assert_eq!(
         text,
         r#"{"at":"2026-01-02T03:04:05Z","deletes":[{"collection":"t.c","id":"r2","rev":7}],"kind":"batch","plugin":"t","seq":118,"upserts":[{"collection":"t.c","deleted":false,"id":"r1","rev":4,"updatedAt":5,"values":{"name":"Write"}}]}"#,
@@ -57,7 +61,11 @@ fn every_writer_output_is_one_compact_line_that_parses() {
     )
     .unwrap();
     let texts = [
-        change_json(&head(), &[(record("r1"), 4)], &[("t.c".into(), "r2".into(), 7)]),
+        change_json(
+            &head(),
+            &[(record("r1"), 4)],
+            &[("t.c".into(), "r2".into(), 7)],
+        ),
         change_json(&head(), &[], &[]),
         manifest_change_json(&head(), &manifest),
         notice_json(&head()),
@@ -89,7 +97,10 @@ fn a_manifest_change_names_the_manifest_and_nothing_else() {
         at += found;
     }
     assert!(text.contains(r#""kind":"manifest""#), "{text}");
-    assert!(!text.contains(r#""upserts""#), "a manifest change carries no records");
+    assert!(
+        !text.contains(r#""upserts""#),
+        "a manifest change carries no records"
+    );
     // The manifest is the writer's own text, nested — so it is byte-identical to what a
     // client published, rather than a re-spelling that differs in member order.
     assert!(
@@ -133,9 +144,7 @@ fn a_body_under_max_body_can_still_produce_a_change_over_max_change() {
             // Ids must be distinct or the batch is refused as a repeat — so the
             // expansion has to come from the *cell*, not from many cells per record.
             let id = format!("{:050}", i);
-            format!(
-                r#"{{"collection":"c","id":"{id}","updatedAt":1,"values":{{"s":1e308}}}}"#
-            )
+            format!(r#"{{"collection":"c","id":"{id}","updatedAt":1,"values":{{"s":1e308}}}}"#)
         })
         .collect();
     let body = format!(r#"{{"upserts":[{}],"deletes":[]}}"#, ops.join(","));

@@ -16,8 +16,8 @@
 
 use super::super::HubError;
 use super::super::manifest::Manifest;
-use crate::ingest::{Cardinality, Collection, JsonValue, Role};
 use crate::hub::ids::qualify;
+use crate::ingest::{Cardinality, Collection, JsonValue, Role};
 
 /// The collection `name` names in the manifest for `plugin`, or the refusal. A batch
 /// spells its collections unqualified, so this is where the qualification happens — and it
@@ -50,13 +50,15 @@ pub(super) fn check_cell(
     value: &JsonValue,
     path: &str,
 ) -> Result<(), HubError> {
-    let field = collection.field(field_id).ok_or_else(|| HubError::Invalid {
-        path: format!("{path}.values"),
-        what: format!(
-            "collection `{}` declares no field `{field_id}`",
-            qualify(plugin, &collection.id)
-        ),
-    })?;
+    let field = collection
+        .field(field_id)
+        .ok_or_else(|| HubError::Invalid {
+            path: format!("{path}.values"),
+            what: format!(
+                "collection `{}` declares no field `{field_id}`",
+                qualify(plugin, &collection.id)
+            ),
+        })?;
     let at = format!("{path}.values.{field_id}");
     match field.role {
         // `title`, `label` and `group` are read as text. A number there would be a label

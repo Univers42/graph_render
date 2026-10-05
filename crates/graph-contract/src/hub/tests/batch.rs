@@ -61,7 +61,10 @@ fn a_batch_with_one_upsert_and_one_delete_reads() {
     let up = &batch.upserts[0];
     // The collection is kept as the client wrote it: qualification is `record`'s job, at
     // the point a `Record` exists, so there is exactly one place it happens.
-    assert_eq!((up.collection.as_str(), up.id.as_str(), up.updated_at), ("task", "r1", 5));
+    assert_eq!(
+        (up.collection.as_str(), up.id.as_str(), up.updated_at),
+        ("task", "r1", 5)
+    );
     assert_eq!(
         up.record("tracker").collection,
         "tracker.task",
@@ -159,9 +162,7 @@ fn a_record_may_appear_at_most_once_across_upserts_and_deletes() {
     ];
     for (what, text) in cases {
         assert_eq!(
-            read_batch(text, &Limits::DEFAULT)
-                .unwrap_err()
-                .to_string(),
+            read_batch(text, &Limits::DEFAULT).unwrap_err().to_string(),
             "batch: record `task`/`r1` appears more than once",
             "{what}"
         );
@@ -272,9 +273,11 @@ fn a_link_cells_shape_follows_the_declared_cardinality() {
         "upserts[0].values.blocks: expected a list of references"
     );
     let one_ok = one(r#""blocks":["a"]"#);
-    assert!(one_ok
-        .check("tracker", &manifest(), &Limits::DEFAULT)
-        .is_ok());
+    assert!(
+        one_ok
+            .check("tracker", &manifest(), &Limits::DEFAULT)
+            .is_ok()
+    );
 }
 
 /// An undeclared collection or field is refused: both are cells the stored document would
@@ -360,46 +363,4 @@ fn a_record_over_the_canonical_text_cap_is_refused_as_a_size() {
             limit: 200
         }
     );
-}
-
-
-
-/// The negctl, stated here rather than only in the rows file: `GM_HUB_BREAK=lax-reader`
-/// turns off two things this file pins — `check_collection_id` and the NUL walk — so
-/// `negctl-lax-reader` must go red. This test is what "go red" means: under the break it
-/// asserts the *lax* behaviour, so the same run proves the break is wired to the reader
-/// and not to something else.
-#[test]
-fn the_lax_reader_break_relaxes_exactly_the_two_reader_refusals() {
-    if !crate::hub::breaks::on("lax-reader") {
-        return;
-    }
-    // No `check_collection_id`: a qualified collection is accepted.
-    let batch = read_batch(QUALIFIED, &Limits::DEFAULT).expect("a qualified collection now reads");
-    assert_eq!(batch.upserts[0].collection, "tracker.task");
-    // No NUL walk: a NUL in a key is accepted.
-    let nuled = r#"{"upserts":[{"collection":"task","id":"r1","updatedAt":1,
-        "values":{"na\u0000me":1}}],"deletes":[]}"#;
-    assert!(read_batch(nuled, &Limits::DEFAULT).is_ok());
-}
-
-/// One upsert whose `values` is `cells`, read from a batch the reader accepts. The helper
-/// keeps every cell test above to one line and pins the path every refusal names.
-fn one(cells: &str) -> Batch {
-    read_batch(
-        &format!(
-            r#"{{"upserts":[{{"collection":"task","id":"r1","updatedAt":1,"values":{{{cells}}}}}],"deletes":[]}}"#
-        ),
-        &Limits::DEFAULT,
-    )
-    .expect("the batch reads")
-}
-
-/// The manifest's second collection is never used by the batch tests above; this keeps the
-/// shared fixture honest — if `TWO` stopped being a readable manifest the tests that do
-/// not touch `DECLARED` would still be testing something real.
-#[test]
-fn the_shared_manifest_fixture_is_still_readable() {
-    assert_eq!(read(TWO).collections.len(), 2);
-    let _ = JsonValue::Null;
 }

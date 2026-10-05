@@ -108,12 +108,7 @@ fn check_fields(
 /// resolving to a collection it was not written against. A field that gains or loses its
 /// `link` member with its role is already refused by the ingest reader, so by the time
 /// this runs both fields are `link` fields or neither is.
-fn check_target(
-    collection: &str,
-    old: &Field,
-    new: &Field,
-    version: u32,
-) -> Result<(), HubError> {
+fn check_target(collection: &str, old: &Field, new: &Field, version: u32) -> Result<(), HubError> {
     if target_of(old) == target_of(new) {
         return Ok(());
     }

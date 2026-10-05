@@ -50,7 +50,10 @@ const PINS: [(&str, u64, usize); 5] = [
 #[test]
 fn to_json_bytes_are_pinned() {
     let texts = [
-        ("expected-graph", to_json(&read(&ingest_member(EXPECTED_GRAPH)).unwrap())),
+        (
+            "expected-graph",
+            to_json(&read(&ingest_member(EXPECTED_GRAPH)).unwrap()),
+        ),
         ("rows", to_json_value(&read_value(ROWS).unwrap())),
         ("notion", to_json_value(&read_value(NOTION).unwrap())),
         ("minimal", to_json(&read(MINIMAL).unwrap())),
@@ -65,18 +68,23 @@ fn to_json_bytes_are_pinned() {
         .zip(&seen)
         .zip(PINS)
         .filter(|((_, got), pin)| **got != (pin.1, pin.2))
-        .map(|(((name, _), got), pin)| {
-            format!("{name}: got {got:?}, pinned {:?}", (pin.1, pin.2))
-        })
+        .map(|(((name, _), got), pin)| format!("{name}: got {got:?}, pinned {:?}", (pin.1, pin.2)))
         .collect();
-    assert!(wrong.is_empty(), "the canonical text changed:\n{}", wrong.join("\n"));
+    assert!(
+        wrong.is_empty(),
+        "the canonical text changed:\n{}",
+        wrong.join("\n")
+    );
 }
 
 /// Every document the pin test above covers, in one place: the two shapes of the
 /// assertion below (concatenation, and the byte count) must see the same fixtures.
 fn documents() -> Vec<(&'static str, Ingest)> {
     vec![
-        ("expected-graph", read(&ingest_member(EXPECTED_GRAPH)).unwrap()),
+        (
+            "expected-graph",
+            read(&ingest_member(EXPECTED_GRAPH)).unwrap(),
+        ),
         ("minimal", read(MINIMAL).unwrap()),
         ("empty", empty()),
     ]
@@ -122,7 +130,11 @@ fn the_frame_plus_the_pieces_is_the_document_length() {
             .map(|c| collection_piece(c).len())
             .chain(doc.records.iter().map(|r| record_piece(r).len()))
             .sum();
-        let frame = frame_bytes(&doc.source, doc.collections.len() as u64, doc.records.len() as u64);
+        let frame = frame_bytes(
+            &doc.source,
+            doc.collections.len() as u64,
+            doc.records.len() as u64,
+        );
         assert_eq!(frame + pieces as u64, to_json(&doc).len() as u64, "{name}");
     }
 }

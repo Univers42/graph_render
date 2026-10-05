@@ -18,10 +18,7 @@ fn growth_is_only_adding_or_nothing_at_all() {
     // Same version, other content: 409. The version is the client's own promise that this
     // manifest is a *different* one; breaking that promise is a conflict, not an addition.
     let renamed = TWO.replace(r#""name": "Tasks","#, r#""name": "Work","#);
-    assert_eq!(
-        growth(&first, &at(1, &renamed)).unwrap_err().status(),
-        409
-    );
+    assert_eq!(growth(&first, &at(1, &renamed)).unwrap_err().status(), 409);
     // A lower version is never growth.
     assert_eq!(growth(&first, &at(0, TWO)).unwrap_err().status(), 409);
 

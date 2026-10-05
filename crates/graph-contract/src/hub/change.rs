@@ -47,42 +47,39 @@ pub fn change_json(
     upserts: &[(Record, u64)],
     deletes: &[(String, String, u64)],
 ) -> String {
-    let body = members(&[
+    members(&[
         ("at", quote(head.at)),
         ("deletes", deletes_json(deletes)),
         ("kind", "\"batch\"".to_owned()),
         ("plugin", quote(head.plugin)),
         ("seq", head.seq.to_string()),
         ("upserts", upserts_json(upserts)),
-    ]);
-    body
+    ])
 }
 
 /// A manifest's change: the same envelope, `kind: "manifest"`, and the manifest's own
 /// canonical text nested whole. Nested rather than re-serialized, so what a client is told
 /// matches what it published byte for byte.
 pub fn manifest_change_json(head: &ChangeHead<'_>, manifest: &Manifest) -> String {
-    let body = members(&[
+    members(&[
         ("at", quote(head.at)),
         ("kind", "\"manifest\"".to_owned()),
         ("manifest", super::manifest_json(manifest)),
         ("plugin", quote(head.plugin)),
         ("seq", head.seq.to_string()),
-    ]);
-    body
+    ])
 }
 
 /// A notice: the envelope with no payload. It says the stream moved and carries nothing
 /// else, so a client that only watches positions does not have to parse records it will
 /// never read.
 pub fn notice_json(head: &ChangeHead<'_>) -> String {
-    let body = members(&[
+    members(&[
         ("at", quote(head.at)),
         ("kind", "\"notice\"".to_owned()),
         ("plugin", quote(head.plugin)),
         ("seq", head.seq.to_string()),
-    ]);
-    format!("{{{body}}}")
+    ])
 }
 
 /// The answer to an applied batch: the sequence the stream is now at, and how many of the
@@ -136,8 +133,7 @@ fn upsert_json(record: &Record, rev: u64) -> String {
     // so this insertion sort walks at most one element — but it is written as a sort so
     // the invariant does not depend on the caller having appended.
     rows.sort_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.cmp(&b.1)));
-    let body = members(&rows);
-    format!("{{{body}}}")
+    members(&rows)
 }
 
 /// The `deletes` array: `(collection, id, rev)`, all three strings/integers already known.
@@ -145,12 +141,11 @@ fn deletes_json(deletes: &[(String, String, u64)]) -> String {
     let rows: Vec<String> = deletes
         .iter()
         .map(|(collection, id, rev)| {
-            let body = members(&[
+            members(&[
                 ("collection", quote(collection)),
                 ("id", quote(id)),
                 ("rev", rev.to_string()),
-            ]);
-            format!("{{{body}}}")
+            ])
         })
         .collect();
     format!("[{}]", rows.join(","))

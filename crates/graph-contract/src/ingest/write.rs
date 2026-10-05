@@ -33,7 +33,10 @@ pub fn to_json(doc: &Ingest) -> String {
     let mut out = String::from(DOC_HEAD);
     push_pieces(
         &mut out,
-        doc.collections.iter().map(collection_piece).collect::<Vec<_>>(),
+        doc.collections
+            .iter()
+            .map(collection_piece)
+            .collect::<Vec<_>>(),
     );
     out.push_str(DOC_MIDDLE);
     push_pieces(
@@ -174,7 +177,8 @@ fn cells(r: &super::Record) -> Vec<(&str, String)> {
 }
 
 /// `{...}` from rows already in key order. The caller sorts; this only joins, so the
-/// two concerns cannot drift apart.
+/// two concerns cannot drift apart. **The braces are included**, so a caller writes
+/// `members(&rows)` where it wants an object and does not add its own.
 pub(crate) fn members(rows: &[(&str, String)]) -> String {
     let mut out = String::new();
     write_members(&mut out, rows);

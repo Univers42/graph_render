@@ -72,7 +72,9 @@ pub fn qualify(plugin: &str, collection: &str) -> String {
 /// length, so the grammar and its bound are one rule rather than two.
 fn check_slug(id: &str, what: &'static str) -> Result<(), HubError> {
     let bytes = id.as_bytes();
-    let head = bytes.first().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    let head = bytes
+        .first()
+        .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
     let tail = bytes
         .iter()
         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-');

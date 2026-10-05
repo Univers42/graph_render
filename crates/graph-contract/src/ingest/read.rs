@@ -181,7 +181,10 @@ pub(crate) fn record(value: &Value, path: &str) -> Result<Record, IngestError> {
 
 // ------------------------------------------------------------------ scalars
 
-pub(crate) fn object<'a>(value: &'a Value, path: &str) -> Result<&'a [(String, Value)], IngestError> {
+pub(crate) fn object<'a>(
+    value: &'a Value,
+    path: &str,
+) -> Result<&'a [(String, Value)], IngestError> {
     match value {
         Value::Object(members) => Ok(members),
         _ => Err(shape(path, "expected an object")),

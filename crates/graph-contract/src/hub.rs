@@ -37,13 +37,16 @@ mod strict;
 #[cfg(test)]
 mod tests;
 
-pub use change::{ChangeHead, answer_json, change_json, check_change, manifest_change_json, max_change, notice_json};
+pub use change::{
+    ChangeHead, answer_json, change_json, check_change, manifest_change_json, max_change,
+    notice_json,
+};
 pub use error::HubError;
-pub use manifest::{Growth, Manifest, growth, manifest_json, read_manifest};
 pub use ids::{
     Cursor, MAX_SEQ, check_collection_id, check_plugin_id, check_record_id, check_workspace_id,
     qualify,
 };
+pub use manifest::{Growth, Manifest, growth, manifest_json, read_manifest};
 
 /// The only hub wire version this contract reads and writes.
 pub const VERSION: u32 = 1;

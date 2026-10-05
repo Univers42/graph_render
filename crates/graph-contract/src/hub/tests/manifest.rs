@@ -22,7 +22,10 @@ fn a_two_collection_manifest_reads_sorted_with_its_link_targets_qualified() {
     // `note` is this plugin's own collection, so the manifest may spell it bare; it is
     // stored qualified so a document from two plugins can hold both.
     assert_eq!(
-        m.collections[1].fields[1].link.as_ref().map(|l| l.collection.as_str()),
+        m.collections[1].fields[1]
+            .link
+            .as_ref()
+            .map(|l| l.collection.as_str()),
         Some("tracker.note")
     );
 }
@@ -34,7 +37,10 @@ fn a_link_target_is_qualified_once_and_only_once() {
     let qualified = TWO.replace("\"collection\": \"note\"", "\"collection\": \"other.c\"");
     let m = read_manifest(&qualified, "tracker").expect("a cross-plugin target reads");
     assert_eq!(
-        m.collections[1].fields[1].link.as_ref().map(|l| l.collection.clone()),
+        m.collections[1].fields[1]
+            .link
+            .as_ref()
+            .map(|l| l.collection.clone()),
         Some("other.c".to_owned()),
         "an already-qualified target must not be qualified twice"
     );
@@ -120,9 +126,7 @@ fn a_manifest_over_a_cap_is_refused_as_a_size() {
                     {{"id":"t","name":"T","role":"title","link":null}}]}}"#
             ));
         }
-        format!(
-            r#"{{"version":1,"manifestVersion":1,"name":"n","collections":[{collections}]}}"#
-        )
+        format!(r#"{{"version":1,"manifestVersion":1,"name":"n","collections":[{collections}]}}"#)
     };
     assert!(read_manifest(&many(64), "tracker").is_ok());
     assert_eq!(
@@ -177,7 +181,10 @@ fn a_manifest_over_a_cap_is_refused_as_a_size() {
 fn what_the_writer_writes_reads_back_to_the_same_manifest() {
     let first = read_manifest(TWO, "tracker").unwrap();
     let text = manifest_json(&first);
-    assert!(!text.ends_with('\n'), "a manifest body has no trailing newline");
+    assert!(
+        !text.ends_with('\n'),
+        "a manifest body has no trailing newline"
+    );
     let second = read_manifest(&text, "tracker").expect("the writer's own output reads");
     assert_eq!(first, second);
     assert_eq!(manifest_json(&second), text);

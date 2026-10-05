@@ -21,18 +21,12 @@ use crate::ingest::IngestError;
 
 /// One hub body as a parsed value, or the refusal. The size is checked on the *bytes*,
 /// before the parse: a body four times the cap must not cost four times the parse.
-pub(crate) fn parse_strict(
-    text: &str,
-    max: u64,
-    what: &'static str,
-) -> Result<Value, HubError> {
+pub(crate) fn parse_strict(text: &str, max: u64, what: &'static str) -> Result<Value, HubError> {
     if text.len() as u64 > max {
-        return Err(HubError::TooLarge {
-            what,
-            limit: max,
-        });
+        return Err(HubError::TooLarge { what, limit: max });
     }
-    let value = canonical_json::parse(text).map_err(|e| HubError::Shape(IngestError::from_json(e)))?;
+    let value =
+        canonical_json::parse(text).map_err(|e| HubError::Shape(IngestError::from_json(e)))?;
     if !breaks::on("lax-reader") {
         check_nul(&value, "")?;
     }

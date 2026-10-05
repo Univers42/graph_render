@@ -18,12 +18,10 @@
 
 use super::manifest::Manifest;
 use super::strict::parse_strict;
-use super::{
-    HubError, Limits, breaks, check_collection_id, check_record_id, qualify,
-};
+use super::{HubError, Limits, breaks, check_collection_id, check_record_id, qualify};
 use crate::canonical_json::Value;
-use crate::ingest::read::{array, integer, member, object, require_only, text_of};
 use crate::ingest::read::cell;
+use crate::ingest::read::{array, integer, member, object, require_only, text_of};
 use crate::ingest::{JsonValue, Record, record_piece};
 
 mod cells;
@@ -100,7 +98,10 @@ pub fn read_batch(text: &str, limits: &Limits) -> Result<Batch, HubError> {
         });
     }
     check_once(&upserts, &deletes)?;
-    upserts.sort_by(|a, b| a.id.cmp(&b.id).then_with(|| a.collection.cmp(&b.collection)));
+    upserts.sort_by(|a, b| {
+        a.id.cmp(&b.id)
+            .then_with(|| a.collection.cmp(&b.collection))
+    });
     Ok(Batch { upserts, deletes })
 }
 
@@ -111,7 +112,12 @@ impl Batch {
     ///
     /// The collection check is per operation, not per cell: a record naming a collection
     /// the manifest does not declare has no fields to check its cells against.
-    pub fn check(&self, plugin: &str, manifest: &Manifest, limits: &Limits) -> Result<(), HubError> {
+    pub fn check(
+        &self,
+        plugin: &str,
+        manifest: &Manifest,
+        limits: &Limits,
+    ) -> Result<(), HubError> {
         for (i, up) in self.upserts.iter().enumerate() {
             let path = format!("upserts[{i}]");
             let collection = cells::declared(manifest, plugin, &up.collection, &path)?;
@@ -245,15 +251,24 @@ fn on_id(error: HubError, path: &str) -> HubError {
 /// that is too big is refused as too big rather than as a repeat.
 fn check_once(upserts: &[Upsert], deletes: &[Delete]) -> Result<(), HubError> {
     for (i, up) in upserts.iter().enumerate() {
-        if upserts[..i].iter().any(|o| o.id == up.id && o.collection == up.collection) {
+        if upserts[..i]
+            .iter()
+            .any(|o| o.id == up.id && o.collection == up.collection)
+        {
             return Err(repeated(&up.collection, &up.id));
         }
-        if deletes.iter().any(|d| d.id == up.id && d.collection == up.collection) {
+        if deletes
+            .iter()
+            .any(|d| d.id == up.id && d.collection == up.collection)
+        {
             return Err(repeated(&up.collection, &up.id));
         }
     }
     for (i, delete) in deletes.iter().enumerate() {
-        if deletes[..i].iter().any(|d| d.id == delete.id && d.collection == delete.collection) {
+        if deletes[..i]
+            .iter()
+            .any(|d| d.id == delete.id && d.collection == delete.collection)
+        {
             return Err(repeated(&delete.collection, &delete.id));
         }
     }
@@ -266,4 +281,3 @@ fn repeated(collection: &str, id: &str) -> HubError {
         what: format!("record `{collection}`/`{id}` appears more than once"),
     }
 }
-

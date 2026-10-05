@@ -91,8 +91,18 @@ fn a_cursor_writes_back_exactly_what_it_read() {
 #[test]
 fn a_cursor_that_is_not_one_is_refused_whole() {
     for text in [
-        "118", "03.1", "1.9007199254740992", "1.2.3", "1.", "+1.2", "", ".", "-1.2", "1.2 ",
-        "0x1.2", "1..2",
+        "118",
+        "03.1",
+        "1.9007199254740992",
+        "1.2.3",
+        "1.",
+        "+1.2",
+        "",
+        ".",
+        "-1.2",
+        "1.2 ",
+        "0x1.2",
+        "1..2",
     ] {
         assert_eq!(
             Cursor::parse(text),
@@ -132,12 +142,16 @@ fn a_nul_in_a_string_is_refused_with_its_path() {
 fn a_nul_in_a_key_is_refused_at_the_path_of_the_object_that_holds_it() {
     assert_eq!(
         parse_strict("{\"k\\u0000\":1}", 4096, "body"),
-        Err(HubError::Nul { path: String::new() }),
+        Err(HubError::Nul {
+            path: String::new()
+        }),
         "at the root there is no path"
     );
     assert_eq!(
         parse_strict("{\"a\":{\"k\\u0000\":1}}", 4096, "body"),
-        Err(HubError::Nul { path: "a".to_owned() })
+        Err(HubError::Nul {
+            path: "a".to_owned()
+        })
     );
 }
 
@@ -193,15 +207,31 @@ fn every_refusal_answers_the_status_its_reason_implies() {
             },
             422,
         ),
-        (HubError::Nul { path: String::new() }, 422),
-        (HubError::TooLarge { what: "body", limit: 0 }, 413),
+        (
+            HubError::Nul {
+                path: String::new(),
+            },
+            422,
+        ),
+        (
+            HubError::TooLarge {
+                what: "body",
+                limit: 0,
+            },
+            413,
+        ),
         (
             HubError::Conflict {
                 what: String::new(),
             },
             409,
         ),
-        (HubError::Cursor { text: String::new() }, 400),
+        (
+            HubError::Cursor {
+                text: String::new(),
+            },
+            400,
+        ),
     ];
     for (mut error, status) in cases {
         assert_eq!(error.status(), status, "{error:?}");
@@ -227,11 +257,7 @@ fn a_path_grows_one_member_at_a_time() {
 fn the_default_limits_are_the_specs_caps() {
     let limits = Limits::DEFAULT;
     assert_eq!(
-        (
-            limits.max_body,
-            limits.max_batch,
-            limits.max_record_bytes
-        ),
+        (limits.max_body, limits.max_batch, limits.max_record_bytes),
         (4 << 20, 10_000, 1 << 20)
     );
     assert_eq!(VERSION, 1);
@@ -249,4 +275,3 @@ fn the_seq_ceiling_is_two_to_the_fifty_three_minus_one() {
     assert!(Cursor::parse(&format!("1.{MAX_SEQ}")).is_ok());
     assert!(Cursor::parse(&format!("1.{}", MAX_SEQ + 1)).is_err());
 }
-

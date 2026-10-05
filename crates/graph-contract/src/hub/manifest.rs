@@ -30,8 +30,8 @@ use super::{
 use crate::canonical_json::Value;
 use crate::ingest::read::{array, member, object, require_only, text_of};
 use crate::ingest::validate::check_title;
-use crate::ingest::{Collection, collection_piece};
 use crate::ingest::write::quoted;
+use crate::ingest::{Collection, collection_piece};
 
 mod growth;
 
@@ -60,11 +60,8 @@ pub fn read_manifest(text: &str, plugin: &str) -> Result<Manifest, HubError> {
     let root = parse_strict(text, MAX_MANIFEST_BYTES, "manifest")?;
     let members = object_of(&root)?;
     require_only(members, &MANIFEST_MEMBERS, "").map_err(HubError::Shape)?;
-    let wire = crate::ingest::read::integer(
-        member_of(members, "version", "")?,
-        "version",
-    )
-    .map_err(HubError::Shape)?;
+    let wire = crate::ingest::read::integer(member_of(members, "version", "")?, "version")
+        .map_err(HubError::Shape)?;
     if wire != VERSION {
         return Err(HubError::Invalid {
             path: "version".to_owned(),
@@ -187,7 +184,9 @@ fn qualify_links(
     declared: &[String],
 ) -> Result<(), HubError> {
     for (i, field) in c.fields.iter_mut().enumerate() {
-        let Some(link) = &mut field.link else { continue };
+        let Some(link) = &mut field.link else {
+            continue;
+        };
         if link.collection.matches('.').count() > 1 {
             return Err(HubError::Invalid {
                 path: format!("{path}.fields[{i}].link.collection"),
