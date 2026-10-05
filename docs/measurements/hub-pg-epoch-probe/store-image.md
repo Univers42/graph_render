@@ -36,11 +36,12 @@ rebuilt image agree. `datcollate = C` comes from `POSTGRES_INITDB_ARGS="--encodi
 
 ## `GRANT SET ON PARAMETER` lines `hub-pg.sh` applies
 
-Two, both applied by `scripts/orch/hub-pg.sh start` as `postgres` and re-applied on every start:
+Three, all applied by `scripts/orch/hub-pg.sh start` as `postgres` and re-applied on every start:
 
 ```sql
 GRANT ALL ON SCHEMA public TO hub;
 GRANT SET ON PARAMETER hub.writer TO hub;
+GRANT pg_monitor TO hub;
 ```
 
 The first is not optional: PostgreSQL 15 and later grant `CREATE` on schema `public` to
@@ -49,14 +50,29 @@ database it does not own. The second is what lets `detector_refuses_a_hub_writer
 set that GUC as a role default; `SELECT has_parameter_privilege('hub','hub.writer','SET')` reads
 `t` on this image.
 
+## Which grant reaches the detector's three reads
+
+**`GRANT pg_monitor` is sufficient on its own; no per-function `GRANT EXECUTE` was needed.**
+Measured on this image as the `hub` role, which is not a superuser:
+
+| read | result |
+| --- | --- |
+| `has_function_privilege('hub','pg_control_system()','EXECUTE')` | `t` |
+| `pg_has_role('hub','pg_monitor','MEMBER')` | `t` |
+| `SELECT (pg_control_system()).system_identifier` | `7693188589578006572` |
+| `SELECT pg_current_wal_flush_lsn() IS NOT NULL` | `t` |
+| `SELECT substr(pg_walfile_name(pg_current_wal_lsn()),1,8)` | `00000001` |
+
+So the detector's `hub_meta` read, its flush-LSN read and its timeline read all work as `hub`
+under `pg_monitor`, and the role is never made a superuser. Caveat: `pg_monitor` is a
+predefined role whose membership PostgreSQL may extend in a future major; if a later image stops
+granting one of these three to it, the start step needs an explicit
+`GRANT EXECUTE ON FUNCTION <fn> TO hub` rather than a superuser.
+
 Role and database, both created by the image's own entrypoint on first init
 (`POSTGRES_DB=hub`, `POSTGRES_PASSWORD=hub`) and the role bootstrap in `hub-pg.sh start`:
 
-- database `hub`, role `hub` with password `hub`, `CREATEDB`, not a superuser.
-- Caveat: the `hub` role is not a superuser, so the store's SQL must stay inside what a
-  non-superuser may read. `pg_control_system()`, `pg_current_wal_flush_lsn()` and
-  `pg_walfile_name()` are all superuser-only by default; the detector's reads of them are the
-  one place Task 6 has to settle which grant they need.
+- database `hub`, role `hub` with password `hub`, `CREATEDB`, **not** a superuser.
 
 ## The exact `hub-pg.sh` invocation each container-level case used
 

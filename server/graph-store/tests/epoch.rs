@@ -136,7 +136,10 @@ async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
     before = after;
 
     // DELETE on manifests.
-    client.execute("DELETE FROM manifests", &[]).await.expect("delete");
+    client
+        .execute("DELETE FROM manifests", &[])
+        .await
+        .expect("delete");
     let after = clock(&mut client).await;
     assert!(after > before, "a DELETE moved no epoch");
     before = after;
@@ -163,7 +166,10 @@ async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
     assert!(after > before, "a COPY moved no epoch");
 
     // TRUNCATE: every workspace, since a truncated table names none.
-    client.execute("TRUNCATE records", &[]).await.expect("truncate");
+    client
+        .execute("TRUNCATE records", &[])
+        .await
+        .expect("truncate");
     let after = clock(&mut client).await;
     assert!(after > before, "a TRUNCATE moved no epoch");
 }
@@ -196,13 +202,19 @@ async fn replica_role_write_moves_the_epoch_for_every_event() {
         "DELETE FROM manifests",
         "TRUNCATE manifests",
     ] {
-        admin.batch_execute("SET session_replication_role = replica").await.expect("set role");
+        admin
+            .batch_execute("SET session_replication_role = replica")
+            .await
+            .expect("set role");
         let before = clock(&mut client).await;
         admin
             .batch_execute(sql)
             .await
             .unwrap_or_else(|e| panic!("{sql}: {e}"));
-        admin.batch_execute("SET session_replication_role = origin").await.expect("reset role");
+        admin
+            .batch_execute("SET session_replication_role = origin")
+            .await
+            .expect("reset role");
         let after = clock(&mut client).await;
         assert!(
             after > before,
@@ -262,10 +274,21 @@ async fn workspace_delete_and_recreate_draws_a_larger_epoch() {
     let (mut client, _) =
         support::db::fresh_pair("workspace_delete_and_recreate_draws_a_larger_epoch").await;
     make_ws(&mut client, "ws").await;
-    let first = head_of(&mut client, "ws").await.expect("head").expect("a workspace").0;
-    client.execute("DELETE FROM workspaces WHERE id = 'ws'", &[]).await.expect("delete");
+    let first = head_of(&mut client, "ws")
+        .await
+        .expect("head")
+        .expect("a workspace")
+        .0;
+    client
+        .execute("DELETE FROM workspaces WHERE id = 'ws'", &[])
+        .await
+        .expect("delete");
     make_ws(&mut client, "ws").await;
-    let second = head_of(&mut client, "ws").await.expect("head").expect("a workspace").0;
+    let second = head_of(&mut client, "ws")
+        .await
+        .expect("head")
+        .expect("a workspace")
+        .0;
     assert!(second > first, "recreate drew {second}, not above {first}");
 }
 
@@ -281,10 +304,7 @@ async fn hub_write_paths_move_no_epoch() {
     // Seed inside the guard, so the baseline below is untouched by the setup.
     hub_tx(&mut client).await;
     client
-        .execute(
-            "INSERT INTO workspaces (id, epoch) VALUES ('ws', 1)",
-            &[],
-        )
+        .execute("INSERT INTO workspaces (id, epoch) VALUES ('ws', 1)", &[])
         .await
         .expect("seed a workspace");
     client.batch_execute("COMMIT").await.expect("commit");
@@ -324,7 +344,11 @@ async fn hub_write_paths_move_no_epoch() {
         .await
         .expect("put a manifest");
     client.batch_execute("COMMIT").await.expect("commit");
-    assert_eq!(clock(&mut client).await, before_put, "a manifest PUT moved the epoch");
+    assert_eq!(
+        clock(&mut client).await,
+        before_put,
+        "a manifest PUT moved the epoch"
+    );
 
     // An all-no-op batch: the row is written and the text is identical, so the only thing that
     // could move the clock is the trigger. Three statements, one transaction, still zero.
@@ -360,8 +384,7 @@ async fn hub_write_paths_move_no_epoch() {
 /// under the guard the clock must not move, and outside it the clock must.
 #[tokio::test]
 async fn workspaces_update_does_not_bump_itself() {
-    let (mut client, _) =
-        support::db::fresh_pair("workspaces_update_does_not_bump_itself").await;
+    let (mut client, _) = support::db::fresh_pair("workspaces_update_does_not_bump_itself").await;
     make_ws(&mut client, "ws").await;
     pin_clock_ahead(&mut client).await;
 

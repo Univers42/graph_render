@@ -103,7 +103,9 @@ fn alters(action: &str) -> String {
     let mut sql = String::new();
     for (table, _) in TRIGGER_TABLES {
         for event in EVENTS {
-            sql.push_str(&format!("ALTER TABLE {table} {action} TRIGGER hub_{table}_{event};"));
+            sql.push_str(&format!(
+                "ALTER TABLE {table} {action} TRIGGER hub_{table}_{event};"
+            ));
         }
     }
     sql
