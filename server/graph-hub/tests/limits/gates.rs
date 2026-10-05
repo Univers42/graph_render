@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use axum::response::IntoResponse;
 use graph_hub::gate::{Gate, KeyGate, deadline};
 
 use crate::support::*;
@@ -146,49 +147,4 @@ async fn the_per_key_gate_drops_an_entry_whose_permit_is_gone() {
         drop(held);
     }
     assert_eq!(gate.keys(), 0, "every entry is gone with its last permit");
-}
-
-/// `GRAPH_HUB_MAX_SUBSCRIBERS_PER_KEY = 8`: the ninth stream from one key is 429, even with the global
-/// cap far away.
-#[tokio::test]
-async fn the_subscriber_cap_per_key_is_429() {
-    let counters = Arc::new(Subscribers::new(Caps {
-        max: 64,
-        per_key: 8,
-    }));
-    let held: Vec<_> = (0..8)
-        .map(|_| {
-            counters
-                .admit("tester")
-                .expect("a slot under the per-key cap")
-        })
-        .collect();
-    let refused = counters.admit("tester").unwrap_err();
-    assert_eq!(refused.status(), 429);
-    assert_eq!(refused.retry_after(), Some(1));
-    drop(held);
-    assert_eq!(
-        counters.total(),
-        0,
-        "dropping every stream frees every slot"
-    );
-}
-
-/// `GRAPH_HUB_MAX_SUBSCRIBERS = 64`: the 65th stream is 429, and the per-key cap is raised so this
-/// case is about the global one.
-#[tokio::test]
-async fn the_subscriber_cap_in_total_is_429() {
-    let caps = Caps {
-        max: 3,
-        per_key: 64,
-    };
-    let counters = Arc::new(Subscribers::new(caps));
-    let held: Vec<_> = ["a", "b", "c"]
-        .iter()
-        .map(|key| counters.admit(key).expect("a slot under the global cap"))
-        .collect();
-    let refused = counters.admit("d").unwrap_err();
-    assert_eq!(refused.status(), 429);
-    drop(held);
-    assert!(counters.admit("d").is_ok(), "a released slot admits again");
 }

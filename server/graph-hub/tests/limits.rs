@@ -7,10 +7,10 @@
 
 #[path = "limits/gates.rs"]
 mod gates;
-#[path = "limits/refusals.rs"]
-mod refusals;
 #[path = "limits/reader.rs"]
 mod reader;
+#[path = "limits/refusals.rs"]
+mod refusals;
 mod support;
 
 use support::*;

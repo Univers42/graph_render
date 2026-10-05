@@ -8,7 +8,11 @@ use graph_hub::config::Subscribers as Caps;
 use graph_hub::gate::subscribers::Subscribers;
 use graph_hub::{HubApiError, MotorFault};
 
+use graph_hub::gate::{Gate, deadline};
+
 use crate::support::*;
+
+use super::PATIENCE;
 
 /// The subscriber counters move together: one slot, one total, and a key whose streams all end has no
 /// entry at all.
@@ -100,7 +104,6 @@ async fn a_503_carries_retry_after_and_the_json_shape() {
 /// not carry it, because a busy hub is not a credential problem.
 #[tokio::test]
 async fn a_401_carries_www_authenticate_and_a_503_does_not() {
-    use graph_hub::HubApiError;
     let unauthorized = HubApiError::Unauthorized("missing or unknown API key").into_response();
     assert_eq!(unauthorized.status(), 401);
     assert_eq!(
@@ -132,7 +135,6 @@ fn the_no_cap_break_reads_every_limit_as_no_cap_permits() {
 /// message is a prefix is not a shape change.
 #[tokio::test]
 async fn every_refusal_is_a_bounded_one_line_json_body() {
-    use graph_hub::HubApiError;
     let long = "x".repeat(4096);
     let response = HubApiError::Internal(long).into_response();
     let body = read_body(response).await;
@@ -153,7 +155,6 @@ async fn every_refusal_is_a_bounded_one_line_json_body() {
 /// `Retry-After`, 401 carries `WWW-Authenticate`, and the relayed motor answer carries neither.
 #[tokio::test]
 async fn the_refusal_headers_come_from_the_status_and_not_the_variant() {
-    use graph_hub::{HubApiError, MotorFault};
     let cases = [
         (
             HubApiError::BadRequest("the path id is empty"),
@@ -187,4 +188,49 @@ pub(crate) async fn read_body(response: axum::response::Response) -> String {
         .expect("the body")
         .to_bytes();
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// `GRAPH_HUB_MAX_SUBSCRIBERS_PER_KEY = 8`: the ninth stream from one key is 429, even with the global
+/// cap far away.
+#[tokio::test]
+async fn the_subscriber_cap_per_key_is_429() {
+    let counters = Arc::new(Subscribers::new(Caps {
+        max: 64,
+        per_key: 8,
+    }));
+    let held: Vec<_> = (0..8)
+        .map(|_| {
+            counters
+                .admit("tester")
+                .expect("a slot under the per-key cap")
+        })
+        .collect();
+    let refused = counters.admit("tester").unwrap_err();
+    assert_eq!(refused.status(), 429);
+    assert_eq!(refused.retry_after(), Some(1));
+    drop(held);
+    assert_eq!(
+        counters.total(),
+        0,
+        "dropping every stream frees every slot"
+    );
+}
+
+/// `GRAPH_HUB_MAX_SUBSCRIBERS = 64`: the 65th stream is 429, and the per-key cap is raised so this
+/// case is about the global one.
+#[tokio::test]
+async fn the_subscriber_cap_in_total_is_429() {
+    let caps = Caps {
+        max: 3,
+        per_key: 64,
+    };
+    let counters = Arc::new(Subscribers::new(caps));
+    let held: Vec<_> = ["a", "b", "c"]
+        .iter()
+        .map(|key| counters.admit(key).expect("a slot under the global cap"))
+        .collect();
+    let refused = counters.admit("d").unwrap_err();
+    assert_eq!(refused.status(), 429);
+    drop(held);
+    assert!(counters.admit("d").is_ok(), "a released slot admits again");
 }

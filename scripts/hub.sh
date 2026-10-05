@@ -53,10 +53,13 @@ image_name() {
 }
 
 # The bin argument is the only thing the break moves, so the break cannot hide in a path.
+# WHY `-p graph-hub`: `default-members` is `["graph-server"]` (server/Cargo.toml), so a build in
+# `server/` with only `--bin` resolves against graph-server and reports "no bin target named
+# graph-hub in default-run packages". The package must be named.
 build_bin() {
   local bin=$1
   scripts/orch/gr bash -c \
-    "cd server && CARGO_TARGET_DIR=/w/target/hub cargo build --release --locked --bin $bin"
+    "cd server && CARGO_TARGET_DIR=/w/target/hub cargo build --release --locked -p graph-hub --bin $bin"
 }
 
 image() {
@@ -119,7 +122,7 @@ keygen() {
   [[ $name =~ ^[A-Za-z0-9._-]+$ ]] || usage
   # stdout (the key) goes straight through; only stderr (the file line) is captured.
   { line=$(scripts/orch/gr bash -c \
-      "cd server && CARGO_TARGET_DIR=/w/target/server cargo run --quiet --release --locked --bin graph-server -- keygen $name" 2>&1 >&3 3>&-); } 3>&1
+      "cd server && CARGO_TARGET_DIR=/w/target/server cargo run --quiet --release --locked -p graph-server --bin graph-server -- keygen $name" 2>&1 >&3 3>&-); } 3>&1
   line=$(grep -E "^$name [0-9a-f]{64}$" <<<"$line") || {
     log "keygen printed no file line"
     exit 1
