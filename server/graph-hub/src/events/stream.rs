@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::response::sse::Event;
-use futures_util::stream::{self, Stream};
+use futures_util::stream::{self, Stream as StreamTrait};
 use graph_contract::hub::{Cursor, notice_json};
 use graph_store::StoreError;
 use tokio::sync::watch::Receiver;
@@ -49,8 +49,8 @@ pub const RESYNC: &str = "resync";
 
 /// What one subscriber's stream is configured with, read once from `Settings`.
 ///
-/// A struct rather than seven parameters because `Stream::new` would otherwise be over the house
-/// limit of four, and a bundle is also what a test can build without a whole `App`.
+/// A struct rather than three extra parameters because the house limit is four per function, and a
+/// bundle is also what a test builds without a whole `App`.
 #[derive(Debug, Clone, Copy)]
 pub struct Shape {
     /// How many headers one read may return, §6's `SSE_PAGE`.
@@ -72,25 +72,64 @@ impl Shape {
     }
 }
 
-/// One turn of the loop: the next event, or the end of the stream.
-enum Turn {
-    /// One event; the stream continues with `Stream`.
-    Event(Event),
-    /// The stream is over, after the event that says why.
-    Close(Event),
-    /// The stream is over with nothing to say, which is shutdown.
-    End,
+/// What woke the wait in step 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Wake {
+    /// The watch moved, so there is something to page.
+    Changed,
+    /// The heartbeat's interval elapsed.
+    Ticked,
+    /// The watch's sender is gone, which only happens at shutdown.
+    Shut,
+}
+
+/// One turn of the loop's answer: the event to write, and whether the stream goes on after it.
+///
+/// A struct rather than an `Option<Event>` because the two questions are different: a shutdown ends
+/// the stream with **nothing** written, while a `busy` or a `resync` ends it **after** an event that
+/// says why, and that event must still reach the client.
+struct Step {
+    /// The event, or `None` for the end of the stream with nothing to say.
+    event: Option<Event>,
+    /// Whether the stream continues after this event.
+    keep: bool,
+}
+
+impl Step {
+    /// One more event of an ordinary stream.
+    fn more(event: Event) -> Self {
+        Step {
+            event: Some(event),
+            keep: true,
+        }
+    }
+
+    /// The stream's last event, which names its own end.
+    fn last(event: Event) -> Self {
+        Step {
+            event: Some(event),
+            keep: false,
+        }
+    }
+
+    /// The end of the stream with nothing written, which is only shutdown.
+    fn end() -> Self {
+        Step {
+            event: None,
+            keep: false,
+        }
+    }
 }
 
 /// Everything one stream holds for its life.
-pub struct Stream {
+pub struct Sub {
     /// The hub, for the store, the settings and the watch.
     app: Arc<App>,
     /// The workspace this stream is subscribed to.
     ws: String,
-    /// Where the next read starts. Advanced by every page, never by the watch.
+    /// Where the next read starts. Advanced by every notice, never by the watch.
     cursor: Cursor,
-    /// The epoch of the last read, which the notice's `id:` carries.
+    /// The epoch of the last read, which every notice's `id:` carries.
     epoch: u64,
     /// The workspace's position, so a wake-up knows there is something to read.
     receiver: Receiver<(u64, u64)>,
@@ -99,7 +138,7 @@ pub struct Stream {
     subscriber: Option<Subscriber>,
     /// The caps and the pool wait.
     shape: Shape,
-    /// The headers of the page being sent.
+    /// The headers of the page in hand, still to be sent.
     pending: Vec<Head>,
     /// Whether the cursor has caught up with `head_seq`, i.e. whether the stream waits.
     caught_up: bool,
@@ -112,9 +151,9 @@ pub fn subscribe(
     cursor: Cursor,
     epoch: u64,
     subscriber: Subscriber,
-) -> impl Stream<Item = Result<Event, Infallible>> {
+) -> impl StreamTrait<Item = Result<Event, Infallible>> {
     let shape = Shape::of(app.as_ref());
-    let state = Stream {
+    let state = Sub {
         receiver: app.watch.subscribe(&ws),
         app,
         ws,
@@ -125,30 +164,73 @@ pub fn subscribe(
         pending: Vec::new(),
         caught_up: false,
     };
-    stream::unfold(state, |mut state| async move {
-        state
-            .turn()
-            .await
-            .event()
-            .map(|event| (Ok(event), state))
+    // `unfold` ends when its closure answers `None`, so the "keep going" flag rides along in the
+    // state and the next turn reads it: one extra turn that yields nothing, which is how the last
+    // event reaches the client before the stream closes.
+    let state = Done {
+        inner: state,
+        keep: true,
+    };
+    stream::unfold(state, |mut done| async move {
+        if !done.keep {
+            return None;
+        }
+        let step = done.inner.turn().await;
+        done.keep = step.keep;
+        let event = step.event?;
+        Some((Ok(event), done))
     })
 }
 
-impl Stream {
+/// The stream's state plus whether another turn follows, which `unfold` cannot carry itself.
+struct Done {
+    /// The loop's own state.
+    inner: Sub,
+    /// Whether the stream continues after the event just yielded.
+    keep: bool,
+}
+
+impl Sub {
     /// One turn of the loop: send the next notice, wait, or close.
-    async fn turn(&mut self) -> Turn {
-        if let Some(head) = self.pending.first().cloned() {
-            self.pending.remove(0);
-            return Turn::Event(notice(&head, self.epoch));
+    ///
+    /// The loop rather than three mutually recursive steps, because "caught up with nothing to send"
+    /// has to become "wait" without a second stack frame: `page` and `wait` call each other, and two
+    /// `async fn`s that call each other need a boxed future to compile.
+    async fn turn(&mut self) -> Step {
+        loop {
+            if !self.pending.is_empty() {
+                return self.next_notice();
+            }
+            if self.caught_up {
+                match self.wait().await {
+                    Wake::Changed => self.caught_up = false,
+                    Wake::Ticked => return Step::more(heartbeat()),
+                    Wake::Shut => return Step::end(),
+                }
+                continue;
+            }
+            let step = self.page().await;
+            // An empty page means caught up with nothing to send, so the next turn waits rather than
+            // spinning: this is where a subscriber already at `head_seq` spends its first turn.
+            self.caught_up = self.caught_up || self.pending.is_empty();
+            if !step.keep {
+                return step;
+            }
         }
-        if !self.caught_up {
-            return self.page().await;
-        }
-        self.wait().await
     }
 
     /// Step 2: one page read, then the headers of it as notices.
-    async fn page(&mut self) -> Turn {
+    ///
+    /// `skip-event` publishes from the watch alone: the cursor jumps to the position the watch
+    /// reports and no header is read, so every seq between the old cursor and the new one is
+    /// skipped. That is the claim row `negctl-skip-event` breaks — a stream driven by notifications
+    /// rather than by the log has gaps — and it is why the shipped loop reads the log at all.
+    async fn page(&mut self) -> Step {
+        if crate::breaks::on("skip-event") {
+            let (epoch, seq) = *self.receiver.borrow();
+            self.cursor = Cursor { epoch, seq };
+            return Step::more(heartbeat());
+        }
         let request = PageReq {
             ws: self.ws.clone(),
             since: self.cursor,
@@ -156,32 +238,30 @@ impl Stream {
             max_bytes: self.shape.max_bytes,
         };
         let answer = match self.read(&request).await {
-            Ok(answer) => answer,
-            Err(StoreError::Gone) => return Turn::Close(close(RESYNC)),
-            Err(_) => return Turn::Close(self.busy()),
+            Ok(answer) if self.epoch_is(answer.epoch) => answer,
+            // A page answered from another epoch is a promotion, which the store reports as `Gone`
+            // for a cursor of the old epoch and as a foreign `epoch` in a page that came back: both
+            // are the same `resync`.
+            Ok(_) | Err(StoreError::Gone) => return Step::last(close(RESYNC)),
+            Err(_) => return Step::last(self.busy()),
         };
-        self.epoch = answer.epoch;
         self.caught_up = answer.next.seq >= answer.head_seq;
-        match answer.heads.first() {
-            // An empty page means caught up with nothing to send: wait rather than spin. A
-            // subscriber whose cursor is already at `head_seq` lands here on its first read.
-            None => self.wait().await,
-            Some(_) => {
-                self.pending = answer.heads;
-                self.next_notice()
-            }
-        }
+        self.pending = answer.heads;
+        self.next_notice()
     }
 
     /// The store read itself, with the pool wait and the test seam around it.
-    async fn read(
-        &self,
-        request: &PageReq,
-    ) -> Result<page::Page, StoreError> {
+    ///
+    /// A hub with no database answers `Busy`, not `Gone`: there is nothing to resync from, and the
+    /// SDK's jittered reconnect is the right answer to a hub that is not up yet.
+    async fn read(&self, request: &PageReq) -> Result<page::Page, StoreError> {
         if let Some(fault) = crate::hooks::page_fault(&self.app.hooks, self.cursor.seq) {
             return Err(fault);
         }
-        let store = self.app.store().await?;
+        let store = match self.app.store().await {
+            Ok(store) => store,
+            Err(_) => return Err(StoreError::Busy { retry_after: 1 }),
+        };
         let read = page::page(store, request);
         match tokio::time::timeout(self.shape.timeout, read).await {
             Ok(answer) => {
@@ -190,62 +270,73 @@ impl Stream {
                 }
                 answer
             }
-            // A read that waited past the budget is the `busy` §5.3 describes: the pool is short,
-            // not the cursor wrong. The store would answer the same thing as `Busy` on its own.
+            // A read that waited past the budget is the `busy` §5.3 describes: the pool is short, not
+            // the cursor wrong. The store answers the same thing as `Busy` on its own.
             Err(_) => Err(StoreError::Busy { retry_after: 1 }),
         }
     }
 
     /// Step 3: caught up, so wait for the watch or for the heartbeat's tick.
-    async fn wait(&mut self) -> Turn {
+    ///
+    /// The epoch is **not** re-read here. §5.3's heartbeat re-reads it, and axum's `KeepAlive`
+    /// writes a comment on its own interval, so the two would be two intervals racing; the epoch
+    /// check is the stream's business and lives in [`Sub::epoch_is`], which the next page read calls
+    /// before it trusts the position the watch reported.
+    async fn wait(&mut self) -> Wake {
         let mut every = beat::ticker();
         loop {
             tokio::select! {
                 changed = self.receiver.changed() => {
-                    if changed.is_err() {
-                        return Turn::End;
-                    }
-                    self.caught_up = false;
-                    return self.page().await;
+                    return match changed {
+                        Ok(()) => Wake::Changed,
+                        // The sender is gone, which only happens at shutdown.
+                        Err(_) => Wake::Shut,
+                    };
                 }
-                _ = every.tick() => return Turn::Event(heartbeat()),
+                _ = every.tick() => return Wake::Ticked,
             }
         }
     }
 
+    /// Is the epoch this read answered with still the one the stream's cursor belongs to?
+    ///
+    /// A workspace promoted from a restore gets a new epoch, and every cursor a subscriber holds is
+    /// void from that moment: the seqs it names mean something else. The store's page read answers
+    /// with the epoch it read, so this costs nothing — the check is a comparison of a number the read
+    /// already returned, and it is what turns a promotion into a `resync` instead of a stream that
+    /// silently resumes in the middle of a different log.
+    ///
+    /// Caveat: a stream with nothing to read is not told. The check rides on the page read, so an
+    /// idle subscriber of a promoted workspace stays open until its client times out or a change
+    /// arrives; a per-heartbeat re-read would close that gap at one statement per subscriber per
+    /// 15 s, and §5.3 puts the check on the read instead.
+    fn epoch_is(&self, epoch: u64) -> bool {
+        epoch == self.epoch
+    }
+
     /// The next notice of the page in hand, advancing the cursor to the header it carries.
     ///
-    /// The cursor moves as the notice is *built*, so a stream dropped half way through a page
-    /// resumes at the last notice the client actually received rather than at the page's end.
-    fn next_notice(&mut self) -> Turn {
+    /// The cursor moves as the notice is built, so a stream dropped half way through a page resumes
+    /// at the last notice the client actually received and not at the page's end.
+    fn next_notice(&mut self) -> Step {
         let Some(head) = self.pending.first().cloned() else {
-            return Turn::End;
+            return Step::end();
         };
         self.pending.remove(0);
         self.cursor = Cursor {
             epoch: self.epoch,
             seq: head.seq,
         };
-        Turn::Event(notice(&head, self.epoch))
+        Step::more(notice(&head, self.epoch))
     }
 
     /// The `busy` close, with the slot freed **before** the event is yielded.
     ///
-    /// The `take` is the whole point: the `Subscriber`'s drop returns the count, and a subscriber
-    /// that reconnects on the same key while this connection is still open finds the cap with room.
+    /// The `take` is the whole point: the `Subscriber`'s drop returns the count, so a subscriber that
+    /// reconnects on the same key while this connection is still open finds the cap with room.
     fn busy(&mut self) -> Event {
         self.subscriber.take();
         close(BUSY)
-    }
-}
-
-impl Turn {
-    /// The event this turn produced, or `None` when the stream ends with nothing to say.
-    fn event(self) -> Option<Event> {
-        match self {
-            Turn::Event(event) | Turn::Close(event) => Some(event),
-            Turn::End => None,
-        }
     }
 }
 
@@ -259,7 +350,11 @@ fn heartbeat() -> Event {
 fn notice(head: &Head, epoch: u64) -> Event {
     Event::default()
         .event(CHANGE)
-        .id(Cursor { epoch, seq: head.seq }.to_string())
+        .id(Cursor {
+            epoch,
+            seq: head.seq,
+        }
+        .to_string())
         .data(notice_json(&head.as_change_head()))
 }
 

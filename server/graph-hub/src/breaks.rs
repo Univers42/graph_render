@@ -12,7 +12,13 @@
 
 /// The breaks this crate's own rows force. Task 2 adds `no-start-check`, Task 3 `skip-grant` and
 /// `reload-keys-only`, Task 4 `no-cap`, Task 7 `skip-event`, Task 8 `drop-record`.
-pub const NAMES: [&str; 4] = ["skip-grant", "reload-keys-only", "no-cap", "no-start-check"];
+pub const NAMES: [&str; 5] = [
+    "skip-grant",
+    "reload-keys-only",
+    "no-cap",
+    "no-start-check",
+    "skip-event",
+];
 
 /// Is the named break on?
 ///
