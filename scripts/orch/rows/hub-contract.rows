@@ -1,0 +1,24 @@
+# hub-contract (plan docs/superpowers/plans/2026-10-05-graph-hub-contract.md, spec §8 rows hub-wire and
+# the pure half of hub-materialize). Each negctl turns one property off through GM_HUB_BREAK (feature
+# negctl) and must go red.
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+clippy-hub|0|scripts/orch/gr cargo clippy -p graph-contract --all-targets --features codegen,negctl -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+codegen|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hub-wire|0|scripts/orch/gr cargo test -p graph-contract --features codegen,negctl hub::tests -- --skip hub::tests::materialize
+negctl-lax-reader|0|scripts/orch/gr -e GM_HUB_BREAK=lax-reader cargo test -p graph-contract --features codegen,negctl hub::tests::batch; test $? -ne 0
+hub-materialize|0|scripts/orch/gr cargo test -p graph-contract --features codegen,negctl hub::tests::materialize
+negctl-keep-dangling|0|scripts/orch/gr -e GM_HUB_BREAK=keep-dangling cargo test -p graph-contract --features codegen,negctl hub::tests::materialize; test $? -ne 0
+negctl-keep-cells|0|scripts/orch/gr -e GM_HUB_BREAK=keep-cells cargo test -p graph-contract --features codegen,negctl hub::tests::materialize; test $? -ne 0
+# The motor's dependency closure is unchanged: no new crate, graph-core's manifest untouched.
+motor-lock|0|git diff --exit-code origin/develop -- Cargo.lock crates/graph-core/Cargo.toml
+negctl-motor-lock|0|d=target/motor-lock; rm -rf $d && mkdir -p $d && cp Cargo.lock $d/ && echo '# scratch' >>$d/Cargo.lock && git diff --no-index --exit-code Cargo.lock $d/Cargo.lock >/dev/null; test $? -ne 0
+# graph-server depends on graph-contract: the service floor, verbatim from svc-floor.rows.
+svc-fmt|0|scripts/orch/gr cargo fmt --manifest-path server/Cargo.toml --all --check
+svc-clippy|0|scripts/orch/gr cargo clippy --manifest-path server/Cargo.toml --workspace --all-targets -- -D warnings
+svc-test|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --workspace --no-fail-fast
+root-fmt|0|scripts/orch/gr cargo fmt --all --check
+hooks-gated|0|d=target/hooks-gated; mkdir -p $d && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --release --bin graph-server -- --print cfg >$d/release.cfg 2>/dev/null && ! grep -qx 'feature="test-hooks"' $d/release.cfg && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --profile test --test limits -- --print cfg >$d/test.cfg 2>/dev/null && grep -qx 'feature="test-hooks"' $d/test.cfg
+negctl-hooks-gated|0|d=target/hooks-gated; mkdir -p $d && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --release --bin graph-server --features test-hooks -- --print cfg >$d/forced.cfg 2>/dev/null && grep -qx 'feature="test-hooks"' $d/forced.cfg

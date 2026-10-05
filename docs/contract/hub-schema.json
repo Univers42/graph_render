@@ -1,0 +1,520 @@
+{
+  "$defs": {
+    "AnswerWire": {
+      "additionalProperties": false,
+      "description": "The answer to an applied batch: where the stream is, and how much of the batch actually\nchanged something.",
+      "properties": {
+        "applied": {
+          "description": "How many of the batch's operations changed something. An idempotent re-send answers\n`0`, which is a different fact from \"the batch failed\".",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "description": "Where the stream is.",
+          "format": "uint64",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "applied",
+        "seq"
+      ],
+      "type": "object"
+    },
+    "BatchWire": {
+      "additionalProperties": false,
+      "description": "One batch, as the wire spells it: the records to store and the records to remove.",
+      "properties": {
+        "deletes": {
+          "description": "The records to remove, as `(collection, id)` pairs with nothing else.",
+          "items": {
+            "$ref": "#/$defs/DeleteWire"
+          },
+          "type": "array"
+        },
+        "upserts": {
+          "description": "The records to store.",
+          "items": {
+            "$ref": "#/$defs/UpsertWire"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "deletes",
+        "upserts"
+      ],
+      "type": "object"
+    },
+    "Cardinality": {
+      "description": "How many records a `link` field may name. Declared, not inferred: a one-valued list and a single value are different schema shapes, and reading one as the other would hide a mistake.",
+      "oneOf": [
+        {
+          "const": "one"
+        },
+        {
+          "const": "many"
+        }
+      ],
+      "type": "string"
+    },
+    "ChangeKind": {
+      "description": "What a change carries. The two variants are the whole taxonomy of the stream, so a\nclient can switch on this member and be sure it has seen every shape.",
+      "oneOf": [
+        {
+          "const": "batch",
+          "description": "Records stored and removed.",
+          "type": "string"
+        },
+        {
+          "const": "manifest",
+          "description": "A plugin's declaration changed.",
+          "type": "string"
+        }
+      ]
+    },
+    "ChangeWire": {
+      "additionalProperties": false,
+      "description": "One change entry: a batch's worth of records, or a manifest's new declaration.",
+      "properties": {
+        "at": {
+          "description": "When the change was applied, already in the wire's own timestamp spelling — the\ncontract has no clock (D2).",
+          "type": "string"
+        },
+        "deletes": {
+          "description": "The removed records, each with the revision it had. Present only on a `batch`.",
+          "items": {
+            "$ref": "#/$defs/StoredDelete"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/ChangeKind",
+          "description": "What this change carries."
+        },
+        "manifest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ManifestWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The new declaration. Present only on a `manifest` change."
+        },
+        "plugin": {
+          "description": "The plugin the change is for.",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Where the stream is after this change.",
+          "format": "uint64",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upserts": {
+          "description": "The stored records. Present only on a `batch` change.",
+          "items": {
+            "$ref": "#/$defs/StoredRecord"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "kind",
+        "plugin",
+        "seq"
+      ],
+      "type": "object"
+    },
+    "Collection": {
+      "additionalProperties": false,
+      "description": "A collection of records and the roles of its fields.",
+      "properties": {
+        "fields": {
+          "description": "Its declared fields, in canonical order (sorted by field id).",
+          "items": {
+            "$ref": "#/$defs/Field"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "Stable id, unique in the document; the middle coordinate of a node id. May not\ncontain `:` (H5).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human name, for diagnostics only.",
+          "type": "string"
+        },
+        "titleField": {
+          "description": "Id of the field whose value is a record's label. That field's role is `title`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fields",
+        "id",
+        "name",
+        "titleField"
+      ],
+      "type": "object"
+    },
+    "DeleteWire": {
+      "additionalProperties": false,
+      "description": "One record to remove: its identity and its collection, and nothing else. A delete has\nno cells and no version — a record the store does not have is not an error, so the wire\ncarries nothing a store would have to reconcile.",
+      "properties": {
+        "collection": {
+          "description": "The collection's id, **unqualified**: the hub qualifies it from the plugin.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The record's id within that collection.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "collection",
+        "id"
+      ],
+      "type": "object"
+    },
+    "ErrorWire": {
+      "additionalProperties": false,
+      "description": "The service's error envelope. The contract fixes the *class* of each refusal, not the\ncode string: the codes belong to `docs/contract/service-api.md`, and a client that\nswitched on them would be coupled to the service's wording.",
+      "properties": {
+        "error": {
+          "description": "The class: `invalid`, `conflict`, `too_large`, `cursor`, `internal`.",
+          "type": "string"
+        },
+        "message": {
+          "description": "A human-readable reason, naming the path or the coordinate at fault.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "error",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Field": {
+      "additionalProperties": false,
+      "description": "One declared field of a collection.",
+      "properties": {
+        "id": {
+          "description": "Stable id, unique within its collection; the key a record's `values` uses.",
+          "type": "string"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Link"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a `link` field points at; `null` for every other role. Required in the\nschema even though it is nullable, so \"no link\" is stated rather than omitted —\nsee `required_link`, which is what puts it there."
+        },
+        "name": {
+          "description": "Human name, for diagnostics only.",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "What the field means. Declared, never inferred."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role"
+      ],
+      "type": "object"
+    },
+    "JsonValue": {
+      "description": "Any JSON value. The contract constrains the envelope and never the payload: a source's own cell types survive it untouched, so what a `title` must hold is a role the declaration states, not a JSON type here."
+    },
+    "Link": {
+      "additionalProperties": false,
+      "description": "What a `link` field points at.",
+      "properties": {
+        "cardinality": {
+          "$ref": "#/$defs/Cardinality",
+          "description": "How many references the field may hold."
+        },
+        "collection": {
+          "description": "Id of the collection the references name.",
+          "type": "string"
+        },
+        "symmetric": {
+          "description": "Whether the relation is undirected: `A → B` and `B → A` are one edge, drawn\nwithout an arrowhead.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cardinality",
+        "collection",
+        "symmetric"
+      ],
+      "type": "object"
+    },
+    "ManifestWire": {
+      "additionalProperties": false,
+      "description": "The manifest, as the wire spells it — see [`Manifest`] for what the reader holds.\n\n`manifestVersion` is the client's publication counter and `version` is this wire\nformat's. Both are in the schema because a client that confuses them refuses its own\nsecond manifest, and the schema is where a client learns they are different facts.",
+      "properties": {
+        "collections": {
+          "description": "The declared collections.",
+          "items": {
+            "$ref": "#/$defs/Collection"
+          },
+          "type": "array"
+        },
+        "manifestVersion": {
+          "description": "The client's own publication counter; what growth compares.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "description": "Human name, for diagnostics only.",
+          "type": "string"
+        },
+        "version": {
+          "const": 1,
+          "description": "This wire format's version. 1 is the only one defined.",
+          "format": "uint32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "collections",
+        "manifestVersion",
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "NoticeWire": {
+      "additionalProperties": false,
+      "description": "A change-stream position with nothing in it.",
+      "properties": {
+        "at": {
+          "description": "When the change was applied.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Always `notice`. A member and not a constant because the wire writes every change\nenvelope the same shape, and a client switching on one member should not need a\nspecial case for the empty one.",
+          "type": "string"
+        },
+        "plugin": {
+          "description": "The plugin the notice is for.",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Where the stream is.",
+          "format": "uint64",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "at",
+        "kind",
+        "plugin",
+        "seq"
+      ],
+      "type": "object"
+    },
+    "Role": {
+      "description": "What a declared field means. Declared, never inferred: a wrong role silently changes the graph, so the explicit declaration is the escape hatch and this contract offers no convenience inference on top of it.",
+      "oneOf": [
+        {
+          "const": "title"
+        },
+        {
+          "const": "label"
+        },
+        {
+          "const": "group"
+        },
+        {
+          "const": "tags"
+        },
+        {
+          "const": "link"
+        },
+        {
+          "const": "scalar"
+        },
+        {
+          "const": "weight"
+        },
+        {
+          "const": "parent"
+        }
+      ],
+      "type": "string"
+    },
+    "StoredDelete": {
+      "additionalProperties": false,
+      "description": "One removed record inside a change: its identity and the revision it had, which is the\nnumber a client compares against what it last saw.",
+      "properties": {
+        "collection": {
+          "description": "The collection's id, qualified.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The record's id within that collection.",
+          "type": "string"
+        },
+        "rev": {
+          "description": "The revision the record had when it was removed.",
+          "format": "uint64",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "collection",
+        "id",
+        "rev"
+      ],
+      "type": "object"
+    },
+    "StoredRecord": {
+      "additionalProperties": false,
+      "description": "One stored record inside a change: the record the ingest contract writes, plus the hub's\nown revision.\n\n`rev` is here and not in the record because it is not a fact about the *record*: it is a\nfact about the hub's history of it, and two hubs storing the same record assign\ndifferent ones.",
+      "properties": {
+        "collection": {
+          "description": "The record's collection, qualified.",
+          "type": "string"
+        },
+        "deleted": {
+          "description": "Whether the source has deleted it.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "The record's id within that collection.",
+          "type": "string"
+        },
+        "rev": {
+          "description": "The hub's revision for this record. 1 when it was created.",
+          "format": "uint64",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updatedAt": {
+          "description": "The client's own version of this record.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Its cells keyed by field id.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "collection",
+        "deleted",
+        "id",
+        "rev",
+        "updatedAt",
+        "values"
+      ],
+      "type": "object"
+    },
+    "UpsertWire": {
+      "additionalProperties": false,
+      "description": "One record to store.",
+      "properties": {
+        "collection": {
+          "description": "The collection's id, **unqualified**: a batch is the write path and the hub\nqualifies every collection itself, so a qualified one here would be qualified twice.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The record's id within that collection. Not empty, and no `:`.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "description": "The client's own version of this record. `u32`, never `usize` on the wire (D6).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Its cells keyed by field id. The map is keyed by id rather than positional, so a\nreserialized document means the same thing (H6).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "collection",
+        "id",
+        "updatedAt",
+        "values"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The graph-motor hub wire: a manifest declares what a plugin's collections mean, a batch stores and removes records, and a change stream reports what was done. Every object refuses an unknown member, and every document is written in canonical order — object keys sorted by bytes, collections by qualified id, records by (qualified collection, id) — so two hubs that stored the same change agree byte for byte about what it was.",
+  "properties": {
+    "answer": {
+      "$ref": "#/$defs/AnswerWire",
+      "description": "The answer to an applied batch."
+    },
+    "batch": {
+      "$ref": "#/$defs/BatchWire",
+      "description": "A plugin's records to store and remove."
+    },
+    "change": {
+      "$ref": "#/$defs/ChangeWire",
+      "description": "One entry of the change stream."
+    },
+    "error": {
+      "$ref": "#/$defs/ErrorWire",
+      "description": "The error envelope the *service* writes; the contract fixes only the class."
+    },
+    "manifest": {
+      "$ref": "#/$defs/ManifestWire",
+      "description": "A plugin's declaration of its collections."
+    },
+    "notice": {
+      "$ref": "#/$defs/NoticeWire",
+      "description": "A change-stream position with nothing in it."
+    }
+  },
+  "required": [
+    "manifest",
+    "batch",
+    "change",
+    "notice",
+    "answer",
+    "error"
+  ],
+  "title": "HubWire",
+  "type": "object"
+}
