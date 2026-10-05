@@ -162,3 +162,36 @@ and row `svc-supply` (D7), H1, H8 and row `hub-breaks-off` (D8), §10 slice 3 (`
   `svc-features` re-run in slices 2 and 3.
 - `server-and-write-path.md` deferred "streams". This record lifts that only for an SSE
   change feed. Remote access and TLS stay stop-and-ask: the hub binds loopback by default.
+
+## Round 4 (slice 3, Task 8): the `/layout` relay
+
+1. **A motor 429 becomes the hub's own 503 with `Retry-After: 1`**, which is
+   `HubApiError::busy_wait()`. §5.2's table says "503 + `Retry-After`" for the motor's
+   queue-full row and the plan's test name says the same, while `HubApiError::Busy`'s status is
+   429 for a non-zero `retry_after` and 503 only for `busy_wait()`. So the 429 row uses
+   `busy_wait()`: the caller waits in the **hub's** queue, which is what a 503 with a
+   `Retry-After` already says.
+   Caveat: the hub cannot distinguish its own queue-full from a motor admission wait, and
+   does not try.
+2. **`relay::post` takes the already-open `Document` and an optional `Probe`** rather than
+   opening the snapshot itself. The handler admits the `LAYOUTS` permit and opens the snapshot
+   before the exchange (§5.2's order: permit, then work), and `layout_never_holds_a_whole_
+   document` needs to hand the relay its own counters. `RelayReq.cursor` is read off that same
+   `Document`, so it is the snapshot's own position and not a second read.
+3. **The `LAYOUTS` permit travels with the response body** (`relay::body::held`). §6's default
+   of 1 is what bounds a waiting `/layout` to one snapshot, one xmin horizon and one pool
+   connection; a permit freed when the response head was written would let a second upload start
+   while the first answer was still streaming. Caveat: a caller that keeps a connection open and
+   never reads holds the permit until `GRAPH_HUB_STREAM_DEADLINE_MS` cuts the stream.
+4. **`GRAPH_HUB_STREAM_DEADLINE_MS` cuts the answer as well as the request**, and a cut ends the
+   stream rather than failing it: the caller sees a short body and re-reads at its cursor, which
+   is §6's rule for every streamed route.
+5. **The relay builds a `hyper-util` client per call.** Caveat: a fresh TCP connection per
+   `/layout`, which §6's table treats as free because `GRAPH_HUB_LAYOUTS` defaults to 1.
+6. **`negctl-drop-record` runs two commands**: the byte equality must fail and
+   `graph_is_not_affected_by_drop_record` must pass. One command alone would only prove that some
+   relay exists, not that `drop-record` is in the relay alone (D4, §5.3).
+7. **`GM_HUB_BREAK` is forwarded into the container with `-e GM_HUB_BREAK`** on both control
+   rows, like every other control in `scripts/orch/rows/hub.rows`. Without it the variable is set
+   on the host only, the break never reaches the test, and the control passes for the wrong
+   reason.
