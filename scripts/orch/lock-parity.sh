@@ -55,23 +55,9 @@ done
 # cannot read, so the copy would fail before it reached the lockfile. `cargo tree` reads
 # manifests, so manifests copied is the whole of what has to change. The links are RELATIVE,
 # because of the mount.
-scratch_setup() {
-  local scratch=$1 link
-  rm -rf "$scratch" || return 2
-  mkdir -p "$scratch/server/graph-server" || return 2
-  # WHY each link's `..` count is computed rather than written out: the scratch directory's depth
-  # below the root is a variable (`break-version` sits one level deeper than `break-feature`),
-  # so a hand-written count is right for one mode and dangling for the other, and a dangling
-  # link reads as "failed to read crates/graph-contract/Cargo.toml" — a failure that looks like
-  # a broken workspace rather than a bad `..` count. Each is relative to the directory the link
-  # lands in, which is `$scratch` for `crates/` and the package directory for `src/`.
-  link=$(realpath --relative-to="$scratch" "$root/crates") || return 2
-  ln -s "$link" "$scratch/crates" || return 2
-  link=$(realpath --relative-to="$scratch/server/graph-server" "$root/server/graph-server/src") || return 2
-  ln -s "$link" "$scratch/server/graph-server/src" || return 2
-  cp server/Cargo.toml server/Cargo.lock "$scratch/server/" || return 2
-  cp server/graph-server/Cargo.toml "$scratch/server/graph-server/" || return 2
-}
+# D7: the ONE copy of this function lives in scripts/orch/lib/server-scratch.sh, which
+# scripts/orch/svc-features.sh also sources. See that file for the WHY.
+. "$here/lib/server-scratch.sh" || exit 2
 
 # The closure of graph-wasm under `$manifest_path`, sorted. Non-zero when cargo could not run.
 #

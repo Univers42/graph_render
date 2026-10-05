@@ -1,0 +1,19 @@
+{
+  "source": "ops",
+  "tables": [
+    {
+      "id": "issue",
+      "name": "Issues",
+      "titleColumn": "title",
+      "columns": [
+        { "name": "title", "label": "Title", "role": "title" },
+        { "name": "state", "label": "State", "role": "scalar" }
+      ],
+      "rows": [
+        { "id": "1", "values": { "title": "Crash on load", "state": "open" } },
+        { "id": "2", "values": { "title": "Slow import", "state": "open" } },
+        { "id": "3", "values": { "title": "Old bug", "state": "closed" }, "deleted": true }
+      ]
+    }
+  ]
+}

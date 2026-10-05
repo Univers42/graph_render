@@ -48,28 +48,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+. "$here/lib/server-scratch.sh" || exit 2
+
 # WHY 2 and not 1 for a cargo failure: a check that could not look is not a check that found
 # nothing. A `nonzero` gate row would be satisfied by a toolchain that is simply absent.
 tree=$(mktemp) || exit 2
 trap 'rm -f "$tree"' EXIT
 manifest=server/Cargo.toml
 if [ "$break" = 1 ]; then
-  # WHY manifests are copied and sources are linked, not `cp -r server`: the workspace's
-  # `target/` holds root-owned incremental locks, and copying a tree the gate cannot read
-  # fails on them before it reaches the feature at all. `cargo tree` reads manifests, so the
-  # copy is the manifests plus links to the real `crates/` and `src/`, and nothing under
-  # `server/` is edited.
-  #
-  # The links are RELATIVE. `scripts/orch/gr` bind-mounts the repository at `/w`, so a link
-  # naming the host's own path (`$root`) dangles inside the container and cargo reports "no
-  # targets specified" — a failure that reads like a broken workspace rather than a bad link.
   scratch=target/svc-features
-  rm -rf "$scratch" || exit 2
-  mkdir -p "$scratch/server/graph-server" || exit 2
-  ln -s ../../crates "$scratch/crates" || exit 2
-  ln -s ../../../../server/graph-server/src "$scratch/server/graph-server/src" || exit 2
-  cp server/Cargo.toml server/Cargo.lock "$scratch/server/" || exit 2
-  cp server/graph-server/Cargo.toml "$scratch/server/graph-server/" || exit 2
+  scratch_setup "$scratch" || exit 2
   manifest=$scratch/server/Cargo.toml
   # The one edge the control perturbs, named here rather than at the call site so this script
   # and the reason in the header cannot disagree about what `--break` means.

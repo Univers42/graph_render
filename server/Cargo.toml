@@ -4,7 +4,10 @@
 # every crate graph-core links.
 [workspace]
 resolver = "2"
-members = ["graph-server"]
+members = ["graph-server", "graph-store"]
+# Only graph-server is built at the virtual root: graph-store's `tokio` features must never
+# unify into the shipped binary (spec H2, D13). Row `hub-virtual-root` diffs both trees.
+default-members = ["graph-server"]
 
 # Verdict condition 5: a panic in a run must unwind into a JoinError and a 500, never abort the
 # process with every other request in flight. Set on the workspace: member profiles are ignored.

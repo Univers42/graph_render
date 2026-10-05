@@ -31,7 +31,15 @@ cd "$real"
 # The host owns target/: under the rootful daemon a container creates it as root, and then the
 # host-side logs of gate.sh and scigraphs-conformance.sh cannot be written (2026-10-02, fix-analysis).
 mkdir -p target
-git submodule update -q --init SciGraphs
+# Borrow the main tree's SciGraphs objects, then copy them in (--dissociate), so the worktree
+# never depends on that store: a fresh ssh clone ran past 15 min on 2026-10-05 (gate-full-cb11),
+# the borrowed one took seconds.
+ref=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/SciGraphs
+if git -C "$ref" rev-parse -q --git-dir >/dev/null 2>&1 && [[ -e $ref/.git ]]; then
+  git submodule update -q --init --reference "$ref" --dissociate SciGraphs
+else
+  git submodule update -q --init SciGraphs
+fi
 "$here/node-slim.sh" npm ci --ignore-scripts >/dev/null
 kit=${DEVIL_ROOT:-$HOME/.claude/plugins/marketplaces/univers42}
 bash "$kit/tools/setup.sh" --apply --only opencode >/dev/null

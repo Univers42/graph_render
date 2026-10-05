@@ -15,7 +15,9 @@
  */
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { MIN_SCREEN_RADIUS } from "../canvas2d/nodes.ts";
-import { type Locate, paintGround3d, paintRings, strokeWidth } from "../three/paint3d.ts";
+import { type Locate, paintRings } from "../three/paint3d.ts";
+import { strokeWidth } from "../three/edges3d.ts";
+import { paintGround } from "../canvas2d/ground.ts";
 import { type Projection, setupOf } from "../three/projection.ts";
 import { project, radiusOnScreen } from "../three/orbit.ts";
 import { counted } from "./draw.ts";
@@ -108,7 +110,7 @@ export function paintSpace(slot: BulkSlot, input: PaintInput, counts: PaintCount
     slot.failure = "the WebGL2 context was lost";
     return false;
   }
-  paintGround3d(input);
+  paintGround(input);
   input.ctx.drawImage(drawn.picture, 0, 0, input.viewport.width, input.viewport.height);
   drawn.picture.close();
   paintRings(input, locatorOf(wanted), counts);

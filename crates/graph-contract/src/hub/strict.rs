@@ -13,7 +13,7 @@
 //! `canonical_json::parse` already unescapes every string, so the walk is over the parsed
 //! tree rather than the text: no un-escaping here, and no way for the two to disagree
 //! about what a `\u0000` in the text means. Depth needs no bound of its own — the parser
-//! refuses past [`crate::canonical_json::MAX_DEPTH`] already.
+//! refuses past `MAX_DEPTH` (`canonical_json/parse.rs`) already.
 
 use super::{HubError, breaks};
 use crate::canonical_json::{self, Value};

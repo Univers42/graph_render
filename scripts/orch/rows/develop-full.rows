@@ -96,7 +96,7 @@ oracle-layouts-dag|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts 
 # ---------------------------------------------------------------------------------------------
 no-mul-add|0|scripts/orch/gr bash -c 'grep -rnE "mul_add[[:space:]]*[("] crates/graph-core/src && exit 1 || exit 0'
 eigen-determinism|0|scripts/orch/gr cargo test -p graph-core eigen_determinism
-stress-d3|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3
+stress-d3|0|scripts/orch/node-slim.sh npm ci --ignore-scripts >/dev/null && scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3
 bench|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --n 220,10000,100000
 emit-spectral-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-spectral-fixtures --seeds 1000
 oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py /w/SciGraphs/core target/spectral-fixtures
@@ -278,7 +278,7 @@ negctl-cargo-doc|0|scripts/orch/gr bash -c 'rm -rf target/negctl-doc && mkdir -p
 # ---------------------------------------------------------------------------------------------
 hashgate-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 1000
 negctl-hashgate-release|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q --release -p graph-cli -- hashgate --seeds 8
-stress-d3-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3 --seeds 1000
+stress-d3-1000|0|scripts/orch/node-slim.sh npm ci --ignore-scripts >/dev/null && scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3 --seeds 1000
 bench-force-1e5|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,10000,100000
 bench-fa2-1e5|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.forceatlas2 --n 220,10000,100000
 bench-vs-d3|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,10000 --vs-d3

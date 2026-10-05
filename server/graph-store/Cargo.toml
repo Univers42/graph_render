@@ -1,0 +1,36 @@
+[package]
+name = "graph-store"
+description = "graph-hub's PostgreSQL store: schema, epochs, the writer transaction, the streamed document."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[dependencies]
+graph-contract = { path = "../../crates/graph-contract" }
+# The version graph-server already pins (server/graph-server/Cargo.toml:27): no third copy of sha2.
+sha2 = { version = "=0.10.9", default-features = false, features = ["std"] }
+# `rt`, `sync` and `time` are already enabled by graph-server's edge (:29), so this edge adds
+# no feature the virtual-root diff could see; `macros` is a dev-dependency only.
+tokio = { version = "=1.53.2", features = ["rt", "sync", "time"] }
+tokio-postgres = { version = "=0.7.18", default-features = false, features = ["runtime"] }
+# `TryStreamExt` for `Client::query_raw`'s RowStream; already in the lock through graph-server.
+futures-util = { version = "=0.3.34", default-features = false }
+
+[dev-dependencies]
+# graph-contract's own break names (`keep-dangling`, `keep-cells`) are behind ITS `negctl`
+# feature. A dev-dependency turns it on for test targets only; no normal build sees it.
+graph-contract = { path = "../../crates/graph-contract", features = ["negctl"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[features]
+# The negative controls' server-side breaks (`src/breaks.rs`). Off in every shipped build.
+negctl = []
+# The test-only seams (`src/hooks.rs`): enabled by the rows, never by a build that needs no
+# database. `#![cfg(feature = "db-tests")]` in every `tests/*.rs` is what keeps condition (c).
+db-tests = []
+test-hooks = []
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
