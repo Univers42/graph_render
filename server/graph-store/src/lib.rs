@@ -18,8 +18,10 @@ pub mod hooks;
 pub mod migrate;
 pub mod pool;
 pub mod store;
+pub mod writer;
 
 pub use config::{StoreConfig, check};
 pub use error::{DbError, StoreError};
 pub use pool::Detector;
 pub use store::Store;
+pub use writer::{BatchOutcome, BatchWrite, Idempotency, ManifestWrite, ManifestWritten};
