@@ -38,7 +38,12 @@ use crate::error::HubApiError;
 /// page cannot honour. Taking the last would let a proxy's appended parameter override the client's.
 pub(crate) fn query_of(uri: &Uri) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
-    for pair in uri.query().unwrap_or("").split('&').filter(|p| !p.is_empty()) {
+    for pair in uri
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .filter(|p| !p.is_empty())
+    {
         let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
         let name = decode(name);
         if out.contains_key(&name) {

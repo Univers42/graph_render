@@ -27,13 +27,10 @@ pub fn matches(headers: &HeaderMap, cursor: &Cursor) -> bool {
         return false;
     }
     let wanted = quoted(cursor);
-    headers
-        .get_all(header::IF_NONE_MATCH)
-        .iter()
-        .any(|value| {
-            value.to_str().is_ok_and(|text| {
-                text.split(',')
-                    .any(|tag| tag.trim() == "*" || tag.trim() == wanted)
-            })
+    headers.get_all(header::IF_NONE_MATCH).iter().any(|value| {
+        value.to_str().is_ok_and(|text| {
+            text.split(',')
+                .any(|tag| tag.trim() == "*" || tag.trim() == wanted)
         })
+    })
 }

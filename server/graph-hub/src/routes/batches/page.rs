@@ -15,7 +15,9 @@ use crate::error::HubApiError;
 /// collection or record id can hold (`check_collection_id` and `check_record_id` both refuse it),
 /// percent-encoded by [`encode_cursor`] so it survives a URL unquoted. The SDK passes it back
 /// without reading it, which is what "opaque" means.
-pub fn cursor_pair(query: &BTreeMap<String, String>) -> Result<Option<(String, String)>, HubApiError> {
+pub fn cursor_pair(
+    query: &BTreeMap<String, String>,
+) -> Result<Option<(String, String)>, HubApiError> {
     let Some(cursor) = query.get("cursor") else {
         return Ok(None);
     };

@@ -91,7 +91,10 @@ fn page_body(page: &graph_store::changes::ChangePage) -> Response {
     });
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )],
         body.to_string(),
     )
         .into_response()
@@ -103,9 +106,9 @@ fn page_body(page: &graph_store::changes::ChangePage) -> Response {
 /// one, so a missing `since` cannot be filled in without a read whose answer the caller did not ask
 /// for; §5.2's row always names the parameter.
 fn since_of(query: &BTreeMap<String, String>) -> Result<Cursor, HubApiError> {
-    let raw = query
-        .get("since")
-        .ok_or(HubApiError::BadRequest("since is required, as <epoch>.<seq>"))?;
+    let raw = query.get("since").ok_or(HubApiError::BadRequest(
+        "since is required, as <epoch>.<seq>",
+    ))?;
     Cursor::parse(raw).map_err(|_| HubApiError::BadRequest("since is not <epoch>.<seq>"))
 }
 

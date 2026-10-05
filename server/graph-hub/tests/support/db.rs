@@ -91,6 +91,37 @@ pub async fn fresh_collation(name: &str) -> String {
     .await
 }
 
+/// A workspace id no other case in this process has used, from `prefix`.
+///
+/// WHY a case that empties the change log needs one: `put_manifest` writes no seq for
+/// byte-identical content (§4), so a workspace whose manifest change was deleted can never register
+/// its plugin again, and a fixed name would make the second run of the suite fail for that reason
+/// rather than for the one under test.
+pub fn unique(prefix: &str) -> String {
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}-{}-{seq}", std::process::id())
+}
+
+/// Delete every row of `ws` in every table the store keeps, so a name a previous run used starts
+/// empty. Best effort per table: a table a given schema does not have is not an error.
+pub async fn forget(hub: &graph_hub::app::App, ws: &str) {
+    let store = hub.store().await.expect("the store under test");
+    let client = store.client().await.expect("a connection");
+    for table in [
+        "change_ops",
+        "change_headers",
+        "idempotency",
+        "links",
+        "records",
+        "manifests",
+        "workspaces",
+    ] {
+        let _ = client
+            .batch_execute(&format!("DELETE FROM {table} WHERE ws = '{ws}'"))
+            .await;
+    }
+}
+
 /// Delete every change row of `ws`, which is the shape a full retention prune leaves behind.
 ///
 /// WHY here: graph-store's retention does not exist yet (its `retain` and `retain_bytes` are read
