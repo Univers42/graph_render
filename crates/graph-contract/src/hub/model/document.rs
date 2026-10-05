@@ -133,8 +133,9 @@ impl Model {
                     .map(move |c| (plugin.as_str(), c))
             })
             .map(|(plugin, c)| {
-                let mut kept =
-                    crate::hub::prune::kept_collection(c, &|target| self.registered(plugin, target));
+                let mut kept = crate::hub::prune::kept_collection(c, &|target| {
+                    self.registered(plugin, target)
+                });
                 kept.id = qualify(plugin, &c.id);
                 kept
             })
