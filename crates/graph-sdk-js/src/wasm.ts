@@ -56,6 +56,7 @@ export interface RawExports {
   gm_force_session_column_len(session: number, axis: number): number;
   gm_force_session_release(session: number): number;
   gm_graph_extend(graph: number, ptr: number, len: number): number;
+  gm_graph_extend_columns(graph: number, ptr: number, len: number): number;
   gm_force_session_grow(session: number, graph: number): number;
 }
 
@@ -76,7 +77,7 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   gm_force_session_reheat: true, gm_force_session_pin: true, gm_force_session_unpin: true,
   gm_force_session_unpin_all: true, gm_force_session_column_ptr: true,
   gm_force_session_column_len: true, gm_force_session_release: true,
-  gm_graph_extend: true, gm_force_session_grow: true,
+  gm_graph_extend: true, gm_graph_extend_columns: true, gm_force_session_grow: true,
 };
 
 /** The ABI revision this SDK speaks: `gm_abi_version()` must return exactly this
@@ -84,9 +85,13 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
  *
  *  `2` since `gm_run`'s `params_ptr`/`params_len` stopped being refused and started
  *  carrying a layout's published parameters, and `Code::ParamsMustBeEmpty` stopped being
- *  produced. A module from before it is refused by name at load (`gm_layout_params` is in
- *  `EXPORT_NAMES`), which degrades the whole motor rather than only its parameters — the
- *  price of an SDK that reads one module's schemas instead of guessing at them. */
+ *  produced — and it is still `2` with `gm_graph_extend_columns` added, because that export is
+ *  purely additive: no existing signature, code or document moved, so bumping would refuse every
+ *  module over a symbol a caller may never call (`docs/decisions/extend-columns.md`, item 4).
+ *  A module from before it is refused by name at load (`gm_layout_params` and
+ *  `gm_graph_extend_columns` are both in `EXPORT_NAMES`), which degrades the whole motor rather
+ *  than only its parameters — the price of an SDK that reads one module's schemas instead of
+ *  guessing at them. */
 export const ABI_VERSION = 2;
 
 /** `instance`'s exports checked against this SDK. `memory` is given when the module imports

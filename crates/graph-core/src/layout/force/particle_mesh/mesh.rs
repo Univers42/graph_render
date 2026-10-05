@@ -65,6 +65,49 @@ impl Mesh {
         }
     }
 
+    /// This mesh over `n` nodes, in place: every buffer a tick overwrites is resized and
+    /// every buffer keyed on the side is rebuilt only when the side moves, so a batch of
+    /// ten thousand rows costs the batch and not the whole mesh.
+    ///
+    /// A [`Mesh::new`] mesh is this one with every kept field reset, so each is either
+    /// fully overwritten before the next tick reads it, or validly keyed — which is what
+    /// makes the grown mesh the carried one, field for field:
+    ///
+    /// | Field | Kept when the side is unchanged because |
+    /// |---|---|
+    /// | `plan` | `Plan::new` is a pure function of the side, so the swaps and twiddles it holds are the ones a new plan would build |
+    /// | `density`, `spectrum` | every FFT pass has `side²` outputs and `Runner::run` clears each range before the kernel writes it, and only rows `0..cells` are read, so no cell of the previous tick survives |
+    /// | `kernel` | [`Kernel::refresh`] is keyed on the rung, the reach and the law, and a key hit means the next solve would resample and retransform the same `frame` — so the spectrum it holds is the one it would have built |
+    /// | `blocks` | `frame::bounds` resizes it to `n / BLOCK` and writes every box it folds |
+    /// | `frame` | never kept: set to `None` so a field read between the growth and the next tick is `(0, 0)`, as a fresh mesh's is |
+    ///
+    /// The three whose *length* is the node count — `at`, [`Rows`] and [`Grid`] — are
+    /// resized rather than kept, and the two grid columns the tick's charge reads before
+    /// that tick's collide rebuilds them are put back to the identity permutation a
+    /// fresh grid holds ([`Grid::grow`] says which and why).
+    pub(in crate::layout::force) fn grow(&mut self, n: u32) {
+        let side = side_for(n);
+        if side != self.plan.side() {
+            self.plan = Plan::new(side);
+            self.density = vec![C::default(); side * side];
+            self.spectrum = vec![C::default(); side * side];
+            // `built_for` does not name the side, so a kernel kept across a wider mesh
+            // would hand a `side²`-long transform a shorter spectrum.
+            self.kernel = Kernel::new(side);
+        }
+        self.frame = None;
+        self.at.resize(n as usize, (0.0, 0.0));
+        self.rows.grow(side, n);
+        self.grid.grow(n);
+    }
+
+    /// The side this mesh's plan transforms, for the test that a growth crossed a
+    /// [`side_for`] boundary.
+    #[cfg(test)]
+    pub(in crate::layout::force) fn side(&self) -> usize {
+        self.plan.side()
+    }
+
     /// This tick's field over `sim`'s positions, its transforms run by `runner` on
     /// `workers`. `false` when there is none to read: fewer than two nodes, a zero
     /// `distanceMax`, or no finite position.

@@ -274,6 +274,13 @@ impl ForceSession {
     pub(crate) fn scratch_capacities(&self) -> Vec<usize> {
         self.sim.scratch_capacities()
     }
+
+    /// The particle-mesh side, or `None` without a mesh: for the test that a growth
+    /// crossed a `side_for` boundary.
+    #[cfg(test)]
+    pub(crate) fn mesh_side(&self) -> Option<usize> {
+        self.mesh.as_ref().map(Mesh::side)
+    }
 }
 
 /// The one tier a session that chose no host runner runs under: [`Serial`], one worker,

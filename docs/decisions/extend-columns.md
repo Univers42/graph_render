@@ -279,6 +279,17 @@ Written before the code, so they can fail it.
 - **P4e-sdk** (after P4e-motor lands): `encodeBatch`, `Motor.extendColumns`, `sdk:test`, the wasm
   `--path columns` arm, the studio switch, the 1M measurement and its report.
 
+## Result (P4e-sdk)
+
+Conditions 13–17 green: the export is named (`ABI_VERSION` still 2), `extendColumns` goes through
+`buildStaged` and bumps, its refusals are `ColumnsRefusedError`, `encodeBatch` shares `Table` and
+the assembler, and the studio prefers it with both guards. Condition 18's eight-arm run is in
+[`perf-p4e-extend.md`](../measurements/perf-p4e-extend.md): **native 23.92 / 19.34 ms — the budget
+is met on both engines' native side; wasm 55.12 / 56.74 ms — still missed**, and the JSON arms are
+unchanged in behaviour and stay. **A2 confirmed; A1 refuted in its strong form** — the wasm arm
+gave up less than the native arm did, so the walk-plus-serialize is not most of the wasm premium;
+timing `encodeBatch` alone is the next measurement and this run does not have it.
+
 ## Early read (P4e-motor)
 
 One round, native Barnes-Hut, 1M nodes, 10 × 10 000-node batches, `--from target/bench/p4e-1m.jsonl`, `GR_MEM=12g`; not P4e-sdk's 3-round median, no wasm arm, and A1/A2 answered in the columns path's favour on this round only. The two `extend` columns measure different spans: `json` reads *and* appends, `columns` decodes and appends with its read and encode untimed.
@@ -287,3 +298,20 @@ One round, native Barnes-Hut, 1M nodes, 10 × 10 000-node batches, `--from targe
 | `json` (two runs) | 28.80 / 29.10 ms | 3.54 / 3.64 ms | 32.48 / 33.75 ms (over the budget) | 9.51→8.20, 13.15→12.98 |
 | `columns`        | 16.35 ms           | 5.15 ms     | **21.79 ms**, under the 30 ms budget | 9.49→11.80 |
 ```
+
+## Result (P4f)
+
+[`perf-p4f-wasm.md`](../measurements/perf-p4f-wasm.md) times `encodeBatch` on its own: it is
+**84 % / 79 % of the wasm32 `extend` timer** (31.18 / 29.52 ms of 37.33 / 37.14), so the premium
+was never the wasm motor — the copy into linear memory is 0.25 % and the motor is the whole of
+the 6–8 ms left over. Removing the encoder's wasted work (a field path per field per row, a
+discarded `join` of the whole table, a second measurement of every entry) leaves the GMX1 bytes
+byte-identical, pinned by a literal and a SHA-256 with a verified negative control.
+
+## Result (P4g)
+
+[`perf-p4g-wasm.md`](../measurements/perf-p4g-wasm.md): growing the mesh in place cuts wasm PM `grow`
+10.02 → 3.93 ms, and a `charCodeAt` width walk plus one `encodeInto` over the joined table cut
+`encode` ~5 ms, GMX1 bytes unchanged (the "never joined" test became "one `encodeInto` over the
+join", deliberately). Against `75c885b6` at load 4–7: wasm BH 33.42 → 28.86, PM 38.05 → 28.36 ms —
+met on a quiet host, 1.1–2.4 ms headroom, missed under load. The arena hash stays (probe 70 % of `find`).

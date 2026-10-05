@@ -58,6 +58,13 @@ export interface MotorLike<Handle> {
    * without it — and every test double — still satisfies it, and a batch is then refused.
    */
   extend?(handle: Handle, batch: GraphBatch): void;
+  /**
+   * The same append over the columnar batch `gm_graph_extend_columns` reads
+   * (`docs/decisions/extend-columns.md`). Optional for the same reason `extend` is, and it is
+   * preferred where it exists: the JSON path spends a `JSON.stringify` per batch on bytes the
+   * module reads as columns anyway.
+   */
+  extendColumns?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
   forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): (ForcePort & Growable<Handle>) | null;
 }
@@ -130,6 +137,23 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 }
 
 /**
+ * One delta batch, appended to the graph behind `built`.
+ *
+ * The columnar path is preferred wherever the motor has it and the JSON path is the fallback, so
+ * this file works against both an SDK that grew the export and one that did not. A motor with
+ * neither is refused by name rather than called blindly: a `TypeError` on a missing method would
+ * reject the worker's promise and read as the studio's own bug, where `SessionRefusal` is the
+ * queue's `failed` result saying the motor cannot do this (`docs/contract/delta.md`).
+ */
+function appendBatch<Handle>(motor: MotorLike<Handle>, built: Built<Handle>, batch: GraphBatch): void {
+  if (motor.extendColumns !== undefined) motor.extendColumns(built.handle, batch);
+  else if (motor.extend !== undefined) motor.extend(built.handle, batch);
+  else throw new SessionRefusal("this motor cannot add to a built graph");
+  // After the motor: a refusal leaves the graph and this list as they were.
+  built.nodes = [...built.nodes, ...batch.nodes];
+}
+
+/**
  * The live force port over the graph as it is now drawn, or null when there is none: a force
  * request before a graph is loaded is "no session yet", the same answer as a motor with none.
  */
@@ -154,12 +178,7 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     },
     // Both refusals are the queue's to answer: `force.deltas` turns a throw here into a
     // `failed` result carrying the message, and the graph is untouched either way.
-    extend: (batch) => {
-      if (motor.extend === undefined) throw new SessionRefusal("this motor cannot add to a built graph");
-      motor.extend(built.handle, batch);
-      // After the motor: a refusal leaves the graph and this list as they were.
-      built.nodes = [...built.nodes, ...batch.nodes];
-    },
+    extend: (batch) => appendBatch(motor, built, batch),
     grow: () => {
       if (deps.breakDeltas?.() === true) return;
       // Read late: "Animate" restarts the session, so a captured binding is a released one.

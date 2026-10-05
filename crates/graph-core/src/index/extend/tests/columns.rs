@@ -10,7 +10,10 @@
 //!
 //! The refusals are the existing `refusals()` table, not a second one: the columns twin of a
 //! JSON refusal is the same batch through the other path, so the table is walked once by
-//! `extend_refusal_leaves_topology_unchanged` for both.
+//! `extend_refusal_leaves_topology_unchanged` for both. The rows a record batch cannot spell
+//! — the three [`BatchRefusal`] variants beyond `extend`'s four — are rows of that same table,
+//! carrying a [`Damage`] the columnar half applies; see the enum for why they must be edited
+//! rather than built.
 
 use super::*;
 use crate::index::columns::{BatchEdgeCells, batch_load};
@@ -27,6 +30,20 @@ pub(super) struct Doc {
     edges: Vec<BatchEdgeCells>,
 }
 
+/// The one-cell edit a `GMX1` buffer can carry and no record can spell: a `NodeRecord`'s and
+/// an `EdgeRecord`'s kind are enumerations, and neither type indexes a string table at all.
+/// So the three refusals [`BatchRefusal`] gives beyond `extend`'s four are unreachable over
+/// records — which is why [`Doc::damage`] edits a built batch rather than a fixture building it.
+pub(super) enum Damage {
+    /// Batch node `index`'s kind entry names no node kind.
+    NodeKind(u32),
+    /// Batch edge `index`'s kind entry names no edge kind.
+    EdgeKind(u32),
+    /// Batch edge `index`'s source entry is `entry`, past the end of the table. `u32::MAX` is
+    /// what a corrupt index looks like; any value over the table's length refuses the same way.
+    SourceEntry { index: u32, entry: u32 },
+}
+
 impl Doc {
     /// The records `nodes` and `edges` as a `GMX1` batch: every string an entry, every
     /// endpoint an entry **naming a node id**. An endpoint naming a node the batch does not
@@ -34,50 +51,67 @@ impl Doc {
     pub(super) fn of(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Doc {
         let mut doc = Self::default();
         for n in nodes {
-            let id = doc.entry(&n.id);
-            let kind = doc.entry(n.kind.as_str());
-            let database_id = n.database_id.as_deref().map(|t| doc.entry(t));
-            let source = doc.entry(&n.source);
-            let label = doc.entry(&n.label);
-            let group = n.group.as_deref().map(|t| doc.entry(t));
-            let icon = n.icon.as_deref().map(|t| doc.entry(t));
-            doc.nodes.push(NodeCells {
-                id,
-                kind,
-                database_id,
-                source,
-                label,
-                group,
-                weight: n.weight,
-                version: n.version,
-                has_note: n.has_note,
-                icon,
-            });
+            let cells = doc.node_cells(n);
+            doc.nodes.push(cells);
         }
         for e in edges {
-            let id = doc.entry(&e.id);
-            let source_entry = doc.entry(&e.source);
-            let target_entry = doc.entry(&e.target);
-            let kind = doc.entry(e.kind.as_str());
-            let label = doc.entry(&e.label);
-            let record_id = e.record_id.as_deref().map(|t| doc.entry(t));
-            doc.edges.push(BatchEdgeCells {
-                id,
-                source_entry,
-                target_entry,
-                kind,
-                label,
-                record_id,
-                strength: e.strength,
-                directed: e.directed,
-                child_first: e.child_first,
-            });
+            let cells = doc.edge_cells(e);
+            doc.edges.push(cells);
         }
         doc
     }
 
+    /// One node row: six entries at most, the three scalars across.
+    fn node_cells(&mut self, n: &NodeRecord) -> NodeCells {
+        NodeCells {
+            id: self.entry(&n.id),
+            kind: self.entry(n.kind.as_str()),
+            database_id: n.database_id.as_deref().map(|t| self.entry(t)),
+            source: self.entry(&n.source),
+            label: self.entry(&n.label),
+            group: n.group.as_deref().map(|t| self.entry(t)),
+            weight: n.weight,
+            version: n.version,
+            has_note: n.has_note,
+            icon: n.icon.as_deref().map(|t| self.entry(t)),
+        }
+    }
+
+    /// One edge row: five entries, and both endpoints as entries naming a node id.
+    fn edge_cells(&mut self, e: &EdgeRecord) -> BatchEdgeCells {
+        BatchEdgeCells {
+            id: self.entry(&e.id),
+            source_entry: self.entry(&e.source),
+            target_entry: self.entry(&e.target),
+            kind: self.entry(e.kind.as_str()),
+            label: self.entry(&e.label),
+            record_id: e.record_id.as_deref().map(|t| self.entry(t)),
+            strength: e.strength,
+            directed: e.directed,
+            child_first: e.child_first,
+        }
+    }
+
+    /// This batch with the one cell `damage` names overwritten, so a batch no set of records
+    /// can produce reaches the append.
+    pub(super) fn damage(&mut self, damage: Damage) {
+        match damage {
+            Damage::NodeKind(index) => {
+                let kind = self.entry("not a node kind");
+                self.nodes[index as usize].kind = kind;
+            }
+            Damage::EdgeKind(index) => {
+                let kind = self.entry("not an edge kind");
+                self.edges[index as usize].kind = kind;
+            }
+            Damage::SourceEntry { index, entry } => {
+                self.edges[index as usize].source_entry = entry;
+            }
+        }
+    }
+
     /// One node row, every optional present, id `id`.
-    fn node(&mut self, id: &str) {
+    pub(super) fn node(&mut self, id: &str) {
         let id = self.entry(id);
         let kind = self.entry("record");
         let database_id = Some(self.entry("db"));
@@ -100,7 +134,7 @@ impl Doc {
     }
 
     /// One node row with every optional absent: three strings, as `Load::of_batch` counts.
-    fn bare_node(&mut self, id: &str) {
+    pub(super) fn bare_node(&mut self, id: &str) {
         let id = self.entry(id);
         let kind = self.entry("record");
         let source = self.entry("pg");
@@ -135,7 +169,7 @@ impl Doc {
 
     /// What this batch would add to a graph already holding `held`, as the production count
     /// counts it.
-    fn load(&self) -> Load {
+    pub(super) fn load(&self) -> Load {
         batch_load(
             &Table(&self.table),
             self.nodes.iter().copied(),
@@ -210,57 +244,4 @@ fn an_empty_columns_batch_changes_nothing() {
     assert_eq!(Doc::of(&[], &[]).append(&mut t), Ok(()));
     assert_eq!(bytes(&t), bytes(&base));
     assert_eq!(t.strings().len(), base.strings().len());
-}
-
-/// The columns twin of `a_batch_that_could_overflow_a_count_is_refused_before_anything_is_
-/// counted_in`. The refusal is the same four, and the batch that trips them is the same
-/// sum over strings — six per node (id, database, source, label, group, icon) and three per
-/// edge (id, label, record id), because a kind name is resolved to a `NodeKind` and never
-/// interned, exactly as over records.
-#[test]
-fn a_columns_batch_that_could_overflow_a_count_is_refused_before_anything_is_counted_in() {
-    let mut full = Doc::default();
-    full.node("abc");
-    assert_eq!(
-        (full.load().strings, full.load().bytes, full.load().nodes),
-        (6, 3 + 2 + 2 + 1 + 1 + 1, 1),
-        "every optional present: six strings"
-    );
-    let mut bare = Doc::default();
-    bare.bare_node("abc");
-    assert_eq!(
-        (bare.load().strings, bare.load().bytes),
-        (3, 3 + 2 + 1),
-        "every optional absent: three strings"
-    );
-    let max = u64::from(u32::MAX);
-    let held = Load {
-        strings: max - 5,
-        bytes: 10,
-        nodes: 5,
-        edges: ADJACENCY_LIMIT - 1,
-    };
-    let refused = |batch: Load| held.check(batch).err();
-    assert_eq!(
-        refused(full.load()),
-        Some(ExtendError::Capacity {
-            what: "string arena"
-        })
-    );
-    let nodes = Load {
-        nodes: max - 1,
-        ..Load::default()
-    };
-    assert_eq!(
-        refused(nodes),
-        Some(ExtendError::Capacity { what: "node index" })
-    );
-    let edges = Load {
-        edges: 2,
-        ..Load::default()
-    };
-    assert_eq!(
-        refused(edges),
-        Some(ExtendError::Capacity { what: "adjacency" })
-    );
 }

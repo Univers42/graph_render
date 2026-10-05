@@ -53,8 +53,10 @@ esac
 
 # The forbidden constructs, as one extended regex. Each alternative is the *token* a
 # violation would contain; the comment filter below is what keeps the prose that names them
-# from matching.
-pattern='mul_add|relaxed(_simd)?|rayon|std::thread|Instant::now|libm::sqrt'
+# from matching. Relaxed SIMD is matched by its tokens, `relaxed-simd` and `f32x4_relaxed_*`:
+# the bare word matched prose inside a string literal ("the picture is merely less relaxed",
+# registry/three_d/graph.rs, gate-develop-178c, 2026-10-04).
+pattern='mul_add|relaxed[-_]|rayon|std::thread|Instant::now|libm::sqrt'
 
 # Every `mod NAME;` declared under `#[cfg(test)]`, across the whole tree: a `cfg(test)`
 # module's *contents* are not product code even though the file's name looks ordinary
@@ -119,9 +121,9 @@ scan() {
     || true
 }
 
-# The planted tree for --self-test: one product file, one real `Instant::now` in it, and the
-# three shapes the unscoped row used to match, so the test also shows the filter is what
-# silences them.
+# The planted tree for --self-test: the product violations (`Instant::now`, `libm::sqrt`, two
+# relaxed-SIMD tokens), the word `relaxed` in a string literal, and the three shapes the unscoped
+# row used to match, so the test also shows the filter is what silences them.
 self_test_tree() {
   local dir
   dir=$(mktemp -d)
@@ -132,8 +134,15 @@ pub mod sub;
 RS
   cat >"$dir/src/ok.rs" <<'RS'
 //! no mul_add here either
+pub const NOTE: &str = "the picture is merely less relaxed";
 pub fn add(a: f64, b: f64) -> f64 {
     a + b
+}
+RS
+  cat >"$dir/src/simd.rs" <<'RS'
+#[target_feature(enable = "relaxed-simd")]
+pub fn fused(a: v128, b: v128, c: v128) -> v128 {
+    f32x4_relaxed_madd(a, b, c)
 }
 RS
   cat >"$dir/src/bad.rs" <<'RS'
@@ -194,13 +203,17 @@ if [[ $self_test == 1 ]]; then
   root=$dir/src
   hits=$(scan)
   status=0
-  # The two product violations must be found...
+  # The planted product violations must be found...
   if ! grep -q 'bad.rs' <<<"$hits"; then
     echo "forbidden-constructs.sh: self-test FAILED: the planted Instant::now was not found" >&2
     status=1
   fi
   if ! grep -q 'slow.rs' <<<"$hits"; then
     echo "forbidden-constructs.sh: self-test FAILED: the planted libm::sqrt was not found" >&2
+    status=1
+  fi
+  if [[ $(grep -c 'simd.rs' <<<"$hits") != 2 ]]; then
+    echo "forbidden-constructs.sh: self-test FAILED: the two planted relaxed-SIMD tokens were not both found" >&2
     status=1
   fi
   # ...and nothing else may be. Each of these is a shape the unscoped row used to match.
@@ -211,7 +224,7 @@ if [[ $self_test == 1 ]]; then
     fi
   done
   if [[ $status == 0 ]]; then
-    echo "forbidden-constructs.sh: self-test ok (found bad.rs and slow.rs only)"
+    echo "forbidden-constructs.sh: self-test ok (found bad.rs, slow.rs and simd.rs only)"
   fi
   exit $status
 fi

@@ -16,7 +16,14 @@ import type { Handle } from "./types.ts";
 export interface StagedBuild {
   /** Names the buffer in the `gm_alloc` refusal: "ingest", "contract" or "columns". */
   buffer: string;
+  /** The export this path calls. A caller may bind it to another export — `extend.ts` binds
+   *  `gm_build` to `gm_graph_extend` and to `gm_graph_extend_columns` — so this is the *name*
+   *  staging calls, not the name the module gives it. */
   call: "gm_build" | "gm_build_contract" | "gm_build_columns";
+  /** What this path stages, stated rather than read off `call`: the two text builds take a
+   *  string, the columnar ones take bytes, and a bound `gm_build` takes bytes here. Inferring it
+   *  from the export name was the coupling that made a batch impossible to express. */
+  payload: "text" | "bytes";
   /** The message and error class of the build export's own refusal. */
   refusal: string;
   /** `code` is absent for a refusal of the SDK's own making, which never reached the ABI. */
@@ -36,6 +43,7 @@ type Payload = string | Uint8Array;
 export const INGEST_BUILD: StagedBuild = {
   buffer: "ingest",
   call: "gm_build",
+  payload: "text",
   refusal: "gm_build refused the ingest buffer",
   refuse: (message, code) => new BuildRefusedError(message, code),
 };
@@ -58,6 +66,7 @@ export const INGEST_BUILD: StagedBuild = {
 export const CONTRACT_BUILD: StagedBuild = {
   buffer: "contract",
   call: "gm_build_contract",
+  payload: "text",
   refusal: "gm_build_contract refused the contract document",
   refuse: (message, code) => new ContractRefusedError(message, code),
 };
@@ -69,6 +78,7 @@ export const CONTRACT_BUILD: StagedBuild = {
 export const COLUMNS_BUILD: StagedBuild = {
   buffer: "columns",
   call: "gm_build_columns",
+  payload: "bytes",
   refusal: "gm_build_columns refused the columnar document",
   refuse: (message, code) => new ColumnsRefusedError(message, code),
 };
@@ -106,9 +116,9 @@ function isShared(buffer: ArrayBufferLike): boolean {
  *  nine bytes `"undefined"` and was refused by the module as an unreadable document — a
  *  refusal about the *document* when the mistake was the *argument*, with no path back to the
  *  caller's own line. Caught here, where the argument is still identifiable. The columnar
- *  build takes bytes and the two text builds take a string. */
+ *  build takes bytes and the two text builds take a string, as {@link StagedBuild.payload} says. */
 function checkPayload(spec: StagedBuild, payload: unknown): void {
-  const bytes = spec.call === "gm_build_columns";
+  const bytes = spec.payload === "bytes";
   if (bytes ? payload instanceof Uint8Array : typeof payload === "string") return;
   throw spec.refuse(`the ${spec.buffer} document must be ${bytes ? "a Uint8Array" : "a string"}, got ${typeof payload}`);
 }

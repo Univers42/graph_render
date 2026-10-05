@@ -7,7 +7,7 @@
 //! disclaimer somewhere else is a table that will be read without it.
 
 use super::arms::{self, ArmReading};
-use super::{COLUMN_TABLE_B, Sample, ladder, largest_fitting};
+use super::{COLUMN_TABLE_B, Sample, ladder, largest_fitting, refused};
 use crate::bench::Plan;
 use std::path::Path;
 
@@ -21,13 +21,14 @@ pub fn markdown(plan: &Plan, rows: &[(&'static str, Vec<Sample>)], budget_ms: f6
          `alphaMin` 0.001) — the ABI has no per-tick entry point, so the tick is derived, \
          and the two harness arms divide the same way. Memory is columns and arena \
          **separately** — the arena is data-dependent and unbounded, so one total would \
-         hide which half grew. Past a registered `scale_ceiling` rows are labelled.\n\n",
+         hide which half grew. A size past a registered `scale_ceiling` is refused and \
+         listed under its table; `--past-ceiling` runs it, labelled.\n\n",
     );
     out += &format!(
         "seed {} · repeat {} · budget {budget_ms} ms · native, one machine class\n\n",
         plan.seed, plan.repeat
     );
-    out += &bench_tables(rows);
+    out += &bench_tables(plan, rows);
     out
 }
 
@@ -37,8 +38,28 @@ fn past(past_ceiling: bool) -> &'static str {
     if past_ceiling { " (past ceiling)" } else { "" }
 }
 
+/// The line naming the sizes `plan` asked of `id` that the campaign refused, or nothing.
+fn refusal_line(plan: &Plan, id: &str) -> String {
+    let Some(entry) = graph_core::registry::find(id) else {
+        return String::new();
+    };
+    let sizes: Vec<u32> = plan
+        .sizes
+        .iter()
+        .copied()
+        .filter(|&n| refused(plan, entry, n))
+        .collect();
+    if sizes.is_empty() {
+        return String::new();
+    }
+    let ceiling = entry.meta.scale_ceiling;
+    format!(
+        "refused n={sizes:?}: past its scale_ceiling of {ceiling}, not run (`--past-ceiling` runs them)\n"
+    )
+}
+
 /// One table per layout, plus the columns/node line each is read against.
-fn bench_tables(rows: &[(&'static str, Vec<Sample>)]) -> String {
+fn bench_tables(plan: &Plan, rows: &[(&'static str, Vec<Sample>)]) -> String {
     let mut out = String::new();
     for (id, samples) in rows {
         out += &format!("## {id}\n\n");
@@ -64,6 +85,7 @@ fn bench_tables(rows: &[(&'static str, Vec<Sample>)]) -> String {
         out += &format!(
             "\ncolumns/node {per_node:?} against the {COLUMN_TABLE_B} B/node table (`prompt.md` §5.1)\n\n"
         );
+        out += &refusal_line(plan, id);
     }
     out
 }
@@ -102,6 +124,10 @@ pub fn report(plan: &Plan) -> Result<bool, String> {
     }
     let rows = super::run(plan)?;
     for (id, samples) in &rows {
+        let refusal = refusal_line(plan, id);
+        if !refusal.is_empty() {
+            print!("{id} {refusal}");
+        }
         for s in samples {
             println!(
                 "{id} n={}{} build {:.2} ms  run {:.3} ms  tick {:.3} ms  settle {:.1} ms  columns {}  arena {}  bin {}  json {}",

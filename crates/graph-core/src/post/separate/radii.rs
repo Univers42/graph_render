@@ -43,12 +43,13 @@ pub fn largest(radii: &[f32]) -> f32 {
 
 /// A box's circumscribed radius: the distance from its centre to a corner.
 ///
-/// `libm::sqrt` (D1) and no `powi`, and deliberately **not** `hypot` — `hypot` is the better
-/// answer for `w² + h²` but this is one `sqrt` of a sum of two squares and the overflow guard
-/// `hypot` buys is worth nothing at layout-unit magnitudes, where `w` is a drawing size.
+/// `f32::sqrt` (correctly rounded on both targets) and no `powi`, and deliberately **not** `hypot`
+/// — `hypot` is the better answer for `w² + h²` but this is one `sqrt` of a sum of two squares and
+/// the overflow guard `hypot` buys is worth nothing at layout-unit magnitudes, where `w` is a
+/// drawing size.
 fn half_diagonal(w: f32, h: f32) -> f32 {
     let (hw, hh) = (w * 0.5, h * 0.5);
-    libm::sqrtf(hw * hw + hh * hh)
+    f32::sqrt(hw * hw + hh * hh)
 }
 
 /// A size column that is not finite or is negative would make the required separation NaN or

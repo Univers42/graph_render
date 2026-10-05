@@ -45,8 +45,8 @@ asserted over one of the two artifacts and silently unasserted over the one a ho
 
 `app/src/embed-bundle.ts` calls `defineGraphStudio()` at import, so a bare `<script type="module">`
 is enough. The pack's entry only exports it, and a host calls it itself
-(`app/src/embed.ts:97`). These are not the same requirement, and auto-define is **not** a safe
-superset: `packages/graph-studio/src/element.ts:147` returns early on the first definition, so a
+(`app/src/embed.ts:111`). These are not the same requirement, and auto-define is **not** a safe
+superset: `packages/graph-studio/src/element.ts:159` returns early on the first definition, so a
 pack entry that auto-defined would swallow the options a host passed to its own
 `defineGraphStudio({...})` with no error at all.
 
@@ -56,7 +56,7 @@ either (i) the pack's entry keeps not auto-defining, and `docs/deploy/service.md
 HTML, released as one — or (ii) the pack's entry auto-defines, and then
 `docs/contract/host-api.md:158` must gain the warning that a host's own options are discarded,
 and `packages/graph-studio/tests/` must gain a case that fails when a second definition with
-options is ignored. No row today can tell (i) from (ii): `app/src/embed.ts:97` passes no options.
+options is ignored. No row today can tell (i) from (ii): `app/src/embed.ts:111` passes no options.
 
 Reopen when the pack gains a host that needs auto-define, or when `graph-sdk.js` is removed from
 the service bundle — which changes the file set, therefore `<version>`, therefore every host's tag.

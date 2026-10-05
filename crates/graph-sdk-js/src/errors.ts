@@ -75,12 +75,17 @@ export class ContractRefusedError extends GraphMotorError {
   override name = "ContractRefusedError";
 }
 
-/** `gm_build_columns` refused the columnar document (`ColumnsInvalid`), or the handle table
- *  is exhausted. A sibling of {@link BuildRefusedError} rather than a subclass: a caller
- *  that catches only that one is saying "a provisional JSON document was refused", and the
- *  two documents mean different things — this one is reachable for a document `build`
- *  accepts happily (a repeated node id, which the JSON path drops and the dense-row rule
- *  cannot). */
+/** `gm_build_columns` or `gm_graph_extend_columns` refused the columnar document, or the handle
+ * table is exhausted. `ColumnsInvalid` is the code for both a *format* fault and a *graph* fault
+ *  — a repeated id, an endpoint that names no node — because the columnar path publishes that
+ *  one code for both clauses (`docs/contract/wasm-abi.md` "Three build paths").
+ *
+ *  A sibling of {@link BuildRefusedError} rather than a subclass, and the two are the classes a
+ *  caller swapping `extend` for `extendColumns` has to swap with it: the same logical refusal is
+ *  `IngestInvalid` under `gm_graph_extend` and `ColumnsInvalid` here, so a host that catches only
+ *  `BuildRefusedError` silently loses its error handling on the columnar path. The other
+ *  direction is deliberate too — this class is reachable for a document `build` accepts happily
+ *  (a repeated node id, which the JSON path drops and the dense-row rule cannot). */
 export class ColumnsRefusedError extends GraphMotorError {
   override name = "ColumnsRefusedError";
 }

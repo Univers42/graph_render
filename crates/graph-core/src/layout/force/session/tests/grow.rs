@@ -95,6 +95,54 @@ fn assert_same(a: &ForceSession, b: &ForceSession, what: &str) {
     );
 }
 
+/// How many rows the crossing stream's first batch holds, and how many its second reaches.
+/// 128² = 16 384 is where `side_for` leaves side 128, so these are the counts that cross
+/// it: `ceil(sqrt(16 000)) = 127` rounds up to 128 and `ceil(sqrt(17 000)) = 131` to 256.
+const CROSSING: (u32, u32) = (16_000, 17_000);
+
+/// How long both sessions run after the crossing batch before they are compared again.
+const CROSSING_TICKS: u32 = 20;
+
+/// One ring of 16 000 nodes, then 1 000 more continuing it. One growth, and it crosses the
+/// side the mesh's plan, buffers and kernel are keyed on.
+fn crossing_stream() -> Vec<Batch> {
+    let ring = |rows: Range<u32>| -> Vec<EdgeRecord> {
+        (rows.start..rows.end)
+            .map(|i| link(i, i, (i + 1) % CROSSING.1, 0.5))
+            .collect()
+    };
+    vec![
+        (nodes(0..CROSSING.0), ring(0..CROSSING.0)),
+        (nodes(CROSSING.0..CROSSING.1), ring(CROSSING.0..CROSSING.1)),
+    ]
+}
+
+/// One growth across `side_for`'s 128 → 256 boundary with the mesh on: the grown session
+/// and the carry of the session it was just before are the same session, bit for bit,
+/// after the batch and after ticks on. The side is asserted on both sides of the
+/// comparison, so a `grow` that kept the old plan cannot pass by agreeing with itself.
+#[test]
+fn grow_across_a_side_boundary_equals_carry() {
+    let batches = crossing_stream();
+    let mut topology = index_model(&batches[0].0, &batches[0].1).expect("fits");
+    let mut grown = live(&topology, true);
+    assert_eq!(grown.mesh_side(), Some(128), "16 000 rows is side 128");
+    let previous = topology.clone();
+    topology
+        .extend(&batches[1].0, &batches[1].1)
+        .expect("a strict batch");
+    let mut carried = grown.carry(&previous, &topology).expect("over previous");
+    grown.grow(&topology).expect("an extension");
+    assert_same(&grown, &carried, "the crossing batch");
+    grown.step(CROSSING_TICKS);
+    carried.step(CROSSING_TICKS);
+    let what = format!("the crossing batch, {CROSSING_TICKS} ticks on");
+    assert_same(&grown, &carried, &what);
+    assert_eq!(grown.xs().len(), 17_000, "every row the batch added");
+    assert_eq!(grown.mesh_side(), carried.mesh_side(), "the same side");
+    assert_eq!(grown.mesh_side(), Some(256), "past 128² rows is side 256");
+}
+
 /// Grows one session through the stream, comparing it after each batch with the carry of
 /// the session it was just before. Row 3 is pinned before the third batch.
 fn grows_as_it_carries(mesh: bool) {

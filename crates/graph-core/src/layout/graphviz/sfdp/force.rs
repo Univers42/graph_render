@@ -97,7 +97,7 @@ pub(super) fn kp(k: f64) -> f64 {
 /// so the force falls off as `1/dist`: written as `dist * dist` rather than `pow` because the
 /// pair loop is the layout's hot path. A coincident pair has `delta = 0` and adds nothing.
 pub(super) fn repel(out: &mut [f64; 2], delta: [f64; 2], charge: f64) {
-    let dist = libm::sqrt(delta[0] * delta[0] + delta[1] * delta[1]).max(MINDIST);
+    let dist = f64::sqrt(delta[0] * delta[0] + delta[1] * delta[1]).max(MINDIST);
     let scale = charge / (dist * dist);
     out[0] += scale * delta[0];
     out[1] += scale * delta[1];

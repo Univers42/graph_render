@@ -12,12 +12,12 @@ Reused rather than rewritten: `deltarows.wait_grown`'s poll (`deltarows.py:91`) 
 on this page — the element sits in `#frame`'s own shadow root, which is why `embedpage.ELEMENT`
 exists. `drawn` below is that reader on the element this page really has.
 
-Caveat: the refusal's name is the SDK's typed-error subclass, `BuildRefusedError`
-(`crates/graph-sdk-js/src/extend.ts:31`), because the batch goes in through the build staging
-path; `IngestInvalid` is the wire *code* under it (code 4, `crates/graph-wasm/src/errors.rs`),
-and `crates/graph-wasm/src/service.rs:60` is where a repeated node id becomes that code.
-`docs/contract/delta.md:141` names the code, so a host that keys on the name keys on
-`BuildRefusedError`. Measured and pinned: see `REFUSAL_NAME`.
+Caveat: the refusal's name is the SDK's typed-error subclass, `ColumnsRefusedError`
+(`crates/graph-sdk-js/src/extend.ts:52`), because the studio sends each batch through
+`extendColumns` wherever the motor has it (`packages/graph-studio/src/motor/session.ts:149`,
+`appendBatch`); `ColumnsInvalid` is the wire *code* under it. The JSON fallback, `extend`, throws
+`BuildRefusedError` for the same refusal (`docs/contract/delta.md:206`), so a host that keys on the
+name keys on the path the motor took. Measured and pinned: see `REFUSAL_NAME`.
 """
 import json
 import time
@@ -37,10 +37,10 @@ NODE_BATCH = 8
 REFUSAL_LINE = 6
 # The refusal's `name`, measured through the host API on 2026-10-04 and cited in the module
 # docstring. Ponytail: a pinned string, so a motor that changed the refusal reads as a red row
-# rather than as a pass with a different word in it. Direction: an older pack whose SDK predates
-# `BuildRefusedError`; the way out is a row per name, or the wire code once the host API carries
-# it (it carries `name` and `message` only, `element.ts:140`).
-REFUSAL_NAME = "BuildRefusedError"
+# rather than as a pass with a different word in it. Direction: a motor without `extendColumns`
+# refuses as `BuildRefusedError` and reads red here; the way out is a row per name, or the wire
+# code once the host API carries it (it carries `name` and `message` only, `element.ts:152`).
+REFUSAL_NAME = "ColumnsRefusedError"
 
 # The one page state that means the element has no verb to call (`app/src/embedReplay.ts`). Its
 # absence is NOT-RUN, never a silent pass — `deltarows.py:28` is the precedent.

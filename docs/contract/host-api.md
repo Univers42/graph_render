@@ -80,10 +80,12 @@ worker or a backend.
 `app/src/embed.ts` is the host page the gate drives, and it streams: its Replay button reads
 `fixtures/embed/replay.jsonl` and hands each line to `applyDeltas` one batch at a time, awaiting
 every answer before the next call, because the verb is atomic per call and is not coalesced across
-calls (condition 8). A refused line pushes the motor's error `name` and the replay goes on; the page
-keeps the outcome on `window.__embed.replay` and the gate reads it there. Rows
-`embed-replay-applied`, `embed-replay-refused` and `embed-replay-drawn` (`deploy/nav/embedreplay.py`);
-`break-replay` serves the file a line short and both of the others must FAIL.
+calls (condition 8). A refused line pushes the motor's error `name` — `ColumnsRefusedError`, because
+the studio extends through `extendColumns` where the motor has it (`docs/contract/delta.md:206`) —
+and the replay goes on; the page keeps the outcome on `window.__embed.replay` and the gate reads it
+there. Rows `embed-replay-applied`, `embed-replay-refused` and `embed-replay-drawn`
+(`deploy/nav/embedreplay.py`); `break-replay` serves the file a line short and both of the others
+must FAIL.
 
 ## Gates
 
@@ -203,7 +205,7 @@ disagree, the condition wins.
     keeps an older definition (`element.ts:216-217`). A `resolve` set before the element upgrades is
     picked up. Row `studio-embed` sets `resolve` before `define`; its break skips the upgrade step.
 13. **Host requirements.**
-    - The worker and the wasm are served from the host's own origin: `mount.ts:66` builds the worker
+    - The worker and the wasm are served from the host's own origin: `mount.ts:69` builds the worker
       URL from `import.meta.url`, and a Worker must be same-origin. The service's `/embed/` is therefore
       reverse-proxied under the host's origin.
     - The CSP needs `script-src 'wasm-unsafe-eval'` and `worker-src 'self'`.

@@ -14,6 +14,7 @@
 mod arm;
 mod marked;
 
+use super::super::shard::Shard;
 use super::super::stage_bytes_for;
 use super::super::staged;
 use super::super::stages::stages as stage_ids;
@@ -137,7 +138,7 @@ fn the_transport_stage_runs_the_layout_the_wasm_arm_names() {
 
 #[test]
 fn the_native_arm_hashes_the_transport_stage_from_the_pipelines_own_snapshot() {
-    let lines = arm_lines(2, &honest()).expect("runs");
+    let lines = arm_lines(2, Shard::WHOLE, &honest()).expect("runs");
     let digests = |stage: &str| -> Vec<String> {
         lines
             .lines()
@@ -254,7 +255,7 @@ fn assert_zero_spacing_is_refused(base: &Setting) {
 #[test]
 fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
     let seeds = 2;
-    let lines = arm_lines(seeds, &honest()).expect("runs");
+    let lines = arm_lines(seeds, Shard::WHOLE, &honest()).expect("runs");
     let prefixes: Vec<_> = lines
         .lines()
         .map(|l| l.rsplit_once(' ').expect("digest").0)
@@ -270,7 +271,7 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
         ..honest()
     };
     assert!(
-        arm_lines(seeds, &refused)
+        arm_lines(seeds, Shard::WHOLE, &refused)
             .expect_err("refused")
             .starts_with("seed 0: ")
     );
