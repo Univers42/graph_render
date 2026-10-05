@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// `GROWN` with the `note` collection taken out and the version bumped: a removal, which §4
-/// refuses because the records already stored carry that collection's cells.
+/// [`GROWN`] with the `label` collection taken out and the version bumped: a removal, which §4
+/// refuses because the records already stored carry that collection's declarations.
 ///
 /// Written as its own text rather than spliced out of [`GROWN`], because the point of the case is
 /// that the refusal names a *removed* declaration and a text built by `replace` would make that

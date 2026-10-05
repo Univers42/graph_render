@@ -39,6 +39,7 @@ async fn once(
 ) -> Result<(BatchOutcome, u64), StoreError> {
     step::begin(client).await?;
     let ws = step::lock_workspace(client, &req.ws).await?;
+    super::HOOKS.pause_after_lock().await;
     if let Some(hit) = replay(client, req).await? {
         client.batch_execute("COMMIT").await?;
         return Ok((hit, ws.epoch));
