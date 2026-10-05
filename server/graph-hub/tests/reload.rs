@@ -80,6 +80,20 @@ async fn a_good_pair_swaps_both() {
         "the new grants are in force: {}",
         elsewhere.body()
     );
+    // The old key's *grant* is gone with the old grants. This is the assertion the
+    // `reload-keys-only` break cannot survive: it swaps the key set and leaves the table, so the old
+    // key's name is still granted everything while the key itself is already gone.
+    let pair = hub.app.keys.current();
+    assert!(
+        !pair
+            .1
+            .allows("tester", "ops", &graph_hub::grants::Need::Read),
+        "the retired key's grant went with the old grants file"
+    );
+    assert!(
+        pair.1
+            .allows("second", "ops", &graph_hub::grants::Need::Read)
+    );
 }
 
 /// An unchanged pair is not a swap: the same `Arc` stays, so every request in flight keeps the pair
