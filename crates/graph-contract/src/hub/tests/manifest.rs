@@ -53,12 +53,11 @@ fn a_link_target_is_qualified_once_and_only_once() {
     );
 }
 
-/// Every refusal, with the message it gives. One test because the point is that each
-/// one says *where*, and a table of (text, message) keeps a reader from having to run
-/// the suite to learn what a refusal looks like.
-#[test]
-fn a_manifest_that_breaks_the_contract_is_refused_naming_the_path() {
-    let cases = [
+/// Every refusal, with the message it gives — `(what broke, the body, the message)`. One
+/// table because the point is that each refusal says *where*, and a reader should be able to
+/// learn what one looks like without running the suite.
+fn refusals() -> [(&'static str, String, &'static str); 7] {
+    [
         (
             "unknown member",
             TWO.replace(r#""name": "Tasks","#, r#""name": "Tasks","extra": 1,"#),
@@ -101,8 +100,12 @@ fn a_manifest_that_breaks_the_contract_is_refused_naming_the_path() {
             TWO.replace(r#""name": "Tasks","#, r#""name": "Ta\u0000sks","#),
             "name: a NUL character",
         ),
-    ];
-    for (what, text, message) in cases {
+    ]
+}
+
+#[test]
+fn a_manifest_that_breaks_the_contract_is_refused_naming_the_path() {
+    for (what, text, message) in refusals() {
         assert_eq!(
             read_manifest(&text, "tracker").unwrap_err().to_string(),
             message,
