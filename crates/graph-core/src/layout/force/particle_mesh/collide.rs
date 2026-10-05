@@ -25,11 +25,13 @@ use crate::exec::{Runner, StepRange};
 use crate::layout::force::barnes_hut::sim::{How, Sim};
 use crate::rng::jiggle;
 use gather::Gather;
-use hash::{Buckets, Hash};
+use hash::Hash;
+use sort::Scratch;
 use std::ops::Range;
 
 mod gather;
 mod hash;
+mod sort;
 
 const PASS_X: u32 = 4;
 const PASS_Y: u32 = 5;
@@ -43,10 +45,13 @@ pub(in crate::layout::force) struct Grid {
     /// need: the sort counts two ahead and scatters one ahead, so it ends shifted into
     /// place with no copy.
     start: Vec<u32>,
-    /// Each node's bucket while the sort runs, then its slot: `order[slot[i]] == i`.
+    /// Each node's slot: `order[slot[i]] == i`. The sort reads the *previous* tick's value
+    /// and writes this tick's through [`Scratch::spare_slot`](sort::Scratch).
     pub(super) slot: Vec<u32>,
     /// The positions in sorted order.
     at: Vec<[f64; 2]>,
+    /// The counting sort's own buffers ([`sort::Scratch`]), the last tick's coherence.
+    scratch: Scratch,
     hash: Hash,
     /// The origin's bounds fold, one box per block of nodes.
     blocks: Vec<Bounds>,
@@ -76,6 +81,7 @@ impl Grid {
             start: vec![0; buckets + 2],
             slot: (0..n).collect(),
             at: vec![[0.0; 2]; n as usize],
+            scratch: Scratch::new(n),
             hash: Hash {
                 shift: 64 - buckets.trailing_zeros(),
                 mask: buckets as u64 - 1,
@@ -112,11 +118,12 @@ impl Grid {
         self.slot.resize(n, 0);
         self.slot.clone_from_slice(&self.order);
         self.at.resize(n, [0.0; 2]);
+        self.scratch.grow(n as u32);
     }
 
     /// Sorts every node into its bucket, stably: inside a bucket, by node index. The
     /// bounds, the hashing and the sorted positions run through `runner`; the counting
-    /// sort is one thread's.
+    /// sort is one thread's, walking the previous tick's order ([`sort`]).
     pub(super) fn build<R: Runner>(
         &mut self,
         xy: (&[f64], &[f64]),
@@ -124,30 +131,12 @@ impl Grid {
         (runner, workers): (&R, u32),
     ) {
         let found = frame::bounds(xy, runner, workers, &mut self.blocks);
-        let origin = found.map_or((0.0, 0.0), |(lo, _)| lo);
         self.hash = Hash {
-            origin,
+            origin: found.map_or((0.0, 0.0), |(lo, _)| lo),
             size,
             ..self.hash
         };
-        let hash = self.hash;
-        runner.run(&Buckets { hash, xy }, workers, &mut self.slot);
-        self.start.fill(0);
-        for &b in &self.slot {
-            self.start[b as usize + 2] += 1;
-        }
-        for b in 1..self.start.len() {
-            self.start[b] += self.start[b - 1];
-        }
-        // `start[b + 1]` is bucket `b`'s start and its cursor; it ends as bucket `b`'s
-        // end, which is bucket `b + 1`'s start.
-        for (i, slot) in self.slot.iter_mut().enumerate() {
-            let next = &mut self.start[*slot as usize + 1];
-            let k = *next;
-            *next += 1;
-            self.order[k as usize] = i as u32;
-            *slot = k;
-        }
+        self.sort(xy, (runner, workers));
         let sorted = Sorted {
             order: &self.order,
             xy,
