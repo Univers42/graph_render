@@ -46,7 +46,8 @@ Facts (first verified on develop e5e2ddca, line numbers re-verified on develop f
   parity base: it is the 2026-10-03 stencil tree, and the mesh has changed since (P4g, 2026-10-04).
 - Files near the cap: `particle_mesh/motion.rs` 196 lines, `charge.rs` 53, `mesh.rs` 197,
   `particle_mesh.rs` 152. House limits: 40 lines a function, 4 parameters, 300 lines a file,
-  nesting 3. No `unsafe`, no new dependency.
+  nesting 3. No `unsafe`, no new dependency. Every cargo call runs as
+  `CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 scripts/orch/gr ...`: a peer's full gate shares the host.
 
 Do, in order:
 
