@@ -10,3 +10,4 @@
 pub mod case;
 pub mod db;
 pub mod step;
+pub mod rng;
