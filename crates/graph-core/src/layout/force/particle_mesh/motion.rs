@@ -36,6 +36,8 @@ pub(super) struct Gathered<'a> {
 struct Velocity<'a> {
     v: &'a [f64],
     merged: Option<Gathered<'a>>,
+    /// The second of a fused pair of merges, added after the first.
+    also: Option<Gathered<'a>>,
     axis: Axis,
     /// The decay and the axis's pins: a pinned node's velocity is zeroed.
     decay: Option<(f64, &'a [Option<f64>])>,
@@ -53,13 +55,10 @@ impl StepRange for Velocity<'_> {
         for (out, i) in out.iter_mut().zip(range.start as usize..) {
             let mut v = self.v[i];
             if let Some(g) = self.merged {
-                let k = g.slot.map_or(i, |slot| slot[i] as usize);
-                let stolen = if g.split {
-                    g.deltas.get(k + 1).copied().map_or(0.0, axis)
-                } else {
-                    0.0
-                };
-                v += axis(g.deltas[k]) + stolen;
+                v += added(g, i, axis);
+            }
+            if let Some(g) = self.also {
+                v += added(g, i, axis);
             }
             if let Some((decay, pins)) = self.decay {
                 v = if pins[i].is_some() { 0.0 } else { v * decay };
@@ -67,6 +66,19 @@ impl StepRange for Velocity<'_> {
             *out = v;
         }
     }
+}
+
+/// One gathered pass's contribution to node `i`: `delta + stolen` as a whole, the grouping
+/// `step::merge` adds it in. Each pass keeps its own, and a fused pair adds them in the
+/// order the tick did them, so the two sums are the same `f64`.
+fn added(g: Gathered<'_>, i: usize, axis: Axis) -> f64 {
+    let k = g.slot.map_or(i, |slot| slot[i] as usize);
+    let stolen = if g.split {
+        g.deltas.get(k + 1).copied().map_or(0.0, axis)
+    } else {
+        0.0
+    };
+    axis(g.deltas[k]) + stolen
 }
 
 /// One axis's positions moved by the velocities, a pinned node placed at its pin.
@@ -118,7 +130,30 @@ type On<'a, R> = (&'a R, u32);
 
 /// Adds a gathered pass onto the velocities: `step::merge`.
 pub(super) fn merge<R: Runner>(sim: &mut Sim, gathered: Gathered<'_>, on: On<'_, R>) {
-    velocities(sim, Some(gathered), None, on);
+    let merges = Merges {
+        first: Some(gathered),
+        second: None,
+    };
+    velocities(sim, merges, None, on);
+}
+
+/// The tick's link merge and charge merge in one run per axis: two gathers, each with its
+/// own slot, order and `split`, added to `vx`/`vy` as they were added before.
+///
+/// The mesh field is a function of the positions and the params alone — `Mesh::solve` takes
+/// `&Sim` and reads no velocity — so the link merge can wait until the charge deltas are in
+/// hand. That is the whole saving: one pass over `vx`/`vy` instead of two.
+pub(super) fn merge_pair<R: Runner>(
+    sim: &mut Sim,
+    first: Gathered<'_>,
+    second: Gathered<'_>,
+    on: On<'_, R>,
+) {
+    let merges = Merges {
+        first: Some(first),
+        second: Some(second),
+    };
+    velocities(sim, merges, None, on);
 }
 
 /// `Sim::center`: the mean is one thread's fold, the shift is a pass.
@@ -151,7 +186,11 @@ pub(super) fn project<R: Runner>(sim: &mut Sim, (runner, workers): On<'_, R>) {
 /// Collide's merge, when collide ran, then `Sim::integrate`.
 pub(super) fn integrate<R: Runner>(sim: &mut Sim, collided: Option<Gathered<'_>>, on: On<'_, R>) {
     let (runner, workers) = on;
-    velocities(sim, collided, Some(sim.params.velocity_decay), on);
+    let merges = Merges {
+        first: collided,
+        second: None,
+    };
+    velocities(sim, merges, Some(sim.params.velocity_decay), on);
     let x = Position {
         x: &sim.x,
         v: &sim.vx,
@@ -168,15 +207,24 @@ pub(super) fn integrate<R: Runner>(sim: &mut Sim, collided: Option<Gathered<'_>>
     mem::swap(&mut sim.y, &mut sim.py);
 }
 
+/// The gathers one velocity run adds, in order: `step::merge`'s own, and the one fused with
+/// it. Bundled so the run keeps its four parameters.
+#[derive(Clone, Copy, Default)]
+struct Merges<'a> {
+    first: Option<Gathered<'a>>,
+    second: Option<Gathered<'a>>,
+}
+
 fn velocities<R: Runner>(
     sim: &mut Sim,
-    merged: Option<Gathered<'_>>,
+    merges: Merges<'_>,
     decay: Option<f64>,
     (runner, workers): On<'_, R>,
 ) {
     let x = Velocity {
         v: &sim.vx,
-        merged,
+        merged: merges.first,
+        also: merges.second,
         axis: AXES[0],
         decay: decay.map(|d| (d, &sim.fx[..])),
     };
@@ -184,7 +232,8 @@ fn velocities<R: Runner>(
     mem::swap(&mut sim.vx, &mut sim.px);
     let y = Velocity {
         v: &sim.vy,
-        merged,
+        merged: merges.first,
+        also: merges.second,
         axis: AXES[1],
         decay: decay.map(|d| (d, &sim.fy[..])),
     };

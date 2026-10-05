@@ -126,14 +126,27 @@ pub(in crate::layout::force) fn tick<R: Runner>(
 ) {
     sim.alpha += (sim.alpha_target - sim.alpha) * sim.params.alpha_decay;
     let split = how.split.splits(Split::Link);
-    link::pass_with(sim, how.runner, how.workers, how.deltas);
+    link::pass_with(sim, how.runner, how.workers, &mut mesh.link);
+    // The field is a function of the positions and the params (`Mesh::solve` takes `&Sim`
+    // and reads no velocity), so the link deltas can wait in `mesh.link` while it runs and
+    // both merges become one pass over `vx`/`vy`. `false` from the read means no field: the
+    // link merge alone runs, as it did before.
+    let charged = charge::read(&*sim, mesh, how);
     let linked = Gathered {
-        deltas: how.deltas,
+        deltas: &mesh.link,
         slot: None,
         split,
     };
-    motion::merge(sim, linked, (how.runner, how.workers));
-    charge::apply(sim, mesh, how);
+    if charged {
+        let charge_deltas = Gathered {
+            deltas: how.deltas,
+            slot: Some(&mesh.grid.slot),
+            split: how.split.splits(Split::Charge),
+        };
+        motion::merge_pair(sim, linked, charge_deltas, (how.runner, how.workers));
+    } else {
+        motion::merge(sim, linked, (how.runner, how.workers));
+    }
     motion::center(sim, (how.runner, how.workers));
     let collided = collide::apply(sim, &mut mesh.grid, how);
     // Skipped at zero as in `barnes_hut/sim.rs`: `(0 - x) * 0.0` is a signed zero that

@@ -36,16 +36,31 @@ impl StepRange for Interpolate<'_> {
 
 /// The many-body pass. Nothing moves when [`Mesh::solve`] finds no field.
 pub(super) fn apply<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_, R>) {
-    if !mesh.solve(sim, how.runner, how.workers) {
+    if !read(&*sim, mesh, how) {
         return;
     }
-    let read = Interpolate {
+    merge(sim, mesh, how);
+}
+
+/// [`Mesh::solve`] and the field read into `how.deltas` in slot order, and nothing else:
+/// the tick fuses this merge with the link pass's, so the read has to stand on its own.
+/// `false` when there is no field, and then nothing was written.
+pub(super) fn read<R: Runner>(sim: &Sim, mesh: &mut Mesh, how: &mut How<'_, R>) -> bool {
+    if !mesh.solve(sim, how.runner, how.workers) {
+        return false;
+    }
+    let field = Interpolate {
         mesh,
         strength: sim.params.charge * sim.alpha,
     };
-    how.runner.run(&read, how.workers, how.deltas);
+    how.runner.run(&field, how.workers, how.deltas);
+    true
+}
+
+/// The charge deltas' merge: node `i` gathers its own slot, under [`Split::Charge`].
+pub(super) fn merge<R: Runner>(sim: &mut Sim, mesh: &Mesh, how: &How<'_, R>) {
     let gathered = Gathered {
-        deltas: how.deltas,
+        deltas: &how.deltas[..],
         slot: Some(&mesh.grid.slot),
         split: how.split.splits(Split::Charge),
     };

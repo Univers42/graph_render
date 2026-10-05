@@ -63,6 +63,45 @@ fn the_passes_are_merge_and_integrate_bit_for_bit() {
     }
 }
 
+/// The fused merge is the two merges run one after the other, to the bit: the same two
+/// groupings in the same order, each with its own `split`.
+#[test]
+fn the_fused_merge_is_two_merges_bit_for_bit() {
+    let n = 1000;
+    let link: Vec<(f64, f64)> = column(n, 0.21).into_iter().zip(column(n, 0.017)).collect();
+    let charge: Vec<(f64, f64)> = column(n, 0.53).into_iter().zip(column(n, 0.09)).collect();
+    let order: Vec<u32> = (0..n as u32).map(|k| (k * 389) % n as u32).collect();
+    let mut slot = vec![0; n];
+    for (k, &i) in order.iter().enumerate() {
+        slot[i as usize] = k as u32;
+    }
+    for link_split in [false, true] {
+        for charge_split in [false, true] {
+            let linked = Gathered {
+                deltas: &link,
+                slot: None,
+                split: link_split,
+            };
+            let charged = Gathered {
+                deltas: &charge,
+                slot: Some(&slot),
+                split: charge_split,
+            };
+            let mut want = moving(n);
+            merge(&mut want, linked, (&Serial, 1));
+            merge(&mut want, charged, (&Serial, 1));
+            for workers in [1, 2, 3, 7] {
+                let mut got = moving(n);
+                merge_pair(&mut got, linked, charged, (&Serial, workers));
+                assert!(
+                    bits(&got) == bits(&want),
+                    "link {link_split}, charge {charge_split}, workers {workers}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn the_projection_is_position_plus_velocity() {
     let mut sim = moving(500);

@@ -44,6 +44,10 @@ pub(in crate::layout::force) struct Mesh {
     at: Vec<Scaled>,
     /// `at` grouped by row, the deposit's index.
     rows: Rows,
+    /// The link pass's per-node deltas, kept alive beside [`crate::layout::force::barnes_hut::sim::How::deltas`]
+    /// so the tick can fuse the link and charge merges into one velocity pass. A tick
+    /// writes all of it before reading any of it, so a resized column is a whole one.
+    pub(in crate::layout::force) link: Vec<(f64, f64)>,
     /// The bounds fold's per-block boxes.
     blocks: Vec<Bounds>,
     pub(super) grid: Grid,
@@ -59,6 +63,7 @@ impl Mesh {
             kernel: Kernel::new(side),
             frame: None,
             at: vec![(0.0, 0.0); n as usize],
+            link: vec![(0.0, 0.0); n as usize],
             rows: Rows::new(side, n),
             blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
             grid: Grid::new(n),
@@ -81,10 +86,11 @@ impl Mesh {
     /// | `blocks` | `frame::bounds` resizes it to `n / BLOCK` and writes every box it folds |
     /// | `frame` | never kept: set to `None` so a field read between the growth and the next tick is `(0, 0)`, as a fresh mesh's is |
     ///
-    /// The three whose *length* is the node count — `at`, [`Rows`] and [`Grid`] — are
-    /// resized rather than kept, and the two grid columns the tick's charge reads before
-    /// that tick's collide rebuilds them are put back to the identity permutation a
-    /// fresh grid holds ([`Grid::grow`] says which and why).
+    /// The four whose *length* is the node count — `at`, `link`, [`Rows`] and [`Grid`] —
+    /// are resized rather than kept, and the two grid columns the tick's charge reads
+    /// before that tick's collide rebuilds them are put back to the identity permutation
+    /// a fresh grid holds ([`Grid::grow`] says which and why). `link` is resized and not
+    /// cleared: the link pass writes every node's cell on the tick that reads it.
     pub(in crate::layout::force) fn grow(&mut self, n: u32) {
         let side = side_for(n);
         if side != self.plan.side() {
@@ -97,6 +103,7 @@ impl Mesh {
         }
         self.frame = None;
         self.at.resize(n as usize, (0.0, 0.0));
+        self.link.resize(n as usize, (0.0, 0.0));
         self.rows.grow(side, n);
         self.grid.grow(n);
     }
