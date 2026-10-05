@@ -6,7 +6,7 @@ Reads what deploy/perf/showcase.py wrote: target/showcase/timeline.json (each fr
 screen, each caption's start) and the PNG stills. Writes under docs/media/:
 
     showcase.mp4          1280x720, 30 fps, H.264 two-pass to a size budget, captions burnt in
-    showcase-preview.webp an animated 640 px loop of every caption's first seconds, for the README
+    showcase-preview.webp an animated 480 px loop of every caption's first seconds, for the README
     <still>.webp          each still, 1600 px wide
 
 Exit 0 written and within budget, 1 the video is over BUDGET_BYTES, 2 could not run.
@@ -29,7 +29,7 @@ OUT = "docs/media"
 BUDGET_BYTES = 9_500_000
 WIDTH, HEIGHT, FPS = 1280, 720, 30
 CAPTION_SECONDS, FADE = 4.2, 0.35
-PREVIEW = {"width": 640, "fps": 12, "offset": 0.6, "seconds": 1.6}
+PREVIEW = {"width": 480, "fps": 10, "offset": 0.6, "seconds": 1.6}
 SKIPPED_STILLS = ("probe-", "discover")
 
 
@@ -115,7 +115,7 @@ def encode_preview(video, captions):
     graph = (f"fps={PREVIEW['fps']},select='{picks}',setpts=N/{PREVIEW['fps']}/TB,"
              f"scale={PREVIEW['width']}:-2:flags=lanczos")
     preview = os.path.join(OUT, "showcase-preview.webp")
-    ffmpeg("-i", video, "-vf", graph, "-an", "-c:v", "libwebp", "-quality", "70",
+    ffmpeg("-i", video, "-vf", graph, "-an", "-c:v", "libwebp", "-quality", "60",
            "-compression_level", "6", "-loop", "0", preview)
     return preview
 

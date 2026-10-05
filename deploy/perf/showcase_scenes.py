@@ -83,7 +83,6 @@ EDGES = [
     ("run", "appearance.scale", {"factor": 2.0}),
     ("run", "appearance.glowstrength", {"value": 2.5}),
     ("hold", 2.5),
-    ("still", "03-bundled-glow"),
     ("run", "edges.style", {"id": "off"}),
 ]
 
@@ -160,12 +159,11 @@ MILLION = [
     ("still", "09-million-close"),
     ("glide", {"zoom": 1 / 40, "ms": 7000}),
     ("hold", 1.5),
-    ("still", "10-million"),
     ("caption", "A million-node transition", "spiral to Graphviz twopi rings, tweened on the GPU"),
     *layout("twopi", 3.0),
     ("run", "view.fit"),
     ("hold", 2.0),
-    ("still", "10b-million-twopi"),
+    ("still", "10-million-twopi"),
 ]
 
 OUTRO = [
