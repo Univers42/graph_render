@@ -1,0 +1,108 @@
+# hub-pg-durability and negctl-sync-commit-unset, gate target/gate-t10-dur (2026-10-05), both PASS
+
+## rows (scripts/orch/rows/hub-store.rows)
+hub-pg-durability|0|scripts/orch/gr rm -f target/hub-steps/durability.json && scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh sql "SELECT current_setting('fsync')||' '||current_setting('full_page_writes')||' '||current_setting('synchronous_commit')" | grep -q 'on on on' && scripts/orch/hub-pg.sh run --test durability -- --ignored --exact durability_settings_read_on && scripts/orch/hub-pg.sh run --test durability -- --ignored --exact acked_seqs_are_written_before_the_kill && scripts/orch/hub-pg.sh kill && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test durability -- --ignored --exact every_acked_seq_is_present_after_a_restart && scripts/orch/hub-pg.sh sql "ALTER SYSTEM SET synchronous_commit = off" && scripts/orch/hub-pg.sh sql "SELECT pg_reload_conf()" && scripts/orch/hub-pg.sh sql "SHOW synchronous_commit" | grep -qw off && scripts/orch/hub-pg.sh run --test durability -- --ignored --exact acked_seqs_are_written_before_the_kill && scripts/orch/hub-pg.sh kill && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test durability -- --ignored --exact every_acked_seq_is_present_with_synchronous_commit_off
+negctl-sync-commit-unset|0|for a in 1 2 3; do scripts/orch/gr rm -f target/hub-steps/durability.json && scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh sql "ALTER SYSTEM SET synchronous_commit = off" && scripts/orch/hub-pg.sh sql "ALTER SYSTEM SET wal_writer_delay = '10s'" && scripts/orch/hub-pg.sh sql "ALTER SYSTEM SET wal_writer_flush_after = '1GB'" && scripts/orch/hub-pg.sh sql "SELECT pg_reload_conf()" && scripts/orch/hub-pg.sh sql "SHOW synchronous_commit" | grep -qw off && GM_HUB_BREAK=sync-commit-unset scripts/orch/hub-pg.sh run --test durability -- --ignored --exact acked_seqs_are_written_before_the_kill && scripts/orch/hub-pg.sh kill && scripts/orch/hub-pg.sh start || exit 2; scripts/orch/hub-pg.sh run --test durability -- --ignored --exact every_acked_seq_is_present_after_a_restart >target/durability-negctl.log 2>&1 && continue; grep -q 'acknowledged and gone after the kill' target/durability-negctl.log && exit 0; exit 1; done; exit 1
+
+## summary
+PASS hub-pg-durability      exit=0   expect=0       26s
+PASS negctl-sync-commit-unset exit=0   expect=0       15s
+
+## hub-pg-durability.log
+postgres://hub:hub@172.17.0.14:5432/hub
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/durability.rs (server/target/debug/deps/durability-5254da34bd95959f)
+
+running 1 test
+test durability_settings_read_on ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.03s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests/durability.rs (server/target/debug/deps/durability-5254da34bd95959f)
+
+running 1 test
+test acked_seqs_are_written_before_the_kill ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 8.05s
+
+NOTICE:  role "hub" has already been granted membership in role "pg_monitor" by role "postgres"
+postgres://hub:hub@172.17.0.14:5432/hub
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/durability.rs (server/target/debug/deps/durability-5254da34bd95959f)
+
+running 1 test
+test every_acked_seq_is_present_after_a_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.03s
+
+ALTER SYSTEM
+ pg_reload_conf 
+----------------
+ t
+(1 row)
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s
+     Running tests/durability.rs (server/target/debug/deps/durability-5254da34bd95959f)
+
+running 1 test
+test acked_seqs_are_written_before_the_kill ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 7.60s
+
+NOTICE:  role "hub" has already been granted membership in role "pg_monitor" by role "postgres"
+postgres://hub:hub@172.17.0.14:5432/hub
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/durability.rs (server/target/debug/deps/durability-5254da34bd95959f)
+
+running 1 test
+test every_acked_seq_is_present_with_synchronous_commit_off ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.03s
+
+
+## negctl-sync-commit-unset.log (the row's own output)
+postgres://hub:hub@172.17.0.14:5432/hub
+ALTER SYSTEM
+ALTER SYSTEM
+ALTER SYSTEM
+ pg_reload_conf 
+----------------
+ t
+(1 row)
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests/durability.rs (server/target/debug/deps/durability-5254da34bd95959f)
+
+running 1 test
+test acked_seqs_are_written_before_the_kill ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 7.97s
+
+NOTICE:  role "hub" has already been granted membership in role "pg_monitor" by role "postgres"
+postgres://hub:hub@172.17.0.14:5432/hub
+
+## target/durability-negctl.log (the assert phase under GM_HUB_BREAK; the lost list is trimmed to its ends)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/durability.rs (server/target/debug/deps/durability-5254da34bd95959f)
+
+running 1 test
+test every_acked_seq_is_present_after_a_restart ... FAILED
+
+failures:
+
+---- every_acked_seq_is_present_after_a_restart stdout ----
+
+thread 'every_acked_seq_is_present_after_a_restart' (18) panicked at graph-store/tests/durability.rs:78:5:
+acknowledged and gone after the kill: [2, 3, 4, 5, 6, …, 199, 200, 201]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    every_acked_seq_is_present_after_a_restart
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p graph-store --test durability`
+
+lost seqs in the untrimmed list: 200

@@ -187,6 +187,48 @@ reads `1`** — the checkpoint has not been redone on the new timeline yet, whic
 reason for reading `pg_walfile_name` instead. The break therefore stores a key that is both the
 wrong source and the wrong format, and the promotion case turns red on it.
 
+## Durability (`hub-pg-durability`, `negctl-sync-commit-unset`)
+
+Both rows PASS in `target/gate-t10-dur`; full logs in `store-image-durability.txt`.
+
+- **Positive row.** `fsync`, `full_page_writes` and `synchronous_commit` read `on`. Two rounds
+  then each write 200 batches and `kill -9` the server: the first round with the server at `on`,
+  the second at `ALTER SYSTEM SET synchronous_commit = off`. After each restart every acknowledged
+  seq is in `change_headers`. One write phase takes 7.6–8.1 s, about 38 ms a batch.
+- **Negative control.** `GM_HUB_BREAK=sync-commit-unset` drops the writer's own
+  `set_config('synchronous_commit','on',true)`. The server runs at `off` with
+  `wal_writer_delay = 10s` and `wal_writer_flush_after = 1GB`, so the WAL writer flushes nothing
+  inside one write phase. After the kill, **200 of the 200 acknowledged batch seqs (2..201) are
+  gone**. Seq 1 is the manifest PUT, which the setup fence (`SELECT txid_current()` on a session
+  at `on`) made durable.
+- **Why the fence.** Without it the schema went down with the batches, and the assert failed on
+  `relation "change_headers" does not exist` instead of naming the lost seqs (measured
+  2026-10-05). The fence makes the control fail for the reason it exists to show.
+
+Caveat: the control relies on the WAL writer not flushing inside about 8 s. A host that flushes
+anyway (a checkpoint, or another session's synchronous commit) makes the assert pass. The row
+then retries up to 3 times, and a pass on all three attempts turns it red: no false green, but a
+possible false red under load.
+
+## Slice 2
+
+Raw output: `store-image-slice2.txt`.
+
+| Item | Result |
+|---|---|
+| condition 11 / §16 condition 18: `tokio feature "fs"` in the baseline trees | 0 in `base-root.txt`, 0 in `base-server.txt` |
+| the same feature in the control's tree | `ctl.diff` line 395 `+tokio feature "fs"`, under `+graph-store v0.1.0` (line 177); 233 changed lines |
+| `hub-virtual-root`: `diff base-root.txt new-root.txt` | empty |
+| condition (b): `diff base-server.txt new-server.txt` | empty |
+| `cargo deny --manifest-path server/Cargo.toml check` | `advisories ok, bans ok, licenses ok, sources ok` |
+| `git diff f1a23521 HEAD -- scripts/orch/lock-parity.sh scripts/orch/svc-features.sh` | 2 files, 6 insertions, 32 deletions, as sent to graph-render-4f |
+
+`negctl-hub-virtual-root` resolves its scratch control with `--offline`, not `--locked`. Since
+graph-hub became a workspace member, the control's member list leaves it out. Under `--locked`,
+cargo would then refuse to drop graph-hub's lock entries. The row now checks instead that the
+scratch lock gained or moved no entry (`diff … | grep -q '^>'` fails the row), so every package
+left keeps its locked version.
+
 ## Raw outputs
 
 Beside this file, as the plan requires:
@@ -197,3 +239,5 @@ Beside this file, as the plan requires:
 - `store-image-grants.txt` — the privilege reads and the three detector reads as `hub`
 - `store-image-container-cases.txt` — the four rows' commands, outputs and exit codes
 - `store-image-checkpoint-timeline-control.txt` — the control's full red output
+- `store-image-durability.txt` — both durability rows' logs and the control's assert, the lost list trimmed to its ends
+- `store-image-slice2.txt` — the two tree diffs, the `tokio/fs` lines, `cargo deny`, the two scripts' diff
