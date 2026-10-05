@@ -15,6 +15,28 @@ use tower::ServiceExt;
 use support::fixtures::*;
 use support::*;
 
+/// The workspace's own epoch, as `GET /v1/workspaces` publishes it.
+///
+/// WHY the listing and not `/graph`: an epoch is drawn by the database's clock (`hub_next_epoch`,
+/// microseconds), so a fixture cannot name one and must read it. The listing answers from the
+/// workspace row alone, where `/graph` reads the change log — which matters for the case below
+/// that has just emptied that log.
+async fn epoch_of(hub: &Hub, ws: &str) -> String {
+    let reply = hub.get_with("/v1/workspaces").await;
+    assert_eq!(reply.code(), 200, "{}", reply.body());
+    let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON list");
+    let row = value["workspaces"]
+        .as_array()
+        .expect("a workspaces array")
+        .iter()
+        .find(|row| row["id"] == ws)
+        .unwrap_or_else(|| panic!("the listing holds {ws}"));
+    row["epoch"]
+        .as_u64()
+        .expect("an epoch")
+        .to_string()
+}
+
 /// A workspace with `count` records, which is the fixture every read case below starts from.
 async fn loaded(hub: &Hub, ws: &str, plugin: &str, count: usize) {
     ready(hub, ws, plugin).await;
@@ -169,8 +191,9 @@ async fn changes_after_a_cursor_are_in_seq_order() {
     loaded(&hub, "seqs", "task", 3).await;
     let path = "/v1/workspaces/seqs/plugins/task/batches";
     hub.post(path, upsert("task", "later", "n")).await;
+    let epoch = epoch_of(&hub, "seqs").await;
     let reply = hub
-        .get_with("/v1/workspaces/seqs/changes?since=0.1")
+        .get_with(&format!("/v1/workspaces/seqs/changes?since={epoch}.1"))
         .await;
     assert_eq!(reply.code(), 200, "{}", reply.body());
     let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON page");
@@ -180,8 +203,14 @@ async fn changes_after_a_cursor_are_in_seq_order() {
         .iter()
         .map(|change| change["seq"].as_u64().expect("a seq"))
         .collect();
-    assert_eq!(seqs, [2], "one change after 0.1, which is the manifest and the batch");
+    // seq 1 is the manifest, so a page after `<epoch>.1` is the two batches and nothing else.
+    assert_eq!(seqs, [2, 3], "every change after the cursor, in seq order");
+    assert!(
+        seqs.windows(2).all(|pair| pair[0] < pair[1]),
+        "seq order, never a repeat"
+    );
     assert!(value["next"].is_string(), "a page carries the next cursor");
+    assert_eq!(value["epoch"].as_u64().is_some(), true, "the page's epoch");
 }
 
 /// A cursor from another epoch is a 410: §5.3's rule, and the reason a promoted workspace's
@@ -204,9 +233,10 @@ async fn changes_returns_410_for_a_cursor_from_another_epoch() {
 async fn changes_returns_410_for_a_cursor_below_what_is_kept() {
     let hub = hub_db(&[]).await;
     loaded(&hub, "pruned", "task", 3).await;
+    let epoch = epoch_of(&hub, "pruned").await;
     db::drop_changes(&hub.app, "pruned").await;
     let reply = hub
-        .get_with("/v1/workspaces/pruned/changes?since=0.1")
+        .get_with(&format!("/v1/workspaces/pruned/changes?since={epoch}.1"))
         .await;
     assert_eq!(reply.code(), 410, "{}", reply.body());
 }
@@ -217,8 +247,11 @@ async fn changes_returns_410_for_a_cursor_below_what_is_kept() {
 async fn changes_returns_410_for_a_seq_above_head() {
     let hub = hub_db(&[]).await;
     loaded(&hub, "ahead", "task", 1).await;
+    let epoch = epoch_of(&hub, "ahead").await;
+    // A cursor whose epoch is right and whose seq is past `head_seq`: 410 and never an empty page a
+    // client would read as "caught up".
     let reply = hub
-        .get_with("/v1/workspaces/ahead/changes?since=1.99")
+        .get_with(&format!("/v1/workspaces/ahead/changes?since={epoch}.99"))
         .await;
     assert_eq!(reply.code(), 410, "{}", reply.body());
 }
@@ -227,24 +260,34 @@ async fn changes_returns_410_for_a_seq_above_head() {
 /// and the reason the start check refuses a page cap below `max_change`.
 #[tokio::test]
 async fn a_changes_page_never_exceeds_the_byte_cap_but_holds_one_change() {
-    let hub = hub_db(&[("GRAPH_HUB_CHANGES_BYTES", "1024")]).await;
-    let upserts: Vec<(&str, &str, &str)> = (0..20)
-        .map(|i| {
-            (
-                "task",
-                Box::leak(format!("wide{i:03}").into_boxed_str()) as &str,
-                "a note long enough to make one change wider than a kilobyte of text in total",
-            )
-        })
-        .collect();
-    ready(&hub, "capped", "task").await;
-    hub.post(
-        "/v1/workspaces/capped/plugins/task/batches",
-        batch(&upserts, &[]),
-    )
+    // §6 refuses a page cap below `max_change` (`max_body + 96 * max_batch`), so the cap can only be
+    // exercised by shrinking what one change may be first: one operation per batch and a 1 KiB body
+    // put `max_change` at 1 120, which is the smallest cap that is still a legal deployment. The
+    // refusal of a smaller one is Task 2's `start_check_refuses_changes_bytes_below_max_change`.
+    let cap = 1_120u64;
+    let hub = hub_db(&[
+        ("GRAPH_HUB_MAX_BODY", "1024"),
+        ("GRAPH_HUB_MAX_BATCH", "1"),
+        ("GRAPH_HUB_CHANGES_BYTES", "1120"),
+    ])
     .await;
+    ready(&hub, "capped", "task").await;
+    let epoch = epoch_of(&hub, "capped").await;
+    // Four separate batches, so four separate changes: one batch would be one change and the cap
+    // would have nothing to cut.
+    for i in 0..4 {
+        let note = "n".repeat(700);
+        let id = format!("wide{i:03}");
+        hub.post(
+            "/v1/workspaces/capped/plugins/task/batches",
+            batch(&[("task", &id, &note)], &[]),
+        )
+        .await;
+    }
     let reply = hub
-        .get_with("/v1/workspaces/capped/changes?since=0.1&limit=20")
+        .get_with(&format!(
+            "/v1/workspaces/capped/changes?since={epoch}.1&limit=20"
+        ))
         .await;
     assert_eq!(reply.code(), 200, "{}", reply.body());
     let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON page");
@@ -252,9 +295,10 @@ async fn a_changes_page_never_exceeds_the_byte_cap_but_holds_one_change() {
     assert!(!changes.is_empty(), "a page always holds at least one change");
     assert_eq!(changes.len(), 1, "the byte cap cut the page at one change");
     assert!(
-        value["bytes"].as_u64().expect("the page's bytes") <= 1024,
+        value["bytes"].as_u64().expect("the page's bytes") <= cap,
         "and the page reports its own bytes"
     );
+    assert!(value["next"].is_string(), "and the next cursor to resume from");
 }
 
 /// `/v1/meta` spells out every §6 limit, so a client can size itself without reading the deploy doc.
@@ -304,31 +348,63 @@ async fn meta_reports_every_limit_of_section_6() {
 /// `head_seq`.
 #[tokio::test]
 async fn the_workspaces_list_holds_only_what_the_key_may_read() {
-    let hub = hub_db_grants("tester mine read\nstranger theirs read\n").await;
-    add_key(&hub, "stranger");
+    // `admin` per workspace, so each key can create the workspace it is granted and the listing
+    // still has to filter: the grant names a workspace and nothing else differs between the keys.
+    let hub = hub_db_grants("tester mine admin\nstranger theirs admin\n").await;
+    let stranger = add_key(&hub, "stranger");
     hub.app.keys.reload().expect("both keys are in the pair");
     ready(&hub, "mine", "task").await;
-    ready(&hub, "theirs", "task").await;
-    let mine = hub.get_with("/v1/workspaces").await;
-    assert_eq!(mine.code(), 200, "{}", mine.body());
-    let value: serde_json::Value = serde_json::from_str(&mine.body()).expect("a JSON list");
-    let names: Vec<&str> = value["workspaces"]
+    ready_as(&hub, &stranger, "theirs", "task").await;
+    assert_eq!(
+        names_of(&hub.get_with("/v1/workspaces").await),
+        ["mine"],
+        "only the granted workspace"
+    );
+    assert_eq!(
+        names_of(&hub.get_as(&stranger, "/v1/workspaces").await),
+        ["theirs"],
+        "the other key sees only its own"
+    );
+}
+
+/// The workspace ids of a `GET /v1/workspaces` answer, in the order the route returned them.
+fn names_of(reply: &Reply) -> Vec<String> {
+    assert_eq!(reply.code(), 200, "{}", reply.body());
+    let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON list");
+    let rows: Vec<serde_json::Value> = value["workspaces"]
         .as_array()
         .expect("a workspaces array")
-        .iter()
-        .map(|row| row["id"].as_str().expect("an id"))
-        .collect();
-    assert_eq!(names, ["mine"], "only the granted workspace");
-    assert!(value["workspaces"][0]["epoch"].as_u64().is_some());
-    assert!(value["workspaces"][0]["head_seq"].as_u64().is_some());
-    let stranger = hub.get_as(&add_key(&hub, "stranger"), "/v1/workspaces").await;
-    assert_eq!(stranger.code(), 200);
-    let other: serde_json::Value = serde_json::from_str(&stranger.body()).expect("a JSON list");
-    let names: Vec<&str> = other["workspaces"]
-        .as_array()
-        .expect("a workspaces array")
-        .iter()
-        .map(|row| row["id"].as_str().expect("an id"))
-        .collect();
-    assert_eq!(names, ["theirs"], "the other key sees only its own");
+        .clone();
+    for row in &rows {
+        assert!(row["epoch"].as_u64().is_some(), "each row carries its epoch");
+        assert!(
+            row["head_seq"].as_u64().is_some(),
+            "each row carries its head_seq"
+        );
+    }
+    rows.iter()
+        .map(|row| row["id"].as_str().expect("an id").to_owned())
+        .collect()
+}
+
+/// [`ready`] with `key`, which is what a case with two identities needs: the second workspace is
+/// created by the key that is granted it, because authorization runs before existence.
+async fn ready_as(hub: &Hub, key: &str, ws: &str, plugin: &str) {
+    for (path, body) in [
+        (format!("/v1/workspaces/{ws}"), String::new()),
+        (
+            format!("/v1/workspaces/{ws}/plugins/{plugin}"),
+            MANIFEST.to_owned(),
+        ),
+    ] {
+        let reply = hub
+            .send(
+                hub.request_as(key, "PUT", &path)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .expect("the request"),
+            )
+            .await;
+        assert!(reply.code() < 300, "{path}: {}", reply.body());
+    }
 }

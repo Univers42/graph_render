@@ -33,6 +33,12 @@ const GROUP_AND_OTHERS: u32 = 0o037;
 pub enum Need {
     /// A read: any of §5.2's read routes.
     Read,
+    /// Any grant at all: the two rows §5.2 gives to "any key" (`/v1/meta`, `/v1/workspaces`).
+    ///
+    /// A separate variant rather than `Read` on the empty workspace, because those rows name no
+    /// workspace: a key granted only `mine admin` may list what it may read, and a `Read` on `""`
+    /// would match no grant line but a `*` one and refuse it.
+    Any,
     /// A write of one plugin: `write:<plugin>` covers this plugin's writes and every read.
     Write(String),
     /// An administrative write: a workspace create.
@@ -155,7 +161,11 @@ impl Grants {
         if breaks::on("skip-grant") {
             return true;
         }
-        self.of(key).iter().any(|grant| grant.covers(ws, need))
+        let grants = self.of(key);
+        if *need == Need::Any {
+            return !grants.is_empty();
+        }
+        grants.iter().any(|grant| grant.covers(ws, need))
     }
 }
 
@@ -163,7 +173,8 @@ impl Grant {
     /// Does this one line cover `ws` and `need`?
     ///
     /// The workspace first, then the mode, and the mode half is `auth::grant::covers` so there is
-    /// one copy of those rules and not two that can disagree.
+    /// one copy of those rules and not two that can disagree. `Need::Any` never reaches here:
+    /// [`Grants::allows`] answers it from the line count alone.
     fn covers(&self, ws: &str, need: &Need) -> bool {
         (self.ws == "*" || self.ws == ws) && crate::auth::grant::covers(&self.mode, need)
     }

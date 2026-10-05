@@ -41,7 +41,7 @@ pub async fn get(
         &ChangesReq {
             ws: ws.clone(),
             since,
-            limit: limit(&query, app)?,
+            limit: limit(&query, app.as_ref())?,
             max_bytes: app.settings.limits.changes_bytes,
         },
     )

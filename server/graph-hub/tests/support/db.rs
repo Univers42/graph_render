@@ -98,7 +98,7 @@ pub async fn fresh_collation(name: &str) -> String {
 /// is test SQL and never hub SQL — the hub writes none.
 pub async fn drop_changes(hub: &graph_hub::app::App, ws: &str) {
     let store = hub.store().await.expect("the store under test");
-    let mut client = store.client().await.expect("a connection");
+    let client = store.client().await.expect("a connection");
     client
         .batch_execute(&format!(
             "DELETE FROM change_ops WHERE ws = '{ws}'; DELETE FROM change_headers WHERE ws = '{ws}'"

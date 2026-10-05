@@ -11,7 +11,6 @@ use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use graph_contract::hub::batch::read_batch;
