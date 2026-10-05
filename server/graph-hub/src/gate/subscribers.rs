@@ -5,7 +5,8 @@
 //!
 //! `Subscriber` is the permit: it is returned by [`Subscribers::admit`] and released on drop, so a
 //! stream that ends any way — a client's disconnect, a `busy` close, a resync — frees its slot without
-//! the stream having to say so.
+//! the stream having to say so. It holds the shared counters rather than the `Subscribers`, so
+//! `admit` takes `&self` and a caller does not need an `Arc<Subscribers>` of its own.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
@@ -47,7 +48,7 @@ impl Subscribers {
     /// The order is per-key then global, and it is the order §6 names: a key that already holds its
     /// eight streams is refused even when the hub has room for fifty-six more from other keys, which
     /// is the point of a per-key cap.
-    pub fn admit(self: &Arc<Self>, key: &str) -> Result<Subscriber, HubApiError> {
+    pub fn admit(&self, key: &str) -> Result<Subscriber, HubApiError> {
         let mut counts = write_counts(&self.counts);
         let mine = counts.per_key.get(key).copied().unwrap_or(0);
         if mine >= self.caps.per_key {
@@ -59,7 +60,7 @@ impl Subscribers {
         counts.per_key.insert(key.to_owned(), mine + 1);
         counts.total += 1;
         Ok(Subscriber {
-            owner: Arc::clone(self),
+            owner: Arc::clone(&self.counts),
             key: key.to_owned(),
         })
     }
@@ -99,7 +100,7 @@ impl Subscribers {
 /// One admitted stream, and the slot it gives back when it ends.
 #[derive(Debug)]
 pub struct Subscriber {
-    owner: Arc<Subscribers>,
+    owner: Arc<RwLock<Counts>>,
     key: String,
 }
 
@@ -115,6 +116,13 @@ impl Subscriber {
 /// by exactly the path that matters most — the one that ended in a failure.
 impl Drop for Subscriber {
     fn drop(&mut self) {
-        self.owner.release(&self.key);
+        let mut counts = write_counts(&self.owner);
+        let mine = counts.per_key.get(&self.key).copied().unwrap_or(0);
+        if mine <= 1 {
+            counts.per_key.remove(&self.key);
+        } else {
+            counts.per_key.insert(self.key.clone(), mine - 1);
+        }
+        counts.total = counts.total.saturating_sub(1);
     }
 }
