@@ -1,0 +1,96 @@
+# Slice 2 supply evidence, worktree hub-store-retention (2026-10-05)
+
+## hub-virtual-root: diff base-root.txt new-root.txt (empty = graph-store adds no feature to the root's tree)
+exit 0
+
+## condition (b): diff base-server.txt new-server.txt (empty = graph-server's subtree unchanged)
+exit 0
+
+## the injected tokio/fs feature: count in the baselines, then where the negctl's tree shows it
+base-root.txt: 0
+base-server.txt: 0
+177:+graph-store v0.1.0
+395:+tokio feature "fs"
+ctl.diff +/- lines: 233
+
+## cargo deny --manifest-path server/Cargo.toml check (tail)
+    ├ wasi v0.14.7+wasi-0.2.4
+      └── wasite v1.0.2
+          └── whoami v2.1.3
+              └── tokio-postgres v0.7.18
+                  └── graph-store v0.1.0
+                      └── graph-hub v0.1.0
+
+advisories ok, bans ok, licenses ok, sources ok
+
+## git diff f1a23521 HEAD -- scripts/orch/lock-parity.sh scripts/orch/svc-features.sh (as sent to graph-render-4f)
+ scripts/orch/lock-parity.sh  | 20 +++-----------------
+ scripts/orch/svc-features.sh | 18 +++---------------
+ 2 files changed, 6 insertions(+), 32 deletions(-)
+diff --git a/scripts/orch/lock-parity.sh b/scripts/orch/lock-parity.sh
+index b0e1de76..b7481f1b 100755
+--- a/scripts/orch/lock-parity.sh
++++ b/scripts/orch/lock-parity.sh
+@@ -55,23 +55,9 @@ done
+ # cannot read, so the copy would fail before it reached the lockfile. `cargo tree` reads
+ # manifests, so manifests copied is the whole of what has to change. The links are RELATIVE,
+ # because of the mount.
+-scratch_setup() {
+-  local scratch=$1 link
+-  rm -rf "$scratch" || return 2
+-  mkdir -p "$scratch/server/graph-server" || return 2
+-  # WHY each link's `..` count is computed rather than written out: the scratch directory's depth
+-  # below the root is a variable (`break-version` sits one level deeper than `break-feature`),
+-  # so a hand-written count is right for one mode and dangling for the other, and a dangling
+-  # link reads as "failed to read crates/graph-contract/Cargo.toml" — a failure that looks like
+-  # a broken workspace rather than a bad `..` count. Each is relative to the directory the link
+-  # lands in, which is `$scratch` for `crates/` and the package directory for `src/`.
+-  link=$(realpath --relative-to="$scratch" "$root/crates") || return 2
+-  ln -s "$link" "$scratch/crates" || return 2
+-  link=$(realpath --relative-to="$scratch/server/graph-server" "$root/server/graph-server/src") || return 2
+-  ln -s "$link" "$scratch/server/graph-server/src" || return 2
+-  cp server/Cargo.toml server/Cargo.lock "$scratch/server/" || return 2
+-  cp server/graph-server/Cargo.toml "$scratch/server/graph-server/" || return 2
+-}
++# D7: the ONE copy of this function lives in scripts/orch/lib/server-scratch.sh, which
++# scripts/orch/svc-features.sh also sources. See that file for the WHY.
++. "$here/lib/server-scratch.sh" || exit 2
+ 
+ # The closure of graph-wasm under `$manifest_path`, sorted. Non-zero when cargo could not run.
+ #
+diff --git a/scripts/orch/svc-features.sh b/scripts/orch/svc-features.sh
+index 565a37bc..8d163536 100755
+--- a/scripts/orch/svc-features.sh
++++ b/scripts/orch/svc-features.sh
+@@ -48,28 +48,16 @@ while [ $# -gt 0 ]; do
+   esac
+ done
+ 
++. "$here/lib/server-scratch.sh" || exit 2
++
+ # WHY 2 and not 1 for a cargo failure: a check that could not look is not a check that found
+ # nothing. A `nonzero` gate row would be satisfied by a toolchain that is simply absent.
+ tree=$(mktemp) || exit 2
+ trap 'rm -f "$tree"' EXIT
+ manifest=server/Cargo.toml
+ if [ "$break" = 1 ]; then
+-  # WHY manifests are copied and sources are linked, not `cp -r server`: the workspace's
+-  # `target/` holds root-owned incremental locks, and copying a tree the gate cannot read
+-  # fails on them before it reaches the feature at all. `cargo tree` reads manifests, so the
+-  # copy is the manifests plus links to the real `crates/` and `src/`, and nothing under
+-  # `server/` is edited.
+-  #
+-  # The links are RELATIVE. `scripts/orch/gr` bind-mounts the repository at `/w`, so a link
+-  # naming the host's own path (`$root`) dangles inside the container and cargo reports "no
+-  # targets specified" — a failure that reads like a broken workspace rather than a bad link.
+   scratch=target/svc-features
+-  rm -rf "$scratch" || exit 2
+-  mkdir -p "$scratch/server/graph-server" || exit 2
+-  ln -s ../../crates "$scratch/crates" || exit 2
+-  ln -s ../../../../server/graph-server/src "$scratch/server/graph-server/src" || exit 2
+-  cp server/Cargo.toml server/Cargo.lock "$scratch/server/" || exit 2
+-  cp server/graph-server/Cargo.toml "$scratch/server/graph-server/" || exit 2
++  scratch_setup "$scratch" || exit 2
+   manifest=$scratch/server/Cargo.toml
+   # The one edge the control perturbs, named here rather than at the call site so this script
+   # and the reason in the header cannot disagree about what `--break` means.

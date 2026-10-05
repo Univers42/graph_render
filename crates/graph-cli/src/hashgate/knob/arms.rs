@@ -18,7 +18,7 @@ use super::{Knob, igraph, knobs, three_d};
 /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect one
 /// control record each — a ledger read cannot be a function call per row. `Knob::ALL` is
 /// this array, re-exported so the name every caller already used keeps working.
-pub const ALL: [Knob; 51] = [
+pub const ALL: [Knob; 52] = [
     Knob::ReferenceDegree,
     Knob::GridSpacing,
     Knob::SugiyamaLayerSpacing,
@@ -64,6 +64,7 @@ pub const ALL: [Knob; 51] = [
     Knob::Bipartite3dNodes,
     Knob::PackingOsageNodes,
     Knob::DagDotNodes,
+    Knob::DagLanesNodes,
     Knob::SplitSum,
     Knob::SplitRescale,
     Knob::OverlapRelaxation,
@@ -120,6 +121,7 @@ pub const fn env(knob: Knob) -> &'static str {
         Knob::Bipartite3dNodes => three_d::ENV[6],
         Knob::PackingOsageNodes => knobs::OSAGE_LAYOUT_STAGES[0].env,
         Knob::DagDotNodes => knobs::DOT_LAYOUT_STAGES[0].env,
+        Knob::DagLanesNodes => knobs::LANES_LAYOUT_STAGES[0].env,
         Knob::SplitSum => "GM_MUTATE_SPLIT_SUM",
         Knob::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
         Knob::OverlapRelaxation => "GM_MUTATE_OVERLAP_RELAXATION",

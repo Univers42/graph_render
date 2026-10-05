@@ -155,3 +155,8 @@ file input's `change` to the status line naming the new node count, one run each
 
 Caveat: one run per row on a shared host, in the dev server (unminified, React development
 build); a production build is faster by an unmeasured factor, so these are upper bounds.
+
+Superseded for the production build by `docs/measurements/studio-open-large.md` (2026-10-05,
+`scripts/studio-probe.sh open-document`, app/dist, medians of 5): the same 62 MB document opens in
+1.45–1.52 s, switching to the 488-node one takes about 53 ms, and 40 opens gave no crash. The dev
+server numbers above are the development build's cost, not the studio's.

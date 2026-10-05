@@ -14,6 +14,7 @@
 pub mod batches;
 pub mod changes;
 pub mod document;
+pub mod early_ack;
 pub mod graph;
 pub mod meta;
 pub mod plugins;

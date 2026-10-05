@@ -1,4 +1,4 @@
-//! The test-only seams: four hooks a test installs to force an interleaving, a pause or a fault that
+//! The test-only seams: five hooks a test installs to force an interleaving, a pause or a fault that
 //! timing alone would not produce.
 //!
 //! Without the `test-hooks` feature every function here is an empty (and where possible `const`)
@@ -63,6 +63,9 @@ pub struct Hooks {
     /// them. Row `the_busy_slot_is_free_before_the_close` needs `Busy` on demand, and a pool cannot
     /// be made short on demand.
     pub page_fault: Slot<FaultHook>,
+    /// Runs after a write read its body and before it parses it, so a memory test can put every
+    /// writer's body in flight at once.
+    pub hold_body: Slot<AsyncHook>,
 }
 
 #[cfg(feature = "test-hooks")]
@@ -89,7 +92,32 @@ impl Hooks {
             before_ack: Slot::default(),
             count_headers: Slot::default(),
             page_fault: Slot::default(),
+            hold_body: Slot::default(),
         }
+    }
+
+    /// The hooks the environment asks for: `GM_HUB_HOLD_BODIES=N` makes [`Hooks::hold_body`] a
+    /// barrier N writes reach before any of them parses. Row `hub-memory` measures a hub running as
+    /// its own process, where a test cannot install a closure, so the variable is the only way in.
+    ///
+    /// Caveat: the barrier waits for exactly N writes. A run that sends fewer leaves the ones it
+    /// sent parked until their client gives up, so the caller must send N, and send them at once.
+    pub fn from_env() -> Self {
+        let hooks = Self::new();
+        let parties = std::env::var("GM_HUB_HOLD_BODIES").ok();
+        if let Some(parties) = parties.and_then(|n| n.parse::<usize>().ok()) {
+            let barrier = Arc::new(tokio::sync::Barrier::new(parties));
+            let hook: AsyncHook = Arc::new(move |_route| {
+                let barrier = Arc::clone(&barrier);
+                Box::pin(async move {
+                    barrier.wait().await;
+                })
+            });
+            if let Ok(mut slot) = hooks.hold_body.lock() {
+                *slot = Some(hook);
+            }
+        }
+        hooks
     }
 
     /// Run `hook` with `value`, or with nothing when the slot is empty.
@@ -115,6 +143,11 @@ impl Hooks {
     pub const fn new() -> Self {
         Self
     }
+
+    /// Hooks with nothing installed: a shipped build reads no test variable.
+    pub const fn from_env() -> Self {
+        Self
+    }
 }
 
 /// Pause after a route admitted its permit, naming the route so one hook can tell them apart.
@@ -134,6 +167,19 @@ pub async fn pause_after_admit(hooks: &Hooks, route: &'static str) {
 /// the state machine in a shipped build and the call site folds away.
 #[cfg(not(feature = "test-hooks"))]
 pub async fn pause_after_admit(_hooks: &Hooks, _route: &'static str) {}
+
+/// Hold a write between reading its body and parsing it.
+#[cfg(feature = "test-hooks")]
+pub async fn hold_body(hooks: &Hooks) {
+    let hook = hooks.hold_body.lock().ok().and_then(|held| held.clone());
+    if let Some(hook) = hook {
+        hook("post-batch").await;
+    }
+}
+
+/// Hold a write between reading its body and parsing it. A no-op without `test-hooks`.
+#[cfg(not(feature = "test-hooks"))]
+pub async fn hold_body(_hooks: &Hooks) {}
 
 /// Run the acknowledgement seam for `seq`, before a write answers.
 #[cfg(feature = "test-hooks")]

@@ -9,18 +9,16 @@
 //! ([`PATIENCE`]) and a `Drop` that stops the server.
 //!
 //! [`real`] speaks the motor's own wire, so `hub-roundtrip` can compare its bytes against the
-//! hub's; the scripted stand-in for `hub-motor-map` lives in the [`stub`] child module, so each of
-//! the two files stays under the house limit.
+//! hub's; [`stub`] is a hand-written router over a scripted answer list, for `hub-motor-map`, and
+//! lives in [`stub`] so this file stays the fixture both share.
 //! Caveat: the in-process motor shares the test binary's event loop and its container, so a
 //! `/layout` timing measured here is a floor and never the production figure.
 #![allow(dead_code, reason = "each test binary uses a part of these fixtures")]
 
 use axum::Router;
 use axum::body::{Body, Bytes};
-use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
 use graph_server::app::{App, LogSink};
 use graph_server::config::Settings;
 use graph_server::keys;
@@ -38,9 +36,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
-
-pub mod stub;
-pub use stub::{StubReply, stub};
 
 /// The bound on a fixture's readiness wait, `child.rs:18`'s value.
 /// Caveat: a guess above a cold in-process server, not a measurement, so a host slower than this
@@ -146,7 +141,7 @@ fn keys_path() -> PathBuf {
 
 /// Binds `127.0.0.1:0`, spawns the accept task and waits until the server answers `GET /healthz`
 /// with a status `ready` accepts. The returned fixture is the only thing a test ever sees.
-pub(super) async fn serve(router: Router, ready: fn(StatusCode) -> bool) -> Motor {
+async fn serve(router: Router, ready: fn(StatusCode) -> bool) -> Motor {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .expect("the fixture's listener binds");
@@ -173,7 +168,7 @@ async fn accept(listener: TcpListener, router: Router, stop: Arc<Notify>) {
 /// Polls `GET /healthz` until `ready` accepts the status or [`PATIENCE`] is out. This is the
 /// fixture's own readiness, so the panic names the bound instead of surfacing as some later
 /// assertion's failure.
-pub(super) async fn await_ready(motor: &Motor, ready: fn(StatusCode) -> bool) {
+async fn await_ready(motor: &Motor, ready: fn(StatusCode) -> bool) {
     let deadline = Instant::now() + PATIENCE;
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
@@ -202,3 +197,10 @@ async fn healthz(addr: SocketAddr) -> Result<StatusCode, ClientError> {
         .expect("the fixture's probe request");
     Ok(client.request(request).await?.status())
 }
+
+/// The scripted stub: [`StubReply`], [`stub`] and its two siblings. A separate module because it
+/// shares only [`Motor`] with the half above and is a different kind of peer — a fixture that answers
+/// what it was told, not one that runs graph-server.
+pub mod stub;
+
+pub use stub::{STUB_KEY, StubReply, stub, stub_counting, stub_parts, stub_with_key};

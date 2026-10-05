@@ -25,6 +25,7 @@ pub mod health;
 pub mod hooks;
 pub mod keys;
 pub mod observe;
+pub mod relay;
 pub mod routes;
 pub mod serve;
 pub mod watch;
@@ -77,7 +78,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/v1/workspaces/{ws}/graph", get(routes::graph::get))
         .route("/v1/workspaces/{ws}/changes", get(routes::changes::get))
         .route("/v1/workspaces/{ws}/events", get(events::get))
-        .route("/v1/workspaces/{ws}/layout", post(not_ready))
+        .route("/v1/workspaces/{ws}/layout", post(relay::layout))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .layer(axum::middleware::from_fn_with_state(

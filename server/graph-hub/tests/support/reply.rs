@@ -46,6 +46,25 @@ impl Reply {
         String::from_utf8_lossy(&self.body).into_owned()
     }
 
+    /// One answer read off a socket rather than off a `Router`, for the cases whose peer is the
+    /// in-process motor (`support::motor`): the motor is reached over loopback, so its reply comes
+    /// back as parts and a body rather than from `oneshot`.
+    ///
+    /// The motor's snapshot is binary, so the body is **not** forced through UTF-8: a lossy read
+    /// would make two unequal snapshots compare equal, which is exactly the claim
+    /// `layout_bytes_equal_motor_bytes_at_the_same_cursor` exists to make.
+    pub async fn from_parts(
+        parts: axum::http::response::Parts,
+        body: hyper::body::Incoming,
+    ) -> Reply {
+        let body = body.collect().await.expect("the motor's body").to_bytes();
+        Reply {
+            status: parts.status,
+            headers: parts.headers,
+            body,
+        }
+    }
+
     /// A header as text, `""` when absent.
     pub fn header(&self, name: &str) -> &str {
         let value = self.headers.get(name);

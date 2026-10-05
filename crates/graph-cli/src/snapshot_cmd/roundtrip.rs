@@ -5,8 +5,8 @@
 //! layouts — grid, circular, packing — are also held to their own stated convention
 //! restated by hand ([`super::hand_oracles`]), and the layered drawing to its structural
 //! invariants ([`super::dag`]), which is the evidence `layout.grid`,
-//! `layout.circular.radial`, `layout.packing.circle` and `layout.dag.sugiyama` are gated
-//! on (tidy tree and
+//! `layout.circular.radial`, `layout.packing.circle`, `layout.dag.sugiyama` and
+//! `layout.dag.lanes` are gated on (tidy tree and
 //! treemap are gated on `harness/oracle-layouts.mjs` instead: see
 //! `crate::capabilities::registry`).
 
@@ -38,6 +38,8 @@ struct Findings {
     packing: Vec<String>,
     /// Seeds whose layered drawing breaks a structural invariant.
     dag: Vec<String>,
+    /// Seeds whose lanes drawing is off its own stated convention.
+    lanes: Vec<String>,
     /// Exercise snapshots per notes case (`exercise::count_notes_cases`).
     notes: [u64; 5],
     /// Exercise snapshots that are 3D, z column and all. Counted rather than assumed, so a
@@ -80,6 +82,7 @@ impl Findings {
                 &self.circular,
                 &self.packing,
                 &self.dag,
+                &self.lanes,
             ]
             .into_iter()
             .all(Vec::is_empty)
@@ -143,6 +146,7 @@ fn body(seeds: u32, found: &Findings) -> serde_json::Value {
             "layout.circular.radial": hand(found.circular.len()),
             "layout.packing.circle": hand(found.packing.len()),
             "layout.dag.sugiyama": hand(found.dag.len()),
+            "layout.dag.lanes": hand(found.lanes.len()),
         }
     })
 }
@@ -204,6 +208,11 @@ fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
         out,
         "  layout.dag.sugiyama on its structural invariants on {dag_ok}/{seeds} seeds"
     );
+    let lanes_ok = u64::from(seeds) - found.lanes.len() as u64;
+    let _ = writeln!(
+        out,
+        "  layout.dag.lanes on its stated conventions on {lanes_ok}/{seeds} seeds"
+    );
     let _ = writeln!(
         out,
         "  3D exercise snapshots (dim 1, z column) round-tripped: {}",
@@ -222,7 +231,8 @@ fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
         .chain(&found.grid)
         .chain(&found.circular)
         .chain(&found.packing)
-        .chain(&found.dag);
+        .chain(&found.dag)
+        .chain(&found.lanes);
     for line in all_failures.take(6) {
         let _ = writeln!(out, "  FAILED {line}");
     }

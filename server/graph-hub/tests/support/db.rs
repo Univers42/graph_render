@@ -188,6 +188,62 @@ async fn create(name: &str, options: &str) -> String {
     format!("{head}/{database}")
 }
 
+/// A URL of a database of this test's own, created `C`-collated and UTF8 from `template0`, whose
+/// `public` schema `hub` may create in, and migrated.
+///
+/// WHY owned by `hub` and not merely granted: `scripts/orch/hub-pg.sh` grants `ALL ON SCHEMA public`
+/// on the **shared** `hub` database only, and PostgreSQL 15 moved `CREATE` on `public` from `PUBLIC`
+/// to `pg_database_owner`. A case that creates its own database and then migrates as `hub` therefore
+/// gets `permission denied for schema public` unless the database is `hub`'s.
+///
+/// Caveat: the role is named in this file rather than read from the URL, so it is the hub-pg.sh
+/// spelling; a container with another role name would need this and `admin_url` changed together.
+pub async fn fresh_migrated(name: &str) -> String {
+    let url = owned(
+        name,
+        "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'",
+    )
+    .await;
+    let store = store_on(&url).await;
+    let mut client = store
+        .client()
+        .await
+        .expect("a connection for the migration");
+    graph_store::migrate::apply(&mut client)
+        .await
+        .expect("the store's migrations");
+    url
+}
+
+/// A URL of a database of this test's own that **belongs to `hub`**, so the store's own role may
+/// create its tables in it.
+async fn owned(name: &str, options: &str) -> String {
+    let base = url();
+    let admin = store_on(&admin_url(&base)).await;
+    let client = admin.client().await.expect("an admin connection");
+    let (head, _) = base.rsplit_once('/').expect("GM_HUB_PG_URL has a database");
+    let database = database_name(name);
+    let _ = client
+        .batch_execute(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+             WHERE datname = '{database}' AND pid <> pg_backend_pid()"
+        ))
+        .await;
+    let _ = client
+        .batch_execute(&format!("DROP DATABASE IF EXISTS {database}"))
+        .await;
+    client
+        .batch_execute(&format!(
+            "CREATE DATABASE {database} {options} OWNER {ROLE}"
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("create {database}: {error}"));
+    format!("{head}/{database}")
+}
+
+/// The role the store connects as, and the owner of every database a case creates for itself.
+const ROLE: &str = "hub";
+
 /// The store's migrations on the shared database, once per test process.
 ///
 /// WHY here and not in the binary: `Store::connect` validates and builds and opens no connection,
