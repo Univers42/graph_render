@@ -23,6 +23,7 @@ use crate::layout::force::lgl::LglParams;
 use crate::layout::force::spring::SpringParams;
 use crate::layout::forceatlas2::Fa2Params;
 use crate::layout::grid::GridParams;
+use crate::layout::lanes::LanesParams;
 use crate::layout::sugiyama::SugiyamaParams;
 use graph_contract::params::ParamSpec;
 
@@ -196,6 +197,13 @@ tunable!(GridParams, true, {
 tunable!(SugiyamaParams, true, {
     layer_spacing: f32, Float, 0.0625, 1024.0, 1.0, 0.125,
         "y distance between adjacent layers of the layered drawing";
+});
+
+tunable!(LanesParams, true, {
+    lane_spacing: f32, Float, 0.0625, 1024.0, 1.0, 0.125,
+        "x distance between adjacent lanes";
+    row_spacing: f32, Float, 0.0625, 1024.0, 1.0, 0.125,
+        "y distance between adjacent rows";
 });
 
 tunable!(CirclePackingParams, true, {

@@ -214,10 +214,29 @@ pub const DOT_LAYOUT_STAGES: [Stage; 1] = [Stage {
     record: "hashgate-control-dag-dot-nodes",
 }];
 
+/// The one `layout.dag.lanes` row, the same shape as the Graphviz `dot` row above and for
+/// the same reason: `lanes` publishes no `Params` that the ledger sets to anything but
+/// `Default`, so a `Params` here would buy a knob with nothing behind it, and what the
+/// layout reads is the whole `Topology`.
+///
+/// The re-draw is scoped to `stage_nodes`, so `topology`, the other layouts and the transport
+/// stage stay byte-identical and the divergence names this stage. This is what
+/// `verdict::hash_4way` needs before it will call `layout.dag.lanes` `gated` rather than
+/// `implemented`.
+///
+/// **The id is graph-core's own `lanes::ID`**, never a spelling here, for the reason the
+/// tables above give.
+pub const LANES_LAYOUT_STAGES: [Stage; 1] = [Stage {
+    id: graph_core::layout::lanes::ID,
+    env: "GM_MUTATE_DAG_LANES_NODES",
+    record: "hashgate-control-dag-lanes-nodes",
+}];
+
 /// Every per-stage control this module tables: the fifteen ANALYSIS and POST rows, then the
-/// six igraph layout rows, then the seven 3D layout rows, then the one Graphviz packing row and
-/// the one Graphviz `dot` row — one search list, so [`super::knob::stage_of`] resolves every
-/// family through the same table lookup and none can drift from another's shape.
+/// six igraph layout rows, then the seven 3D layout rows, then the one Graphviz packing row,
+/// the one Graphviz `dot` row and the one `layout.dag.lanes` row — one search list, so
+/// [`super::knob::stage_of`] resolves every family through the same table lookup and none can
+/// drift from another's shape.
 pub fn all() -> impl Iterator<Item = Stage> {
     ANALYSIS_POST_STAGES
         .iter()
@@ -226,6 +245,7 @@ pub fn all() -> impl Iterator<Item = Stage> {
         .chain(THREE_D_LAYOUT_STAGES.iter().copied())
         .chain(OSAGE_LAYOUT_STAGES.iter().copied())
         .chain(DOT_LAYOUT_STAGES.iter().copied())
+        .chain(LANES_LAYOUT_STAGES.iter().copied())
 }
 
 /// One ANALYSIS or POST stage's negative control: the stage it perturbs, the variable

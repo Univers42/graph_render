@@ -188,6 +188,9 @@ mod geometry_invariants {
             // of what this sweep can say: the layout's own agreement is
             // `dot/position_tests.rs` and the 1000-seed sweep in `dot/oracle_probe.rs`.
             ["layout.dag.dot", WHOLE, layout_dag_dot],
+            // dag-lanes: one row per vertex with reused lanes, appended last for the same
+            // append-only reason. The assertions are D9 like every other row's.
+            ["layout.dag.lanes", WHOLE, layout_dag_lanes],
         ]
     }
 

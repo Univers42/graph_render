@@ -46,11 +46,12 @@ const SCIPY_ORACLE_LAYOUTS: [&str; 4] = [
 /// same `gated` claim on the same record. An id in no arm at all is now
 /// [`Status::Implemented`] naming a record no gate writes, so registering a layout is a
 /// decision somebody makes here rather than a claim it picks up.
-const ROUNDTRIP_LAYOUTS: [&str; 4] = [
+const ROUNDTRIP_LAYOUTS: [&str; 5] = [
     "layout.grid",
     "layout.circular.radial",
     "layout.packing.circle",
     "layout.dag.sugiyama",
+    "layout.dag.lanes",
 ];
 
 /// The record a row of no consequence names when it names no oracle at all. No gate

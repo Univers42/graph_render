@@ -70,6 +70,7 @@ fn hand_oracle(name: &str, seed: u32, nodes: u32, snapshot: &Snapshot) -> Result
         "circular.radial" => hand_oracles::circular(seed, nodes, snapshot),
         "packing.circle" => hand_oracles::packing(snapshot),
         "dag.sugiyama" => dag::invariants(snapshot),
+        "dag.lanes" => hand_oracles::lanes(seed, nodes, snapshot),
         _ => Ok(()),
     }
 }
@@ -82,6 +83,7 @@ fn convention(found: &mut Findings, name: &str, why: String) {
         "circular.radial" => found.circular.push(why),
         "packing.circle" => found.packing.push(why),
         "dag.sugiyama" => found.dag.push(why),
+        "dag.lanes" => found.lanes.push(why),
         _ => {}
     }
 }
