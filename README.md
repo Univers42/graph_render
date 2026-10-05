@@ -10,6 +10,22 @@ It is **decoupled from the host application** like an installed dependency: the 
 nothing about BaaS, Notion, routing, or stores. You hand it a `GraphModel` and a `Controls`
 object; it renders and emits events. Data sourcing stays in the app.
 
+## Showcase
+
+[![Forces, edge styles, 40+ layouts, analysis, 3D and a million nodes](docs/media/showcase-preview.webp)](docs/media/showcase.mp4)
+
+The loop above opens each chapter of [the full video](docs/media/showcase.mp4) (1280×720, under
+10 MB). Both are recorded from the studio in headless Chromium and encoded by
+`scripts/showcase.sh`; the scenes are `deploy/perf/showcase_scenes.py`, nothing is edited by hand.
+
+| | |
+|---|---|
+| ![ForceAtlas2](docs/media/01-intro.webp) ForceAtlas2 (Barnes–Hut), 1 500 nodes, glow on aurora | ![Live forces](docs/media/02-forces.webp) Live forces with labels, simulated in a worker |
+| ![Circle packing](docs/media/04-packing.webp) `packing.circle`, coloured by group | ![Yifan Hu](docs/media/05-yifan-hu.webp) Yifan Hu, curved gradient edges |
+| ![Centrality](docs/media/06-centrality.webp) Betweenness centrality, magma colormap | ![Paper theme](docs/media/07-paper.webp) The same analysis in the paper theme |
+| ![3D](docs/media/08-space.webp) ForceAtlas2 in 3D, mid-orbit | ![Studio](docs/media/11-studio.webp) The studio: every layout in the motor's registry |
+| ![A million nodes](docs/media/09-million-close.webp) 1 000 000 nodes, spiral, zoomed ×40 | ![Twopi](docs/media/10-million-twopi.webp) The same million as Graphviz `twopi` rings |
+
 ## Boundary contract
 
 - `src/core/**` is pure: **no React** — *this half is machine-enforced.* `eslint.config.js` applies a
