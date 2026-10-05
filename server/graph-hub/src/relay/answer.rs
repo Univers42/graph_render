@@ -72,18 +72,18 @@ pub async fn read(
 fn streaming(body: Incoming, deadline: tokio::time::Instant) -> Body {
     Body::from_stream(stream::unfold((body, deadline), |(mut body, deadline)| async move {
         let data = async {
-            loop {
-                match tokio::time::timeout_at(deadline, body.frame()).await {
-                    Ok(Some(Ok(frame))) => match frame.into_data() {
-                        Ok(data) => break Some(Ok(data)),
-                        // Trailers carry no bytes this hub relays, so the frame is skipped and the
-                        // next one read; a stream of only trailers ends on the `None` below.
-                        Err(_trailers) => continue,
-                    },
-                    // The end of the body, a transport error and the deadline all end the stream
-                    // the same way: the caller sees a short body and re-reads its cursor.
-                    Ok(Some(Err(_))) | Ok(None) | Err(_) => break None,
-                }
+            match tokio::time::timeout_at(deadline, body.frame()).await {
+                Ok(Some(Ok(frame))) => match frame.into_data() {
+                    Ok(data) => Some(Ok::<Bytes, std::io::Error>(data)),
+                    // A trailer frame carries no bytes this hub relays and ends the stream:
+                    // graph-server sends none on `/v1/layout`, and a wrong answer about the end
+                    // of a snapshot is worse than a short one the caller re-reads at its cursor.
+                    Err(_trailers) => None,
+                },
+                // The end of the body, a transport error and the deadline all end the stream the
+                // same way: the caller sees a short body and re-reads at its cursor.
+                Ok(Some(Err(error))) => Some(Err(std::io::Error::other(error))),
+                Ok(None) | Err(_) => None,
             }
         }
         .await;

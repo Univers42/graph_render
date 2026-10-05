@@ -25,7 +25,6 @@ use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, Uri, header};
 use axum::response::Response;
-use futures_util::StreamExt;
 use graph_contract::hub::Cursor;
 use graph_store::materialize::Document;
 use hyper_util::client::legacy::Client;
@@ -93,7 +92,7 @@ pub async fn layout(
         accept: header_text(&headers, header::ACCEPT),
     };
     let answer = post(&app, &request, document, None).await?;
-    Ok(answer::respond(body::held(answer.body, permit), &request.cursor))
+    Ok(answer::respond(answer, permit, &request.cursor))
 }
 
 /// One `/layout` exchange: build the motor's request, send `document` as its body, and read the

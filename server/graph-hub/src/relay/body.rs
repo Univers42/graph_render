@@ -15,6 +15,7 @@
 //! exchange is `GRAPH_HUB_MOTOR_TIMEOUT_MS`, which is shorter, so this cut is the backstop.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
 use futures_util::stream::{self, Stream};
@@ -89,15 +90,15 @@ enum Stage {
 
 /// What the walk holds: the document, where it is, the probe, and whether `drop-record` still owes
 /// a record.
-struct Walk<'a> {
+struct Walk {
     document: Option<Document>,
     stage: Stage,
     deadline: tokio::time::Instant,
-    probe: Option<&'a Probe>,
+    probe: Option<Arc<Probe>>,
     armed: bool,
 }
 
-impl Walk<'_> {
+impl Walk {
     /// The next piece, or `None` when the document is over, the deadline passed or the store
     /// faulted. The loop is bounded by the stage machine: `drop-record` can skip one record and the
     /// `None` that ends the records moves one stage, so a walk turns at most one extra time per
@@ -142,7 +143,7 @@ impl Walk<'_> {
                     // Exactly one record, in the relay's stream only, so `/graph` and `/layout`
                     // disagree by one record and row `negctl-drop-record` can see it.
                     self.armed = false;
-                    if let Some(probe) = self.probe {
+                    if let Some(probe) = self.probe.as_ref() {
                         probe.dropped();
                     }
                     return None;
@@ -175,7 +176,7 @@ impl Walk<'_> {
 
     /// One piece, counted when a probe is installed.
     fn count(&self, bytes: &Bytes) {
-        if let Some(probe) = self.probe {
+        if let Some(probe) = self.probe.as_ref() {
             probe.wrote(bytes);
         }
     }
@@ -191,11 +192,11 @@ impl Walk<'_> {
 /// updates per chunk instead of zero. A chunk is a socket write, so the updates are noise next to
 /// it; the alternative was a global counter, and a global counter cannot tell one test's upload
 /// from another's.
-pub fn document<'a>(
+pub fn document(
     document: Document,
-    probe: Option<&'a Probe>,
+    probe: Option<Arc<Probe>>,
     deadline: tokio::time::Instant,
-) -> impl Stream<Item = Result<Bytes, std::io::Error>> + 'a {
+) -> impl Stream<Item = Result<Bytes, std::io::Error>> {
     let walk = Walk {
         document: Some(document),
         stage: Stage::Head,
@@ -220,7 +221,12 @@ pub fn document<'a>(
 pub fn held(body: Body, permit: OwnedSemaphorePermit) -> Body {
     let inner = BodyStream::new(body);
     Body::from_stream(stream::unfold((inner, permit), |(mut body, permit)| async move {
-        let frame = futures_util::StreamExt::next(&mut body).await;
-        frame.map(|item| (item, (body, permit)))
+        let frame = futures_util::StreamExt::next(&mut body).await?;
+        match frame {
+            // A frame with no bytes is a trailer frame, which the hub's own streamed bodies never
+            // carry; it ends the stream rather than becoming an error in the middle of a snapshot.
+            Ok(frame) => frame.into_data().ok().map(|item| (Ok(item), (body, permit))),
+            Err(error) => Some((Err(std::io::Error::other(error)), (body, permit))),
+        }
     }))
 }
