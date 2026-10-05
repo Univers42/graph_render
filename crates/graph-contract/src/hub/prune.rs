@@ -74,15 +74,15 @@ pub fn prune_record(
             return false;
         };
         match prune_cell(field, &r.collection, value, exists) {
-            Kept::Kept => true,
-            Kept::Dropped => {
+            Fate::Unchanged => true,
+            Fate::Dropped => {
                 dropped_any = true;
                 false
             }
             // An empty list emptied by pruning is removed, and an empty list that was
             // already empty is kept. A client that sent `[]` said something; a client whose
             // references all dangled did not.
-            Kept::Emptied => {
+            Fate::Emptied => {
                 dropped_any = true;
                 false
             }
@@ -95,9 +95,9 @@ pub fn prune_record(
 /// "the cell is not a list at all" both mean *drop* for the key and mean different things
 /// for the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kept {
+enum Fate {
     /// Written as it is.
-    Kept,
+    Unchanged,
     /// The cell itself does not resolve: dropped.
     Dropped,
     /// The cell was a list and pruning emptied it: the key is dropped, and that is a
@@ -123,39 +123,42 @@ fn prune_cell(
     own: &str,
     value: &JsonValue,
     exists: &dyn Fn(&str, &str) -> bool,
-) -> Kept {
+) -> Fate {
     match field.role {
         Role::Tags | Role::Scalar | Role::Title | Role::Label | Role::Group | Role::Weight => {
-            Kept::Kept
+            Fate::Unchanged
         }
         Role::Parent => match value {
-            JsonValue::Null => Kept::Kept,
+            JsonValue::Null => Fate::Unchanged,
             JsonValue::Text(id) => resolves(own, id, exists),
-            _ => Kept::Dropped,
+            _ => Fate::Dropped,
         },
         Role::Link => {
-            let target = field.link.as_ref().map_or("", |link| link.collection.as_str());
+            let target = field
+                .link
+                .as_ref()
+                .map_or("", |link| link.collection.as_str());
             match value {
-                JsonValue::Null => Kept::Kept,
+                JsonValue::Null => Fate::Unchanged,
                 JsonValue::Text(id) => resolves(target, id, exists),
                 JsonValue::List(items) => prune_list(target, items, exists),
-                _ => Kept::Dropped,
+                _ => Fate::Dropped,
             }
         }
     }
 }
 
-/// A list of references, keeping the ones that resolve. An *empty* list is `Kept` — the
+/// A list of references, keeping the ones that resolve. An *empty* list is unchanged — the
 /// client said there are none — and a list whose every element dangled is `Emptied`, which
 /// drops the key.
-fn prune_list(target: &str, items: &[JsonValue], exists: &dyn Fn(&str, &str) -> bool) -> Kept {
+fn prune_list(target: &str, items: &[JsonValue], exists: &dyn Fn(&str, &str) -> bool) -> Fate {
     if items.is_empty() {
-        return Kept::Kept;
+        return Fate::Unchanged;
     }
     let mut kept: Vec<JsonValue> = Vec::with_capacity(items.len());
     for item in items {
         match item {
-            JsonValue::Text(id) if resolves(target, id, exists) == Kept::Kept => {
+            JsonValue::Text(id) if resolves(target, id, exists) == Fate::Unchanged => {
                 kept.push(item.clone());
             }
             JsonValue::Null => kept.push(item.clone()),
@@ -163,20 +166,24 @@ fn prune_list(target: &str, items: &[JsonValue], exists: &dyn Fn(&str, &str) -> 
         }
     }
     if kept.len() == items.len() {
-        return Kept::Kept;
+        return Fate::Unchanged;
     }
     if kept.is_empty() {
-        return Kept::Emptied;
+        return Fate::Emptied;
     }
-    Kept::Dropped
+    Fate::Dropped
 }
 
 /// Whether the reference `id` resolves in `target`. `keep-dangling` turns this off, which
 /// is what makes `negctl-keep-dangling` go red: with it on, a dangling reference is written
 /// and the document carries a cell naming a record that is not there.
-fn resolves(target: &str, id: &str, exists: &dyn Fn(&str, &str) -> bool) -> Kept {
+fn resolves(target: &str, id: &str, exists: &dyn Fn(&str, &str) -> bool) -> Fate {
     if breaks::on("keep-dangling") {
-        return Kept::Kept;
+        return Fate::Unchanged;
     }
-    if exists(target, id) { Kept::Kept } else { Kept::Dropped }
+    if exists(target, id) {
+        Fate::Unchanged
+    } else {
+        Fate::Dropped
+    }
 }

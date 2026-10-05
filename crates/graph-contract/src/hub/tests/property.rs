@@ -20,10 +20,10 @@
 //! Seeds, not a clock: the whole run is reproducible from `0..64`, so a failure can be
 //! re-run by hand with the failing seed (D2).
 
-use super::fixtures::{manifest, upsert};
-use super::rng::SplitMix64;
 use super::super::Limits;
 use super::super::model::Model;
+use super::fixtures::{manifest, upsert};
+use super::rng::SplitMix64;
 use crate::ingest::{read as ingest_read, to_json as ingest_to_json};
 
 /// Every seed, every step, four properties. Named as one test because the four assertions
@@ -57,7 +57,11 @@ fn random_ops_materialize_canonically() {
         }
         // The last property: two writes of the same model are one text, so a client that
         // polls twice cannot see two answers.
-        assert_eq!(model.to_json(), model.to_json(), "seed {seed}: two writes differ");
+        assert_eq!(
+            model.to_json(),
+            model.to_json(),
+            "seed {seed}: two writes differ"
+        );
     }
 }
 

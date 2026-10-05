@@ -5,12 +5,12 @@
 //! model, so if a rule is only true through a private door the property test would not see
 //! it either.
 
-use super::fixtures::{bare, delete, manifest, upsert};
-use super::rng::SplitMix64;
 use super::super::Limits;
 use super::super::manifest::Manifest;
 use super::super::model::Model;
 use super::super::*;
+use super::fixtures::{bare, delete, manifest, upsert};
+use super::rng::SplitMix64;
 
 /// A model with `tracker` registered: enough for one collection's records.
 fn model() -> Model {
@@ -25,14 +25,28 @@ fn model() -> Model {
 #[test]
 fn a_rev_is_one_on_create_and_only_moves_when_the_text_moves() {
     let mut model = model();
-    let first = model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
+    let first = model
+        .apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT)
+        .unwrap();
     assert_eq!(first.upserted[0].1, 1, "a created record is rev 1");
-    let second = model.apply("tracker", &bare("task", "r2", 1), &Limits::DEFAULT).unwrap();
-    assert_eq!(second.upserted[0].1, 1, "a different record is its own rev 1");
-    let changed = model.apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT).unwrap();
+    let second = model
+        .apply("tracker", &bare("task", "r2", 1), &Limits::DEFAULT)
+        .unwrap();
+    assert_eq!(
+        second.upserted[0].1, 1,
+        "a different record is its own rev 1"
+    );
+    let changed = model
+        .apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT)
+        .unwrap();
     assert_eq!(changed.upserted[0].1, 2, "a changed record is one more");
-    let same = model.apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT).unwrap();
-    assert!(same.upserted.is_empty(), "an identical upsert reports nothing");
+    let same = model
+        .apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT)
+        .unwrap();
+    assert!(
+        same.upserted.is_empty(),
+        "an identical upsert reports nothing"
+    );
     assert_eq!(model.stored("tracker.task", "r1").unwrap().rev, 2);
 }
 
@@ -42,26 +56,39 @@ fn a_rev_is_one_on_create_and_only_moves_when_the_text_moves() {
 #[test]
 fn a_record_re_created_after_a_delete_starts_again_at_rev_one() {
     let mut model = model();
-    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
-    model.apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT).unwrap();
+    model
+        .apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT)
+        .unwrap();
+    model
+        .apply("tracker", &bare("task", "r1", 2), &Limits::DEFAULT)
+        .unwrap();
     let before = model.stored("tracker.task", "r1").unwrap().rev;
     assert_eq!(before, 2);
-    let applied = model.apply("tracker", &delete("task", "r1"), &Limits::DEFAULT).unwrap();
+    let applied = model
+        .apply("tracker", &delete("task", "r1"), &Limits::DEFAULT)
+        .unwrap();
     assert_eq!(
         applied.deleted,
         [("tracker.task".to_owned(), "r1".to_owned(), 2)],
         "the delete reports the collection, id and rev it removed"
     );
     assert!(model.stored("tracker.task", "r1").is_none());
-    model.apply("tracker", &bare("task", "r1", 9), &Limits::DEFAULT).unwrap();
+    model
+        .apply("tracker", &bare("task", "r1", 9), &Limits::DEFAULT)
+        .unwrap();
     assert_eq!(model.stored("tracker.task", "r1").unwrap().rev, 1);
 }
 
 #[test]
 fn deleting_a_record_that_is_not_there_changes_nothing() {
     let mut model = model();
-    let applied = model.apply("tracker", &delete("task", "nope"), &Limits::DEFAULT).unwrap();
-    assert!(applied.deleted.is_empty(), "a replayed delete is not a change");
+    let applied = model
+        .apply("tracker", &delete("task", "nope"), &Limits::DEFAULT)
+        .unwrap();
+    assert!(
+        applied.deleted.is_empty(),
+        "a replayed delete is not a change"
+    );
     let mut empty = Model::new("ws").unwrap();
     empty.register("tracker", manifest("tracker")).unwrap();
     assert_eq!(model.to_json(), empty.to_json());
@@ -72,12 +99,17 @@ fn deleting_a_record_that_is_not_there_changes_nothing() {
 #[test]
 fn a_batch_with_one_bad_record_changes_nothing() {
     let mut model = model();
-    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
+    model
+        .apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT)
+        .unwrap();
     let before = model.to_json();
     // `nope` is not a declared field, so `check` refuses the whole batch.
     let bad = upsert("task", "r2", 1, r#""nope":1"#);
     assert_eq!(
-        model.apply("tracker", &bad, &Limits::DEFAULT).unwrap_err().status(),
+        model
+            .apply("tracker", &bad, &Limits::DEFAULT)
+            .unwrap_err()
+            .status(),
         422
     );
     assert_eq!(model.to_json(), before, "the model must be untouched");
@@ -98,7 +130,10 @@ fn collections_are_ordered_by_their_qualified_string() {
     let order: Vec<&str> = collections.iter().map(|c| c.id.as_str()).collect();
     let mut sorted = order.clone();
     sorted.sort_unstable();
-    assert_eq!(order, sorted, "the qualified strings must already be in byte order");
+    assert_eq!(
+        order, sorted,
+        "the qualified strings must already be in byte order"
+    );
     let at = |prefix: &str| order.iter().position(|c| c.starts_with(prefix)).unwrap();
     assert!(at("a-b.") < at("a."), "{order:?}");
 }
@@ -169,7 +204,10 @@ fn a_dangling_parent_is_pruned_and_an_originally_empty_list_stays() {
         )
         .unwrap();
     let text = model.to_json();
-    assert!(!text.contains(r#""up":"#), "the dangling parent is gone: {text}");
+    assert!(
+        !text.contains(r#""up":"#),
+        "the dangling parent is gone: {text}"
+    );
     assert!(
         text.contains(r#""tags":[]"#),
         "a list that arrived empty is kept: {text}"
@@ -191,7 +229,10 @@ fn a_list_emptied_by_pruning_is_removed_from_the_record_only() {
         .unwrap();
     let text = model.to_json();
     let record = &text[text.find("\"records\":[").unwrap()..];
-    assert!(!record.contains(r#""blocks":"#), "the cell is gone: {record}");
+    assert!(
+        !record.contains(r#""blocks":"#),
+        "the cell is gone: {record}"
+    );
     assert!(
         text.contains(r#""id":"blocks""#),
         "the declaration keeps a field other records still use: {text}"
@@ -204,17 +245,27 @@ fn a_list_emptied_by_pruning_is_removed_from_the_record_only() {
 #[test]
 fn a_reference_to_a_stored_record_is_kept() {
     let mut model = model();
-    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
+    model
+        .apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT)
+        .unwrap();
     model
         .apply(
             "tracker",
-            &upsert("task", "r2", 1, r#""name":"W","blocks":["r1","r1"],"up":"r2""#),
+            &upsert(
+                "task",
+                "r2",
+                1,
+                r#""name":"W","blocks":["r1","r1"],"up":"r2""#,
+            ),
             &Limits::DEFAULT,
         )
         .unwrap();
     let text = model.to_json();
     assert!(text.contains(r#""blocks":["r1","r1"]"#), "{text}");
-    assert!(text.contains(r#""up":"r2""#), "a self parent is kept: {text}");
+    assert!(
+        text.contains(r#""up":"r2""#),
+        "a self parent is kept: {text}"
+    );
 }
 
 /// `doc_bytes` is a bound, and it is *exact* while nothing is pruned — which is what lets a
@@ -223,7 +274,9 @@ fn a_reference_to_a_stored_record_is_kept() {
 fn doc_bytes_bounds_the_document_and_is_exact_while_nothing_is_pruned() {
     let mut model = model();
     assert_eq!(model.doc_bytes(), model.to_json().len() as u64);
-    model.apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT).unwrap();
+    model
+        .apply("tracker", &bare("task", "r1", 1), &Limits::DEFAULT)
+        .unwrap();
     assert_eq!(model.doc_bytes(), model.to_json().len() as u64);
     // Prune something, and the bound stops being exact — which is why it is a bound and not
     // an equality.
@@ -280,7 +333,11 @@ fn the_same_records_written_in_any_order_give_the_same_bytes() {
     let backward = build(reversed);
     assert_eq!(forward.to_json(), backward.to_json());
     assert_eq!(forward.doc_bytes(), backward.doc_bytes());
-    assert_eq!(forward.to_json(), forward.to_json(), "two writes are one text");
+    assert_eq!(
+        forward.to_json(),
+        forward.to_json(),
+        "two writes are one text"
+    );
 }
 
 /// A model holding `records`, each applied in the order given.
@@ -319,6 +376,9 @@ fn the_property_test_will_not_be_vacuous() {
             )
             .unwrap();
     }
-    assert!(model.records().count() > 0, "the steps must actually store something");
+    assert!(
+        model.records().count() > 0,
+        "the steps must actually store something"
+    );
     let _: Manifest = manifest("tracker");
 }

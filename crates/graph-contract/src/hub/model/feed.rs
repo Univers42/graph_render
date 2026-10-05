@@ -37,7 +37,11 @@ impl Staged {
 
 /// The batch staged against `model`, or the refusal. Nothing is written to `model`: the
 /// caller decides, once, whether to take the result.
-pub(super) fn stage(model: &Model, plugin: &str, batch: &super::super::batch::Batch) -> Result<Staged, HubError> {
+pub(super) fn stage(
+    model: &Model,
+    plugin: &str,
+    batch: &super::super::batch::Batch,
+) -> Result<Staged, HubError> {
     let mut records = model.records_map().clone();
     let mut upserted: Vec<(Record, u64)> = Vec::new();
     for up in &batch.upserts {
@@ -48,13 +52,18 @@ pub(super) fn stage(model: &Model, plugin: &str, batch: &super::super::batch::Ba
         // the cells, because the text is what a reader of this document would see — two
         // records whose cells compare equal in one order and not another are a writer bug,
         // and here we care about the bytes.
-        if let Some(stored) = records.get(&key) {
-            if stored.text == text {
-                continue;
-            }
+        if records.get(&key).is_some_and(|stored| stored.text == text) {
+            continue;
         }
         let rev = next_rev(records.get(&key));
-        records.insert(key, Stored { rev, text, record: record.clone() });
+        records.insert(
+            key,
+            Stored {
+                rev,
+                text,
+                record: record.clone(),
+            },
+        );
         upserted.push((record, rev));
     }
     let mut deleted: Vec<(String, String, u64)> = Vec::new();
