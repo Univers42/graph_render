@@ -88,16 +88,17 @@ const HOLD_MS: u64 = 750;
 /// the count is read directly from PostgreSQL and each read costs one round trip of its own.
 const POLL_MS: u64 = 25;
 
-/// Every backend of this database sitting in an open transaction, with its last statement.
+/// Every backend of this database holding a snapshot between two statements, with its last one.
 ///
 /// An open materialization snapshot is one of these: `materialize::open` runs
-/// `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` and holds it until the walk is done, so
-/// `idle in transaction` on this database is the fact §5.3 says must not outlive the upload.
-///
-/// Two statements are excluded, and both are this test's own rather than the relay's: the
-/// `pg_stat_activity` query itself, and the restore detector's `pg_control_system()` read, which
-/// `Store::client` runs on **every** connection it opens — including the one this function opens to
-/// ask. Counting them would make every observation find a transaction the test itself started.
+/// `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` and holds it until the walk is done, so an
+/// `idle in transaction` backend with a `backend_xmin` is the fact §5.3 says must not outlive the
+/// upload. `backend_xmin` and not the state alone: the restore detector that `Store::client` runs on
+/// every connection it opens is a READ COMMITTED transaction too, and between two of its statements
+/// it is `idle in transaction` with no snapshot. Measured 2026-10-06 on the hub's PostgreSQL: a
+/// repeatable-read reader idle after a `SELECT` shows `backend_xmin`, a read-committed one idle after
+/// `pg_current_wal_flush_lsn()` shows none. Filtering the detector by its statement text broke once
+/// already, when the detector gained a statement.
 ///
 /// Caveat: this counts by database, so the case must own the database (see [`hub_alone`]). On the
 /// shared `hub` database another fixture's snapshot would be named here and the case would fail for
@@ -109,8 +110,7 @@ async fn open_snapshots(hub: &Hub) -> Vec<String> {
         .query(
             "SELECT pid, state, left(query, 60) AS q FROM pg_stat_activity \
              WHERE datname = current_database() AND state = 'idle in transaction' \
-               AND query NOT LIKE '%pg_stat_activity%' \
-               AND query NOT LIKE '%pg_control_system%'",
+               AND backend_xmin IS NOT NULL",
             &[],
         )
         .await
