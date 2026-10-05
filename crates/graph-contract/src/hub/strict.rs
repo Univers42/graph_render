@@ -58,8 +58,14 @@ fn check_nul(value: &Value, path: &str) -> Result<(), HubError> {
             .enumerate()
             .try_for_each(|(i, item)| check_nul(item, &format!("{path}[{i}]"))),
         Value::Object(members) => members.iter().try_for_each(|(key, member)| {
+            // A NUL in a key is reported at the *object's* path, not at the key: the key
+            // is what is broken, so a path naming it would be a path that cannot be typed
+            // into a reader. At the root that is the empty path, which is why a root-level
+            // `{"k\0": 1}` answers `Nul { path: "" }`.
             if key.contains('\0') {
-                return Err(HubError::Nul { path: String::new() });
+                return Err(HubError::Nul {
+                    path: path.to_owned(),
+                });
             }
             check_nul(member, &child(path, key))
         }),

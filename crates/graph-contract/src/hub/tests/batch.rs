@@ -7,8 +7,21 @@ use super::super::*;
 use super::support::{TWO, read};
 use crate::ingest::{JsonValue, record_piece};
 
-/// One upsert and one delete: the whole batch shape, in one document.
+/// One upsert and one delete: the whole batch shape, in one document. Collections are
+/// **unqualified** — a batch is the write path, so the store qualifies them itself and
+/// refuses a qualified one (`a_qualified_collection_in_a_batch_is_refused`).
 const BATCH: &str = r#"{
+  "upserts": [
+    { "collection": "task", "id": "r1", "updatedAt": 5,
+      "values": { "name": "Write", "labels": ["wip"], "effort": 2, "up": null } }
+  ],
+  "deletes": [ { "collection": "task", "id": "r2" } ]
+}"#;
+
+/// The same batch with its collections written back the way a client received them from a
+/// read. Two round trips would then give `tracker.tracker.task`, which is the mistake the
+/// unqualified rule exists to stop — and this is what `lax-reader` lets through.
+const QUALIFIED: &str = r#"{
   "upserts": [
     { "collection": "tracker.task", "id": "r1", "updatedAt": 5,
       "values": { "name": "Write", "labels": ["wip"], "effort": 2, "up": null } }
@@ -46,7 +59,14 @@ fn a_batch_with_one_upsert_and_one_delete_reads() {
     assert_eq!(batch.upserts.len(), 1);
     assert_eq!(batch.deletes.len(), 1);
     let up = &batch.upserts[0];
-    assert_eq!((up.collection.as_str(), up.id.as_str(), up.updated_at), ("tracker.task", "r1", 5));
+    // The collection is kept as the client wrote it: qualification is `record`'s job, at
+    // the point a `Record` exists, so there is exactly one place it happens.
+    assert_eq!((up.collection.as_str(), up.id.as_str(), up.updated_at), ("task", "r1", 5));
+    assert_eq!(
+        up.record("tracker").collection,
+        "tracker.task",
+        "the stored record's collection is qualified from the plugin"
+    );
     // Values sorted by key, so the cell order a client wrote cannot reach the store.
     let keys: Vec<&str> = up.values.iter().map(|(k, _)| k.as_str()).collect();
     assert_eq!(keys, ["effort", "labels", "name", "up"]);
@@ -59,7 +79,7 @@ fn an_unknown_member_is_refused_at_the_root_and_at_each_level() {
         (
             "root",
             r#"{"upserts":[],"deletes":[],"extra":1}"#,
-            "the body: unknown member `extra`",
+            "body: unknown member `extra`",
         ),
         (
             "upsert",
@@ -89,7 +109,7 @@ fn an_unknown_member_is_refused_at_the_root_and_at_each_level() {
 #[test]
 fn a_qualified_collection_in_a_batch_is_refused() {
     assert_eq!(
-        read_batch(BATCH, &Limits::DEFAULT)
+        read_batch(QUALIFIED, &Limits::DEFAULT)
             .unwrap_err()
             .to_string(),
         "upserts[0].collection: collection id \"tracker.task\" is not a legal id"
@@ -142,7 +162,7 @@ fn a_record_may_appear_at_most_once_across_upserts_and_deletes() {
             read_batch(text, &Limits::DEFAULT)
                 .unwrap_err()
                 .to_string(),
-            "the batch: record `task`/`r1` appears more than once",
+            "batch: record `task`/`r1` appears more than once",
             "{what}"
         );
     }
@@ -191,41 +211,70 @@ fn a_nul_in_a_value_key_is_refused() {
 #[test]
 fn a_cell_whose_shape_the_role_forbids_is_refused() {
     let cases = [
-        ("a tag containing a colon", r#"["a","b:c"]"#, "a tag may not contain `:`"),
-        ("a bare text tags cell", r#""b:c""#, "expected a list of strings"),
-        ("a non-numeric weight", r#""x""#, "expected a number"),
-        ("a parent that is a list", r#"["a","b"]"#, "expected a single reference"),
         (
-            "a one-cardinality link that is a list",
-            r#"["a"]"#,
-            "expected a single reference",
+            "a tag containing a colon",
+            "labels",
+            r#"["a","b:c"]"#,
+            // A list element's path is index-addressed, which is what makes the refusal
+            // pointable: a client with three tags needs to know *which* one is bad.
+            "upserts[0].values.labels[1]: a tag may not contain `:`",
+        ),
+        (
+            "a bare text tags cell",
+            "labels",
+            r#""b:c""#,
+            "upserts[0].values.labels: expected a list of strings",
+        ),
+        (
+            "a non-numeric weight",
+            "effort",
+            r#""x""#,
+            "upserts[0].values.effort: expected a number",
+        ),
+        (
+            "a title that is a number",
+            "name",
+            "1",
+            "upserts[0].values.name: expected a string",
+        ),
+        (
+            "a parent that is a list of two",
+            "up",
+            r#"["a","b"]"#,
+            "upserts[0].values.up: expected a single reference",
         ),
     ];
-    for (what, cell, tail) in cases {
-        let batch = one(&format!(r#""blocks":{cell}"#));
+    for (what, field, cell, expected) in cases {
+        let batch = one(&format!(r#""{field}":{cell}"#));
         assert_eq!(
             batch
                 .check("tracker", &manifest(), &Limits::DEFAULT)
                 .unwrap_err()
                 .to_string(),
-            format!("upserts[0].values.blocks: {tail}"),
+            expected,
             "{what}"
         );
     }
 }
 
-/// A many-cardinality link that is a bare text is refused too — the same rule the other
-/// way round, and the one a client writing `"blocks": "a"` by mistake hits.
+/// Cardinality is *declared*, so a client cannot send a one-element list for a `one`
+/// link and a bare text for a `many` one. A one-element list is accepted for `one` —
+/// a client that builds both kinds of cell from the same code should not have to branch —
+/// but a two-element list is not.
 #[test]
-fn a_many_cardinality_link_that_is_not_a_list_is_refused() {
-    let batch = one(r#""blocks":"a""#);
+fn a_link_cells_shape_follows_the_declared_cardinality() {
+    let many_as_text = one(r#""blocks":"a""#);
     assert_eq!(
-        batch
+        many_as_text
             .check("tracker", &manifest(), &Limits::DEFAULT)
             .unwrap_err()
             .to_string(),
         "upserts[0].values.blocks: expected a list of references"
     );
+    let one_ok = one(r#""blocks":["a"]"#);
+    assert!(one_ok
+        .check("tracker", &manifest(), &Limits::DEFAULT)
+        .is_ok());
 }
 
 /// An undeclared collection or field is refused: both are cells the stored document would
@@ -278,7 +327,9 @@ fn null_is_a_cell_in_every_role_and_a_scalar_takes_anything() {
 /// the only thing that can lose them.
 #[test]
 fn minus_zero_and_the_last_exact_integer_survive_the_record_piece_byte_identically() {
-    for (cell, text) in [(r#"-0"#, "\"-0\""), ("9007199254740991", "\"9007199254740991\"")] {
+    // The written text, not a quoted string: both are numbers, and `-0` is the point —
+    // it is a distinct `f64` from `0` and a client that sent it must see it come back.
+    for (cell, text) in [("-0", "-0"), ("9007199254740991", "9007199254740991")] {
         let batch = one(&format!(r#""note":{cell}"#));
         batch
             .check("tracker", &manifest(), &Limits::DEFAULT)
@@ -324,7 +375,7 @@ fn the_lax_reader_break_relaxes_exactly_the_two_reader_refusals() {
         return;
     }
     // No `check_collection_id`: a qualified collection is accepted.
-    let batch = read_batch(BATCH, &Limits::DEFAULT).expect("a qualified collection now reads");
+    let batch = read_batch(QUALIFIED, &Limits::DEFAULT).expect("a qualified collection now reads");
     assert_eq!(batch.upserts[0].collection, "tracker.task");
     // No NUL walk: a NUL in a key is accepted.
     let nuled = r#"{"upserts":[{"collection":"task","id":"r1","updatedAt":1,

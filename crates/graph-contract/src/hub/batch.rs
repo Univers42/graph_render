@@ -23,7 +23,8 @@ use super::{
 };
 use crate::canonical_json::Value;
 use crate::ingest::read::{array, integer, member, object, require_only, text_of};
-use crate::ingest::{JsonValue, Record, cell, record_piece};
+use crate::ingest::read::cell;
+use crate::ingest::{JsonValue, Record, record_piece};
 
 mod cells;
 
@@ -86,7 +87,10 @@ impl Upsert {
 pub fn read_batch(text: &str, limits: &Limits) -> Result<Batch, HubError> {
     let root = parse_strict(text, limits.max_body, "body")?;
     let members = object(&root, "").map_err(HubError::Shape)?;
-    require_only(members, &["upserts", "deletes"], "").map_err(HubError::Shape)?;
+    // `body` as the root path, so a root-level refusal says "body: unknown member `x`"
+    // rather than the ingest reader's "the document": a batch is not a document, and a
+    // client with two files open needs the message to say which.
+    require_only(members, &["upserts", "deletes"], "body").map_err(HubError::Shape)?;
     let mut upserts = upserts(member(members, "upserts", "").map_err(HubError::Shape)?)?;
     let deletes = deletes(member(members, "deletes", "").map_err(HubError::Shape)?)?;
     if (upserts.len() + deletes.len()) as u64 > limits.max_batch {
@@ -112,7 +116,7 @@ impl Batch {
             let path = format!("upserts[{i}]");
             let collection = cells::declared(manifest, plugin, &up.collection, &path)?;
             for (field_id, value) in &up.values {
-                cells::check_cell(collection, field_id, value, &path)?;
+                cells::check_cell(plugin, collection, field_id, value, &path)?;
             }
             if record_piece(&up.record(plugin)).len() as u64 > limits.max_record_bytes {
                 return Err(HubError::TooLarge {
@@ -258,8 +262,8 @@ fn check_once(upserts: &[Upsert], deletes: &[Delete]) -> Result<(), HubError> {
 
 fn repeated(collection: &str, id: &str) -> HubError {
     HubError::Invalid {
-        path: String::new(),
-        what: format!("the batch: record `{collection}`/`{id}` appears more than once"),
+        path: "batch".to_owned(),
+        what: format!("record `{collection}`/`{id}` appears more than once"),
     }
 }
 

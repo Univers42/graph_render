@@ -125,15 +125,19 @@ fn a_nul_in_a_string_is_refused_with_its_path() {
 /// A NUL in a **key**, at the root and nested. This is the case the walk exists for and
 /// the one a reader that only checks string values misses: a store that keys a column
 /// or a file by name is truncated exactly the way it is truncated by a NUL in the value.
+///
+/// The refusal names the *object* holding the key, never the key itself: a path that
+/// contains the NUL is a path a caller cannot type into a reader to find the fault.
 #[test]
-fn a_nul_in_a_key_is_refused_with_the_path_of_its_own_name() {
+fn a_nul_in_a_key_is_refused_at_the_path_of_the_object_that_holds_it() {
     assert_eq!(
         parse_strict("{\"k\\u0000\":1}", 4096, "body"),
-        Err(HubError::Nul { path: String::new() })
+        Err(HubError::Nul { path: String::new() }),
+        "at the root there is no path"
     );
     assert_eq!(
         parse_strict("{\"a\":{\"k\\u0000\":1}}", 4096, "body"),
-        Err(HubError::Nul { path: String::new() })
+        Err(HubError::Nul { path: "a".to_owned() })
     );
 }
 

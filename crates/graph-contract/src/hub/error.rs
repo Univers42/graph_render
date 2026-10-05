@@ -76,7 +76,9 @@ impl HubError {
 impl fmt::Display for HubError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Shape(err) => write!(f, "{err}"),
+            // The ingest reader's own message, kept whole: it names the path and the byte, and a
+    // hub has no more useful thing to say about a shape fault than the reader does.
+    Self::Shape(err) => write!(f, "{err}"),
             Self::Invalid { path, what } if path.is_empty() => write!(f, "the body: {what}"),
             Self::Invalid { path, what } => write!(f, "{path}: {what}"),
             Self::Grammar { coordinate, value } => {
