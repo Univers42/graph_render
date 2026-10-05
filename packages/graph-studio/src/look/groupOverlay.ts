@@ -46,7 +46,7 @@ function slotsOf(parsed: readonly Parsed[], meta: GraphMeta): Int32Array {
 
 /**
  * The document's own group column, used when no user group matches anything. One slot per
- * distinct group name, in node order, past ten the colours repeat but the rows do not merge.
+ * distinct group name, in node order: past ten the colours repeat but the legend rows do not.
  */
 export function documentGroups(meta: GraphMeta): Colouring {
   return categoricalOf(Array.from(meta.group, (index) => meta.groups[index] ?? ""), { empty: UNGROUPED, overflow: "(other groups)" });
