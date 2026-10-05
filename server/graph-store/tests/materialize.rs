@@ -46,36 +46,7 @@ pub const OTHER: &str = r#"{"version":1,"manifestVersion":1,"name":"Other","coll
  {"id":"thing","name":"Things","titleField":"name","fields":[
   {"id":"name","name":"Name","role":"title","link":null}]}]}"#;
 
-/// The `Limits` every case reads a batch under.
-pub const LIMITS: graph_contract::hub::Limits = graph_contract::hub::Limits::DEFAULT;
-
-/// A manifest read for `plugin`, through graph-contract's own reader.
-pub fn manifest_of(text: &str, plugin: &str) -> graph_contract::hub::Manifest {
-    graph_contract::hub::read_manifest(text, plugin)
-        .unwrap_or_else(|e| panic!("the manifest reads: {e}"))
-}
-
-/// One batch: `upserts` as `(collection, id, updatedAt, cells)` and `deletes` as
-/// `(collection, id)`, read through graph-contract's own reader.
-pub fn batch_of(upserts: &[(&str, &str, u32, &str)], deletes: &[(&str, &str)]) -> Batch {
-    let ups = upserts
-        .iter()
-        .map(|(c, id, at, cells)| {
-            format!(r#"{{"collection":"{c}","id":"{id}","updatedAt":{at},"values":{{{cells}}}}}"#)
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let dels = deletes
-        .iter()
-        .map(|(c, id)| format!(r#"{{"collection":"{c}","id":"{id}"}}"#))
-        .collect::<Vec<_>>()
-        .join(",");
-    graph_contract::hub::batch::read_batch(
-        &format!(r#"{{"upserts":[{ups}],"deletes":[{dels}]}}"#),
-        &LIMITS,
-    )
-    .expect("the batch reads")
-}
+pub use support::fixture::{LIMITS, batch_of, manifest_of};
 
 /// The same workspace twice: in the store, and in graph-contract's `Model`.
 pub struct Twin {

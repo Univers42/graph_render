@@ -43,3 +43,5 @@ negctl-no-deadlock-retry|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.s
 hub-materialize|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test materialize
 negctl-keep-dangling|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=keep-dangling scripts/orch/hub-pg.sh run --test materialize; test $? -ne 0
 negctl-keep-cells|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=keep-cells scripts/orch/hub-pg.sh run --test materialize; test $? -ne 0
+hub-changes-snapshot|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test changes
+negctl-changes-read-committed|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=changes-read-committed scripts/orch/hub-pg.sh run --test changes; test $? -ne 0
