@@ -23,21 +23,24 @@ export function nextDelay(steps: number): number {
   return Math.min(BUSY_MIN_MS * 2 ** steps, BUSY_MAX_MS);
 }
 
-/** The delay for `steps` reconnects, jittered over the upper half of `nextDelay(steps)`.
+/** The delay for `steps` reconnects, jittered over the upper half of `nextDelay(steps)`:
+ * uniform on `[rung / 2, rung]`, so the floor is half the rung and the ceiling is the rung.
  *
- * The plan writes the jitter as `d / 2 + random() * (d / 2)`, which at `random() = 0.5` — the
- * value `hub_subscribe_backoff_doubles_from_1s_to_30s_with_upper_half_jitter` and
- * `hub_subscribe_resets_the_backoff_after_a_delivered_change` inject — lands on three quarters
- * of each rung, contradicting the 500/1000/1000/500 those two tests assert. The two tests win
- * over the one formula: the interval `[d / 2, d]` is the same either way, so this spells it
- * `d - random() * (d / 2)`, which is uniform over exactly the same upper half and puts
- * `random() = 0.5` on the rung's floor. What that floor buys is a pinned ladder:
- * 500, 1000, 2000, 4000, 8000, 15000, 15000, 15000 ms.
+ * The plan says the two tests that pin the ladder inject `random() = 0.5`. They cannot:
+ * `0.5` lands on three quarters of each rung — 750, 1500, 3000, 6000, 12000, 22500, 22500,
+ * 22500 — which contradicts the very list that paragraph pins (500, 1000, 2000, 4000, 8000,
+ * 15000, 15000, 15000) and the 500/1000/500/1000 `hub_subscribe_resets_the_backoff_after_a_
+ * delivered_change` asserts. The formula below is the plan's, verbatim; the tests inject
+ * `random() = 0`, which is the value that lands on the list.
+ *
+ * The list's 16000 in sixth place is unreachable at any injection: a 30 s cap puts the ceiling
+ * at 15000, and 500 · 2^5 = 16000 is already past it. The cap is 30 s because the hub's own
+ * `GRAPH_HUB_TIMEOUT_MS` is 30 s, so the test name's "to 30s" and the ladder agree at 15000.
  */
 export function busyBackoff(random: () => number): (steps: number) => number {
   return (steps: number) => {
     const rung = nextDelay(steps);
-    return rung - random() * (rung / 2);
+    return rung / 2 + random() * (rung / 2);
   };
 }
 
