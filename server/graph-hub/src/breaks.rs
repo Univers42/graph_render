@@ -11,8 +11,15 @@
 //! prove the release build carries no `negctl` and no `test-hooks`.
 
 /// The breaks this crate's own rows force. Task 2 adds `no-start-check`, Task 3 `skip-grant` and
-/// `reload-keys-only`, Task 4 `no-cap`, Task 7 `skip-event`, Task 8 `drop-record`.
-pub const NAMES: [&str; 4] = ["skip-grant", "reload-keys-only", "no-cap", "no-start-check"];
+/// `reload-keys-only`, Task 4 `no-cap`, Task 8 `drop-record` and `layoutfailed-as-502`.
+pub const NAMES: [&str; 6] = [
+    "skip-grant",
+    "reload-keys-only",
+    "no-cap",
+    "no-start-check",
+    "drop-record",
+    "layoutfailed-as-502",
+];
 
 /// Is the named break on?
 ///
