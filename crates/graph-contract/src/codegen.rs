@@ -96,7 +96,7 @@ pub fn json_schema() -> Value {
 pub use typescript::typescript;
 
 /// TypeScript declarations for the layout-parameter schema, derived from
-/// [`layout_params_schema`] by the same path as [`typescript`]: declarations only, zero
+/// [`layout_params_schema`] by the same path as [`typescript()`]: declarations only, zero
 /// runtime bytes. Its types are named `LayoutParamSpec`/`LayoutParamKind` rather than
 /// `ParamSpec`/`ParamKind`, which the studio already exports for its own knobs with
 /// different meanings (`packages/graph-studio/src/actions/registry.ts`).

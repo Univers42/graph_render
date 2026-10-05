@@ -80,7 +80,7 @@ pub(crate) fn bounded(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     })
 }
 
-/// The manifest, as the wire spells it — see [`Manifest`] for what the reader holds.
+/// The manifest, as the wire spells it — see [`Manifest`](crate::hub::Manifest) for what the reader holds.
 ///
 /// `manifestVersion` is the client's publication counter and `version` is this wire
 /// format's. Both are in the schema because a client that confuses them refuses its own
