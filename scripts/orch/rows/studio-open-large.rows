@@ -1,0 +1,12 @@
+# studio-open-large: the large-document open path (prompts/jobs/studio-open-large.md).
+# Only packages/graph-studio, deploy/perf/open-document.py and its report change; the Rust floor is not re-run.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+studio-only|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" -- crates src harness fixtures server app packages/graph-render Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json; git status --porcelain --untracked-files=all -- crates src harness fixtures server app packages/graph-render Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json)"
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
+probe-syntax|0|python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' deploy/perf/open-document.py
+report|0|grep -q 'Caveat:' docs/measurements/studio-open-large.md && grep -q 'Caveat:' deploy/perf/open-document.py
