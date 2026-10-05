@@ -30,30 +30,10 @@ mod space;
 
 mod support;
 
-use graph_store::config::StoreConfig;
 use graph_store::error::StoreError;
 use graph_store::writer::{BatchWrite, Idempotency, ManifestWrite};
 use graph_store::{BatchOutcome, Store};
 use tokio_postgres::Client;
-
-/// The manifest every case registers: one collection `task` with a title, a group, a parent and a
-/// link to itself, which is what the record, the `links` rows and the byte totals need.
-///
-/// WHY one fixture rather than a manifest per case: the interesting refusals here are about the
-/// *transaction*, and a per-case manifest would make two cases differ in two ways at once.
-pub const MANIFEST: &str = r#"{
-  "version": 1,
-  "manifestVersion": 1,
-  "name": "Tasks",
-  "collections": [
-    { "id": "task", "name": "Tasks", "titleField": "name", "fields": [
-      { "id": "name", "name": "Name", "role": "title", "link": null },
-      { "id": "note", "name": "Note", "role": "scalar", "link": null },
-      { "id": "state", "name": "State", "role": "group", "link": null },
-      { "id": "up", "name": "Up", "role": "parent", "link": null }
-    ] }
-  ]
-}"#;
 
 /// A manifest with a second collection, for the growth case.
 pub const GROWN: &str = r#"{
@@ -85,42 +65,8 @@ pub const MANIFEST65: &str = r#"{
   ]
 }"#;
 
-/// A store on `url`, with `config`'s limits layered over the defaults.
-///
-/// Each case needs its own database (`support::db::fresh_pair`), so the store is built per case from
-/// the URL that came back rather than from the shared `GM_HUB_PG_URL`.
-pub async fn store_on(url: &str, config: StoreConfig) -> Store {
-    let mut cfg = config;
-    cfg.url = url.to_owned();
-    Store::connect(&cfg)
-        .await
-        .unwrap_or_else(|e| panic!("connect a store to {url}: {e}"))
-}
-
-/// A store with the defaults on `url`.
-pub async fn store(url: &str) -> Store {
-    store_on(url, StoreConfig::defaults()).await
-}
-
-/// A manifest read for `plugin`, through graph-contract's own reader.
-///
-/// WHY read the text rather than build the struct: a `Manifest` has no public constructor that
-/// skips the qualification pass, and a case that built one by hand would store link targets the
-/// reader never qualified — which is exactly the mistake the store must not be able to make.
-pub fn manifest_of(text: &str, plugin: &str) -> graph_contract::hub::Manifest {
-    graph_contract::hub::read_manifest(text, plugin)
-        .unwrap_or_else(|e| panic!("the manifest reads: {e}"))
-}
-
-/// A manifest write for `plugin` at [`MANIFEST`].
-pub fn manifest_write(ws: &str, plugin: &str) -> ManifestWrite {
-    ManifestWrite {
-        ws: ws.to_owned(),
-        plugin: plugin.to_owned(),
-        manifest: manifest_of(MANIFEST, plugin),
-        limits: LIMITS,
-    }
-}
+pub use support::fixture::{LIMITS, batch_of, manifest_of};
+pub use support::workspace::{MANIFEST, batch_write, manifest_write, ready, store, store_on};
 
 /// A manifest write carrying `text`, for the growth and conflict cases.
 pub fn manifest_write_text(ws: &str, plugin: &str, text: &str) -> ManifestWrite {
@@ -128,47 +74,6 @@ pub fn manifest_write_text(ws: &str, plugin: &str, text: &str) -> ManifestWrite 
         ws: ws.to_owned(),
         plugin: plugin.to_owned(),
         manifest: manifest_of(text, plugin),
-        limits: LIMITS,
-    }
-}
-
-/// The `Limits` every case reads a batch under.
-pub const LIMITS: graph_contract::hub::Limits = graph_contract::hub::Limits::DEFAULT;
-
-/// One batch: `upserts` as `(collection, id, updatedAt, cells)` and `deletes` as
-/// `(collection, id)`, read through graph-contract's own reader so no case spells a body twice.
-pub fn batch_of(
-    upserts: &[(&str, &str, u32, &str)],
-    deletes: &[(&str, &str)],
-) -> graph_contract::hub::batch::Batch {
-    let ups = upserts
-        .iter()
-        .map(|(c, id, at, cells)| {
-            format!(r#"{{"collection":"{c}","id":"{id}","updatedAt":{at},"values":{{{cells}}}}}"#)
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let dels = deletes
-        .iter()
-        .map(|(c, id)| format!(r#"{{"collection":"{c}","id":"{id}"}}"#))
-        .collect::<Vec<_>>()
-        .join(",");
-    graph_contract::hub::batch::read_batch(
-        &format!(r#"{{"upserts":[{ups}],"deletes":[{dels}]}}"#),
-        &LIMITS,
-    )
-    .expect("the batch reads")
-}
-
-/// A batch write for `plugin`, with no key and no `If-Match`.
-pub fn batch_write(ws: &str, plugin: &str, batch: graph_contract::hub::batch::Batch) -> BatchWrite {
-    BatchWrite {
-        ws: ws.to_owned(),
-        plugin: plugin.to_owned(),
-        manifest: manifest_of(MANIFEST, plugin),
-        batch,
-        idem: None,
-        if_match: None,
         limits: LIMITS,
     }
 }
@@ -187,22 +92,6 @@ pub fn batch_write_with_key(
         body_sha256: graph_store::writer::idempotency::sha256(body),
     });
     req
-}
-
-/// A workspace, a registered plugin, and a store — the state almost every case starts from.
-pub async fn ready(name: &str) -> (Store, Client, String, String) {
-    let (client, _, url) = support::db::fresh_pair(name).await;
-    let store = store(&url).await;
-    store
-        .create_workspace("ws", &LIMITS)
-        .await
-        .expect("create the workspace");
-    let written = store
-        .put_manifest(&manifest_write("ws", "tracker"))
-        .await
-        .expect("register the manifest");
-    assert_eq!(written.status, 201, "the first registration is a 201");
-    (store, client, url, "ws".to_owned())
 }
 
 /// The `rev` stored for `id`, read straight out of `records`.

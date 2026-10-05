@@ -14,8 +14,9 @@ use crate::store::Store;
 use crate::writer::change::{Change, Op, insert};
 use crate::writer::idempotency;
 use crate::writer::manifest::Caps;
-use crate::writer::plan::{self, Plan, Planned};
+use crate::writer::plan::{self, Plan};
 use crate::writer::retry::retried;
+use crate::writer::rows::{write_counts, write_records};
 use crate::writer::step;
 use crate::writer::{BatchOutcome, BatchWrite};
 
@@ -51,6 +52,7 @@ async fn once(
         .map_err(StoreError::Hub)?;
     let planned = plan::plan(client, req, &plugin, &ws, caps).await?;
     let outcome = write(client, req, &planned, ws.head_seq).await?;
+    finish(client, req, &outcome, caps).await?;
     client.batch_execute("COMMIT").await?;
     Ok((outcome, ws.epoch))
 }
@@ -104,16 +106,33 @@ async fn write(
         if applied == 0 { None } else { Some(seq) },
     )
     .await?;
-    if let Some(key) = &req.idem {
-        let response = answer_json(seq, applied);
-        idempotency::record(client, key, &req.ws, &req.plugin, &response, seq).await?;
-    }
-    step::before_commit(seq).await;
     Ok(BatchOutcome {
         seq,
         applied,
         response: answer_json(seq, applied),
     })
+}
+
+/// §5.1 steps 6 and 7: prune the log past its two bounds, then store the idempotency row.
+///
+/// Both run inside the batch's transaction. A prune is needed only when this batch added a change,
+/// since nothing else grows the log; and a prune committed on its own would leave the log shorter
+/// than the bounds say whenever the batch that triggered it rolled back.
+async fn finish(
+    client: &mut Client,
+    req: &BatchWrite,
+    outcome: &BatchOutcome,
+    caps: &Caps,
+) -> Result<(), StoreError> {
+    if outcome.applied > 0 {
+        crate::retention::prune(client, &req.ws, caps.retain, caps.retain_bytes).await?;
+    }
+    if let Some(key) = &req.idem {
+        let response = &outcome.response;
+        idempotency::record(client, key, &req.ws, &req.plugin, response, outcome.seq).await?;
+    }
+    step::before_commit(outcome.seq).await;
+    Ok(())
 }
 
 /// §5.1 step 5: the seq, the change, and the plugin's `plugin_seq`.
@@ -182,126 +201,4 @@ fn next(ord: &mut i32) -> i32 {
     let at = *ord;
     *ord += 1;
     at
-}
-
-/// §5.1 step 4's writing half: the records, and each one's `links` rows.
-///
-/// The `ON CONFLICT` clause is `DO UPDATE SET rev = records.rev + 1` rather than
-/// `EXCLUDED.rev`: the increment is a fact about the stored row, and under the step-1 lock the two
-/// numbers are equal, so writing the computed one back would only risk disagreeing with the row if
-/// something had written it since the read.
-async fn write_records(
-    client: &mut Client,
-    req: &BatchWrite,
-    planned: &Plan,
-) -> Result<(), StoreError> {
-    for up in &planned.upserts {
-        write_record(client, req, up).await?;
-        write_links(client, req, up).await?;
-    }
-    for (qcoll, id, _) in &planned.deletes {
-        client
-            .execute(
-                "DELETE FROM records WHERE ws = $1 AND qcoll = $2 AND id = $3",
-                &[&req.ws, &qcoll, &id],
-            )
-            .await?;
-        client
-            .execute(
-                "DELETE FROM links WHERE ws = $1 AND src_qcoll = $2 AND src_id = $3",
-                &[&req.ws, &qcoll, &id],
-            )
-            .await?;
-    }
-    Ok(())
-}
-
-/// One record, inserted or updated.
-async fn write_record(
-    client: &mut Client,
-    req: &BatchWrite,
-    up: &Planned,
-) -> Result<(), StoreError> {
-    client
-        .execute(
-            "INSERT INTO records (ws, plugin, qcoll, id, rev, updated_at, text, text_sha256, \
-             text_bytes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
-             ON CONFLICT (ws, qcoll, id) DO UPDATE SET rev = records.rev + 1, \
-             updated_at = EXCLUDED.updated_at, text = EXCLUDED.text, \
-             text_sha256 = EXCLUDED.text_sha256, text_bytes = EXCLUDED.text_bytes",
-            &[
-                &req.ws,
-                &req.plugin,
-                &up.qcoll,
-                &up.id,
-                &(up.rev as i64),
-                &(up.record.updated_at as i32),
-                &up.text,
-                &&up.sha[..],
-                &(up.text.len() as i64),
-            ],
-        )
-        .await?;
-    Ok(())
-}
-
-/// One record's `links` rows, replaced whole: the record's references are deleted and rewritten,
-/// because a `links` row the record no longer holds is a reference the materializer would prune a
-/// cell that is still there, and a missing one is a cell kept that should be pruned.
-async fn write_links(
-    client: &mut Client,
-    req: &BatchWrite,
-    up: &Planned,
-) -> Result<(), StoreError> {
-    client
-        .execute(
-            "DELETE FROM links WHERE ws = $1 AND src_qcoll = $2 AND src_id = $3",
-            &[&req.ws, &up.qcoll, &up.id],
-        )
-        .await?;
-    for (field, target, id) in &up.links {
-        client
-            .execute(
-                "INSERT INTO links (ws, src_qcoll, src_id, field, target_qcoll, target_id) \
-                 VALUES ($1, $2, $3, $4, $5, $6)",
-                &[&req.ws, &up.qcoll, &up.id, &field, &target, &id],
-            )
-            .await?;
-    }
-    Ok(())
-}
-
-/// The two byte totals, and the plugin's `plugin_seq` when a seq was taken.
-///
-/// `plugin_seq` moves only on a batch that applied something, which is what `If-Match` compares
-/// against (§5.1: "another plugin's writes never change it", and neither does a no-op resend of
-/// this one). `doc_bytes` and `plugin_bytes` move on a no-op batch too — by zero, since the plan
-/// computed the same totals — and writing them keeps the statement unconditional.
-async fn write_counts(
-    client: &mut Client,
-    req: &BatchWrite,
-    planned: &Plan,
-    taken: Option<u64>,
-) -> Result<(), StoreError> {
-    client
-        .execute(
-            "UPDATE workspaces SET doc_bytes = $2 WHERE id = $1",
-            &[&req.ws, &(planned.doc_bytes as i64)],
-        )
-        .await?;
-    let seq = taken.map_or(0, |seq| seq as i64);
-    client
-        .execute(
-            "UPDATE manifests SET plugin_bytes = $3, plugin_seq = \
-             CASE WHEN $5 THEN $4 ELSE plugin_seq END WHERE ws = $1 AND plugin = $2",
-            &[
-                &req.ws,
-                &req.plugin,
-                &(planned.plugin_bytes as i64),
-                &seq,
-                &taken.is_some(),
-            ],
-        )
-        .await?;
-    Ok(())
 }

@@ -17,7 +17,7 @@
 
 mod declared;
 mod document;
-mod record;
+pub(crate) mod record;
 
 use std::collections::BTreeMap;
 
@@ -63,7 +63,7 @@ pub async fn open(store: &Store, ws: &str) -> Result<Document, StoreError> {
 }
 
 /// Every registered manifest of `ws`, by plugin, read back through graph-contract's own reader.
-async fn manifests(
+pub(crate) async fn manifests(
     client: &tokio_postgres::Client,
     ws: &str,
 ) -> Result<BTreeMap<String, Manifest>, StoreError> {

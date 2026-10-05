@@ -1,0 +1,55 @@
+[package]
+name = "graph-hub"
+description = "graph-hub: routes, keys and grants, gates and limits, SSE notices, the layout relay."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[dependencies]
+graph-contract = { path = "../../crates/graph-contract" }
+graph-store = { path = "../graph-store" }
+# `bearer` and `keys::KeySet` only (H8, docs/decisions/graph-hub.md:120-121), and no feature
+# forwarded: `default-features = false` keeps `negctl` and `test-hooks` off graph-server's edge,
+# which row `hub-breaks-off` reads with `cargo tree -i graph-server -p graph-hub`.
+graph-server = { path = "../graph-server", default-features = false }
+# `http1` + `tokio` is graph-server's own set (:20) and is all SSE and a streamed body need
+# (axum 0.8.9 gates `Sse::keep_alive` on `tokio`, nothing else in `response::sse`).
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
+http-body-util = "=0.1.5"
+# `client` + `client-legacy` are the relay's whole cost: eleven crates in graph-hub's closure,
+# none in the virtual root's (`default-members`).
+hyper = { version = "=1.11.1", default-features = false, features = ["http1", "client"] }
+hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio", "client-legacy", "http1"] }
+percent-encoding = "=2.3.2"
+serde_json = { version = "=1.0.151", default-features = false, features = ["std"] }
+sha2 = { version = "=0.10.9", default-features = false, features = ["std"] }
+subtle = { version = "=2.6.1", default-features = false, features = ["std"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "net", "signal", "time", "sync", "io-util", "macros"] }
+
+[dev-dependencies]
+# Test-only: the real motor's router in process for `hub-roundtrip`, and the hub's own router
+# through `oneshot`. Resolver 2 keeps both out of the lib and the binary.
+graph-server = { path = "../graph-server" }
+# graph-contract's own break name `lax-reader` is behind ITS `negctl` feature. A dev-dependency
+# turns it on for test targets only, the trick `server/graph-store/Cargo.toml:20-22` uses, so row
+# `negctl-lax-reader` exercises the contract's reader and not a copy of it in this crate.
+graph-contract = { path = "../../crates/graph-contract", features = ["negctl"] }
+tower = { version = "=0.5.3", default-features = false, features = ["util"] }
+futures-util = { version = "=0.3.34", default-features = false }
+
+[features]
+# The negative controls' hub-side breaks (`src/breaks.rs`), plus the store's, because two of this
+# slice's controls turn a store break on (`no-idem` in Task 5, `drop-record` and `sequence-seq` in
+# Tasks 7 and 8) and both crates read the one `GM_HUB_BREAK`. Off in every shipped build.
+negctl = ["graph-store/negctl"]
+# The test-only seams (`src/hooks.rs`); graph-server reaches its own through a self
+# dev-dependency (server/graph-server/Cargo.toml:41), the hub reaches these through its rows.
+test-hooks = []
+# Every test that opens a database connection. `#![cfg(feature = "db-tests")]` keeps condition (c):
+# `svc-test` runs `--workspace` with no PostgreSQL and must pass.
+db-tests = []
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
