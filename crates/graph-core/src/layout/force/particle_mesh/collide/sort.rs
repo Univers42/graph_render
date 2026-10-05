@@ -136,6 +136,7 @@ impl Grid {
     /// `start` from zero to the bucket `b`'s end, counting one bucket ahead so the
     /// scatter can shift the table into place with no copy.
     fn count(&mut self) {
+        let _s = crate::pmprobe::Span::new(0);
         self.start.fill(0);
         for &b in &self.scratch.buckets {
             self.start[b as usize + 2] += 1;
@@ -148,6 +149,7 @@ impl Grid {
     /// Each slot's node into its bucket's run, carrying the slot it came from so the
     /// unpack can invert the move. Then every bucket's run ascending by node index.
     fn scatter(&mut self) {
+        let _s = crate::pmprobe::Span::new(1);
         let order = &self.order;
         for (k, &b) in self.scratch.buckets.iter().enumerate() {
             let next = &mut self.start[b as usize + 1];
@@ -166,6 +168,7 @@ impl Grid {
     /// length is checked here rather than inside [`sort_run`], which would be two million
     /// calls to learn what one comparison already says.
     fn restore_order(&mut self) {
+        let _s = crate::pmprobe::Span::new(2);
         let end = self.start.len() - 1;
         let packed = &mut self.scratch.packed;
         for b in 0..end {
@@ -179,6 +182,7 @@ impl Grid {
     /// `order` from the sorted pairs, and each old slot's new slot over `buckets`, which
     /// the scatter has read to the end.
     fn unpack(&mut self) {
+        let _s = crate::pmprobe::Span::new(3);
         let buckets = &mut self.scratch.buckets;
         for (c, &p) in self.scratch.packed.iter().enumerate() {
             self.order[c] = (p >> 32) as u32;
