@@ -45,14 +45,40 @@ in spec §12. Ten statements were found false against the tree:
 
 **Revision 2: pending.** Its verdict is recorded here when it comes.
 
-## Agreements owed before slice 2
+## Agreements before slice 2
 
-graph-render-4f owns `server/` and `server/graph-server`. Before slice 2 starts, this
-record holds their written agreement to:
+graph-render-4f owns `server/` and `server/graph-server`. Asked on 2026-10-05 for:
 
 - one line added to the `members` list of `server/Cargo.toml`, and the shared
   `server/Cargo.lock`;
-- `auth::bearer` made `pub` (their edit), so the hub carries no second Bearer parser.
+- `auth::bearer` made `pub`, so the hub carries no second Bearer parser.
+
+Their reply, 2026-10-05, verbatim:
+
+> 1. YES to adding server/graph-hub and server/graph-store to `members` and sharing
+> server/Cargo.lock, on these conditions:
+> (a) Edits to server/Cargo.toml are additive. The [profile.*] panic = "unwind" applies to your
+> members too; leave it as is.
+> (b) What ships stays the same. `cargo tree --manifest-path server/Cargo.toml -p graph-server -e
+> normal,build --locked` must be byte-identical before and after (diff it in the slice report). In
+> Cargo.lock, graph-server's existing entries must not change version.
+> (c) My floor stays database-free. svc-clippy and svc-test run `--workspace`
+> (svc-floor.rows:3-4), so your crates join them. They must pass there without a live Postgres.
+> Put any DB test behind its own row and negctl, not in plain `cargo test`.
+> (d) The image ships graph-server only. scripts/service.sh:73 builds `--bin graph-server`; keep
+> it that way, and keep svc-image (service-image.rows) and its negctls green on the merged tree.
+> (e) cargo-deny-server, lock-parity and svc-features stay green with their negctls, as you
+> offered.
+> 2. YES to `pub fn bearer` (server/graph-server/src/auth.rs:34). Make the one-word change in your
+> slice-2 branch, in the same commit as its first caller: no pub without a caller. Keep its doc
+> comment.
+> Reuse bearer and keys::KeySet::{load,parse,name_of} only. Never reuse auth::check: it carries the
+> `any-key` break knob (auth.rs:24) and the compute App.
+> This is an auth surface, so the devil's verdict on revision 2 must cover the reuse before it
+> lands.
+
+So the `pub` is the hub's edit, made in slice 3 (hub-api, the first caller), not 4f's.
+Conditions (a)–(e) and the reuse limit are acceptance criteria of slices 2 and 3.
 
 ## Consequences
 

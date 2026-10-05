@@ -367,20 +367,26 @@ Slice 4 can start once slice 1 lands (generated types). Slices 2 and 3 are seque
 - What `tokio-postgres` pulls in, and whether `cargo deny` passes on it (slice 2). A failure is
   a stop.
 - The hub parses `Authorization: Bearer` (RFC 6750 §2.1) with graph-server's private `bearer`
-  (`server/graph-server/src/auth.rs:34`). Making it `pub` is a one-word change in a file
-  graph-render-4f owns, so they make it. Until they do, slice 3 stops at that step. The hub never
-  carries a second copy.
+  (`server/graph-server/src/auth.rs:34`). graph-render-4f agreed (ADR) that slice 3 makes it
+  `pub` in the same commit as its first caller, doc comment kept. The hub reuses `bearer` and
+  `keys::KeySet::{load,parse,name_of}` only, never `auth::check` (it carries the `any-key` break
+  knob, `auth.rs:24`, and the compute `App`). The hub never carries a second copy.
 - The hub's HTTP client to graph-server needs `hyper-util`'s `client-legacy` feature: a feature
   added to a crate already pinned (slice 3, re-run `svc-features`).
 - Which axum feature SSE needs at the pinned 0.8.9 (slice 3).
 - Records this spec leans on that are not final:
   - `server-dependencies.md:3` is "proposed", pending its own verdict.
-  - `service-api.md:3` still reads "blocked", although `docs/reviews/review-svc-r3.md` ruled
-    PROCEED-WITH-CONDITIONS.
+  - `service-api.md:3` read "blocked"; graph-render-4f has updated it to PROCEED-WITH-CONDITIONS
+    (round 3, `docs/reviews/review-svc-r3.md`).
   - Neither is this spec's to change. Slice 2's amendment cites them as they stand.
-- Ownership: graph-render-4f's agreement to the one-line `members` addition to
-  `server/Cargo.toml` and the shared `server/Cargo.lock` is recorded in
-  `docs/decisions/graph-hub.md` before slice 2 starts. Any other edit under
+- Ownership: graph-render-4f agreed on 2026-10-05 to the `members` addition to
+  `server/Cargo.toml` and the shared `server/Cargo.lock`, with conditions (a)–(e) recorded
+  verbatim in `docs/decisions/graph-hub.md`. In short: additive edits, `panic = "unwind"` kept;
+  `cargo tree -p graph-server -e normal,build --locked` byte-identical before and after, and no
+  version change in graph-server's lock entries; `svc-clippy`/`svc-test` (`--workspace`) pass
+  without a live PostgreSQL, so every DB test sits behind its own row and negative control; the
+  graph-server image still builds `--bin graph-server` only and `svc-image` stays green;
+  `cargo-deny-server`, `lock-parity`, `svc-features` stay green. Any other edit under
   `server/graph-server` goes to them.
 - `server-and-write-path.md:32-33` defers streams and remote access. This spec lifts "streams"
   only in the sense of an SSE change feed. It adds no Redis stream, and leaves remote access
