@@ -121,7 +121,7 @@ def run(page, served, mode, names):
 
 def main():
     mode, names = (sys.argv[1] if len(sys.argv) > 1 else "discover"), set(sys.argv[2:])
-    backend = next((name.split("=", 1)[1] for name in names if name.startswith("backend=")), "webgl2")
+    backend = next((name.split("=", 1)[1] for name in names if name.startswith("backend=")), "auto")
     names = {name for name in names if not name.startswith("backend=")}
     os.makedirs(os.path.join(OUT, "stills"), exist_ok=True)
     server = nav.serve("app/dist")

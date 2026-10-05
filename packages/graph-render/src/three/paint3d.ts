@@ -34,6 +34,7 @@
  */
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import type { Drawn } from "./projection.ts";
+import { paintGround } from "../canvas2d/ground.ts";
 
 const TAU = Math.PI * 2;
 /** A node smaller than this on screen is a square, as in the 2D painter. */
@@ -250,22 +251,13 @@ export function paintRings(input: PaintInput, locate: Locate, counts: PaintCount
   input.ctx.globalAlpha = 1;
 }
 
-/** The ground of a 3D frame: the theme's own background, flat, under everything. */
-export function paintGround3d(input: PaintInput): void {
-  const { ctx, dpr, viewport, theme } = input;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = theme.background;
-  ctx.fillRect(0, 0, viewport.width, viewport.height);
-}
-
 /**
  * One 3D frame: the WebGL2 3D layer's when the view's bulk hook takes it whole
  * (`webgl2/hook3d.ts`), else the ground, then the edges, then the nodes furthest-first.
  */
 export function paint3d(input: PaintInput, drawn: Drawn, counts: PaintCounts): PaintCounts {
   if (input.bulk?.(input, counts) === true) return counts;
-  paintGround3d(input);
+  paintGround(input);
   paintEdges(input, drawn, counts);
   paintNodes(input, drawn, counts);
   paintRings(input, spotsOf(drawn), counts);
