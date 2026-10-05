@@ -1,0 +1,25 @@
+ fsync 
+-------
+ on
+(1 row)
+
+ synchronous_commit 
+--------------------
+ on
+(1 row)
+
+ full_page_writes 
+------------------
+ on
+(1 row)
+
+ server_encoding 
+-----------------
+ UTF8
+(1 row)
+
+ datcollate 
+------------
+ C
+(1 row)
+
