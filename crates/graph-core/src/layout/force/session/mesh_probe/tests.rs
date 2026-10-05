@@ -2,9 +2,9 @@
 //! that the instrument the repo already trusts agrees with it bit for bit, that the frame
 //! it reports is the mesh's own hand-placed one, and that asking changes nothing.
 
-use super::*;
+use super::MeshProbe;
 use crate::index::{Topology, index_model};
-use crate::layout::force::ForceSession;
+use crate::layout::force::{ForceParams, ForceSession, LiveParams};
 use crate::stage::{gate_node_count, seeded_model};
 use crate::weights::REFERENCE_DEGREE;
 
@@ -27,14 +27,7 @@ fn bits(column: &[f64]) -> Vec<u64> {
     column.iter().map(|v| v.to_bits()).collect()
 }
 
-/// The probe's `lo`, `hi` and `strength` as a comparable triple of columns.
-fn graph_bits(probe: &MeshProbe) -> (Vec<u32>, Vec<u32>, Vec<u64>) {
-    (
-        probe.lo.clone(),
-        probe.hi.clone(),
-        bits(&probe.strength),
-    )
-}
+
 
 #[test]
 fn the_three_passes_move_different_things() {
@@ -60,9 +53,8 @@ fn the_three_passes_move_different_things() {
 fn every_column_is_the_meshes_own() {
     let s = session(5);
     let probe = s.mesh_probe().expect("a field to solve");
-    let (mine, theirs) = (&probe.charge_dx, &probe.charge_dy);
     let (theirs_x, theirs_y) = s.charge_deltas(0.9);
-    assert_eq!(bits(mine), bits(&theirs_x), "the probe and the trusted instrument must not differ by a bit on x");
+    assert_eq!(bits(&probe.charge_dx), bits(&theirs_x), "the probe and the trusted instrument must not differ by a bit on x");
     assert_eq!(bits(&probe.charge_dy), bits(&theirs_y), "…nor on y");
 }
 
@@ -115,19 +107,32 @@ fn the_probe_leaves_the_next_tick_byte_identical() {
 fn the_solution_matches_a_hand_placed_frame() {
     let s = session(11);
     let probe = s.mesh_probe().expect("a field to solve");
-    let frame = particle_mesh::placed_frame(
-        (s.xs(), s.ys()),
-        probe.side as usize,
-        s.params().distance_max,
-    )
-    .expect("the mesh placed a frame for the same positions");
-    assert_eq!(probe.side as usize, probe.side as usize, "side is a word on the wire");
+    let frame = crate::layout::force::particle_mesh::Mesh::new(probe.side)
+        .placed_over((s.xs(), s.ys()), probe.side, s.params().distance_max)
+        .expect("the mesh placed a frame for the same positions");
+    assert_eq!(probe.side, frame.side, "the transform side is the mesh's own");
     assert_eq!(probe.step, frame.step, "the rung is the mesh's own");
     assert_eq!(probe.h.to_bits(), frame.h.to_bits(), "the cell size is the mesh's own");
-    assert_eq!(probe.origin_x.to_bits(), frame.origin.0.to_bits(), "the origin x is snapped");
-    assert_eq!(probe.origin_y.to_bits(), frame.origin.1.to_bits(), "the origin y is snapped");
-    assert_eq!(probe.cells as usize, frame.cells, "the cell count is the mesh's own");
-    assert_eq!(probe.reach as usize, frame.reach, "the reach is the mesh's own");
+    assert_eq!(
+        probe.origin_x.to_bits(),
+        frame.origin_x.to_bits(),
+        "the origin is snapped down to a multiple of h"
+    );
+    assert_eq!(probe.origin_y.to_bits(), frame.origin_y.to_bits(), "…on both axes");
+    assert_eq!(probe.cells, frame.cells, "the cell count is the mesh's own");
+    assert_eq!(probe.reach, frame.reach, "the reach is the mesh's own");
+}
+
+#[test]
+fn the_tables_are_the_lengths_the_wire_declares() {
+    let probe = session(11).mesh_probe().expect("a field to solve");
+    let side = probe.side as usize;
+    assert!(probe.side.is_power_of_two(), "a radix-2 side is a power of two");
+    assert!((128..=1024).contains(&side), "the mesh's side clamp holds");
+    assert_eq!(probe.twiddle_re.len(), side, "one twiddle per line sample");
+    assert_eq!(probe.twiddle_im.len(), side, "…and one imaginary word each");
+    assert_eq!(probe.spectrum_re.len(), side * side, "the spectrum is P·P");
+    assert_eq!(probe.spectrum_im.len(), side * side, "…and its imaginary half");
 }
 
 #[test]
@@ -162,24 +167,18 @@ fn the_two_states_have_different_frames() {
 
 #[test]
 fn there_is_no_probe_without_a_field_to_solve() {
-    let one = crate::layout::force::particle_mesh::probe_rows();
-    assert!(one > 1, "the mesh needs more than one node to place a frame over");
-    let s = ForceSession::new(
-        &topology(1),
-        LiveParams {
-            distance_max: 0.0,
-            ..LiveParams::default()
-        },
-    )
-    .expect("a zero reach is in range")
-    .with_particle_mesh();
-    assert!(s.mesh_probe().is_none(), "no field, no probe");
-}
-
-#[test]
-fn the_probe_twins_the_columns_of_its_own_graph() {
-    let probe = session(3).mesh_probe().expect("a field to solve");
-    let (lo, hi, strength) = graph_bits(&probe);
-    assert_eq!(lo.len(), hi.len(), "the two endpoint columns are the same length");
-    assert!(lo.iter().all(|v| strength.contains(&v.0) || true), "columns are read together");
+    let mut no_mesh = ForceSession::new(&topology(5), LiveParams::default()).expect("in range");
+    assert!(no_mesh.mesh_probe().is_none(), "a session that does not tick the mesh has no mesh to read");
+    // A zero reach is a *range* the live setter refuses, so the probe's own `None` arm for
+    // it is reached through the frozen constructor, which checks finiteness only.
+    let mut params = ForceParams::default();
+    params.distance_max = 0.0;
+    let mut no_field = ForceSession::from_frozen(&topology(5), &params)
+        .expect("finite is the frozen acceptance path")
+        .with_particle_mesh();
+    assert!(no_field.mesh_probe().is_none(), "a zero reach solves no field");
+    no_mesh.step(1);
+    no_field.step(1);
+    assert!(no_mesh.mesh_probe().is_none(), "still no mesh after a tick");
+    assert!(no_field.mesh_probe().is_none(), "still no field after a tick");
 }

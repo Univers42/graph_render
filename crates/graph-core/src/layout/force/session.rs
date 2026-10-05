@@ -49,6 +49,7 @@ mod fidelity;
 pub(in crate::layout::force) mod gravity;
 mod grow;
 mod live_params;
+mod mesh_probe;
 mod pin;
 mod warm;
 
@@ -57,6 +58,7 @@ mod tests;
 
 pub use error::SessionError;
 pub use live_params::LiveParams;
+pub use mesh_probe::MeshProbe;
 pub use pin::NodeRow;
 
 use self::live_params::{ALPHA, ALPHA_TARGET};
@@ -280,6 +282,13 @@ impl ForceSession {
     #[cfg(test)]
     pub(crate) fn mesh_side(&self) -> Option<usize> {
         self.mesh.as_ref().map(Mesh::side)
+    }
+
+    /// The tick number the tick loop counts, for the probe's tests: the property they pin
+    /// is that asking the session a question leaves this where it was.
+    #[cfg(test)]
+    pub(crate) fn tick_no(&self) -> u32 {
+        self.sim.tick_no
     }
 }
 

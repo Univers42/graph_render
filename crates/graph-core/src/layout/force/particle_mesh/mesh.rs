@@ -33,6 +33,42 @@ pub(super) fn side_for(n: u32) -> usize {
     root.next_power_of_two().clamp(128, MAX_SIDE)
 }
 
+/// The seven words of a placed frame, as `u32`/`f64`: a rung is an `i32` on the way out and
+/// a `u32` on the wire, and the origin is two columns rather than a tuple.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(in crate::layout::force) struct PlacedFrame {
+    pub(in crate::layout::force) side: u32,
+    pub(in crate::layout::force) step: i32,
+    pub(in crate::layout::force) h: f64,
+    pub(in crate::layout::force) origin_x: f64,
+    pub(in crate::layout::force) origin_y: f64,
+    pub(in crate::layout::force) cells: u32,
+    pub(in crate::layout::force) reach: u32,
+}
+
+/// What a mesh's own solve produced for one tick: its frame and the two tables the
+/// convolution runs on. The probe's public type inlines these seven frame words, so this
+/// stays crate-internal.
+#[derive(Debug, Clone)]
+pub(in crate::layout::force) struct Solved {
+    pub(in crate::layout::force) side: u32,
+    pub(in crate::layout::force) step: i32,
+    pub(in crate::layout::force) h: f64,
+    pub(in crate::layout::force) origin_x: f64,
+    pub(in crate::layout::force) origin_y: f64,
+    pub(in crate::layout::force) cells: u32,
+    pub(in crate::layout::force) reach: u32,
+    pub(in crate::layout::force) twiddle_re: Vec<f64>,
+    pub(in crate::layout::force) twiddle_im: Vec<f64>,
+    pub(in crate::layout::force) spectrum_re: Vec<f64>,
+    pub(in crate::layout::force) spectrum_im: Vec<f64>,
+}
+
+/// A run of complex samples as the two `f64` columns a wire carries.
+fn split(values: &[C]) -> (Vec<f64>, Vec<f64>) {
+    values.iter().map(C::parts).unzip()
+}
+
 pub(in crate::layout::force) struct Mesh {
     plan: Plan,
     density: Vec<C>,
@@ -173,12 +209,58 @@ impl Mesh {
             .map_or((0.0, 0.0), |s| self.read(s))
     }
 
+    /// The frame, the plan's forward twiddles and the kernel spectrum this tick's solve
+    /// produced, as `f64` columns, or `None` before a [`Mesh::solve`] that found a field.
+    ///
+    /// The caller owns the columns: nothing here narrows, rescales or reorders, so the
+    /// spectrum keeps the `1/P²` [`Kernel::refresh`] folded in and the table keeps the
+    /// stage-`half` layout the transform reads it in.
+    pub(in crate::layout::force) fn solution(&self) -> Option<Solved> {
+        let frame = self.frame.as_ref()?;
+        let (twiddle_re, twiddle_im) = split(self.plan.twiddles());
+        let (spectrum_re, spectrum_im) = split(&self.kernel.spectrum);
+        Some(Solved {
+            side: self.plan.side() as u32,
+            step: frame.step,
+            h: frame.h,
+            origin_x: frame.origin.0,
+            origin_y: frame.origin.1,
+            cells: frame.cells as u32,
+            reach: frame.reach as u32,
+            twiddle_re,
+            twiddle_im,
+            spectrum_re,
+            spectrum_im,
+        })
+    }
+
     /// The field at `p`, read with the CIC weights the deposit used; zero for a non-finite
     /// position or before any field was solved.
     #[cfg(test)]
     pub(super) fn field_at(&self, p: (f64, f64)) -> (f64, f64) {
         let stencil = self.frame.and_then(|f| frame::stencil(&f, p));
         stencil.map_or((0.0, 0.0), |s| self.read(s))
+    }
+
+    /// The frame [`frame::place_over`] places over these positions at this side and reach,
+    /// as the seven words the probe inlines, so the probe's own test compares against the
+    /// mesh's own placement rather than against itself.
+    #[cfg(test)]
+    pub(in crate::layout::force) fn placed_over(
+        &self,
+        xy: (&[f64], &[f64]),
+        side: u32,
+        dmax: f64,
+    ) -> Option<PlacedFrame> {
+        frame::place_over(xy, side as usize, dmax).map(|f| PlacedFrame {
+            side,
+            step: f.step,
+            h: f.h,
+            origin_x: f.origin.0,
+            origin_y: f.origin.1,
+            cells: f.cells as u32,
+            reach: f.reach as u32,
+        })
     }
 
     fn read(&self, ((cx, cy), (fx, fy)): ((usize, usize), (f64, f64))) -> (f64, f64) {

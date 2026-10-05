@@ -37,7 +37,7 @@ use crate::layout::force::particle_mesh::{self, Mesh};
 
 /// The runner the probe divides nothing by: a probe's answer is a number a report prints,
 /// not a tick, so there is no tier to choose and one worker is the only honest schedule.
-const WORKERS: u32 = 1;
+pub(super) const WORKERS: u32 = 1;
 
 impl ForceSession {
     /// This session's engine's many-body force at this session's positions, at `alpha` 1
@@ -81,7 +81,7 @@ impl ForceSession {
     /// the parameters. The link geometry [`Sim::from_parts`] recomputes on the way is
     /// unused by this pass — it is paid once per probe, which is a report's cost and not a
     /// tick's.
-    fn charge_probe(&self, theta: f64) -> Sim {
+    pub(super) fn charge_probe(&self, theta: f64) -> Sim {
         let mut params = self.sim.params;
         params.theta = theta;
         let graph = self.sim.graph.clone();
