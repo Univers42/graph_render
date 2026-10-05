@@ -91,6 +91,22 @@ pub async fn fresh_collation(name: &str) -> String {
     .await
 }
 
+/// Delete every change row of `ws`, which is the shape a full retention prune leaves behind.
+///
+/// WHY here: graph-store's retention does not exist yet (its `retain` and `retain_bytes` are read
+/// by nothing), so a case that needs a cursor *below what is kept* has to make it so itself. This
+/// is test SQL and never hub SQL — the hub writes none.
+pub async fn drop_changes(hub: &graph_hub::app::App, ws: &str) {
+    let store = hub.store().await.expect("the store under test");
+    let mut client = store.client().await.expect("a connection");
+    client
+        .batch_execute(&format!(
+            "DELETE FROM change_ops WHERE ws = '{ws}'; DELETE FROM change_headers WHERE ws = '{ws}'"
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("drop the change log of {ws}: {error}"));
+}
+
 /// Drop the database `url` names, so a run does not accumulate one per case.
 ///
 /// Best effort by design: a container that is already gone has nothing left to drop, and a

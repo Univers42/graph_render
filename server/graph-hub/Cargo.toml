@@ -17,6 +17,10 @@ graph-server = { path = "../graph-server", default-features = false }
 # (axum 0.8.9 gates `Sse::keep_alive` on `tokio`, nothing else in `response::sse`).
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
 http-body-util = "=0.1.5"
+# `stream::unfold` is how `/graph` and the `/layout` relay turn the store's `Document` into a body,
+# and how Task 7's SSE stream is built. `hyper-util`'s `client-legacy` already puts
+# `futures-util 0.3.34` in this crate's closure (plan fact 3), so naming it here adds no crate.
+futures-util = { version = "=0.3.34", default-features = false }
 # `client` + `client-legacy` are the relay's whole cost: eleven crates in graph-hub's closure,
 # none in the virtual root's (`default-members`).
 hyper = { version = "=1.11.1", default-features = false, features = ["http1", "client"] }
@@ -36,7 +40,6 @@ graph-server = { path = "../graph-server" }
 # `negctl-lax-reader` exercises the contract's reader and not a copy of it in this crate.
 graph-contract = { path = "../../crates/graph-contract", features = ["negctl"] }
 tower = { version = "=0.5.3", default-features = false, features = ["util"] }
-futures-util = { version = "=0.3.34", default-features = false }
 
 [features]
 # The negative controls' hub-side breaks (`src/breaks.rs`), plus the store's, because two of this
