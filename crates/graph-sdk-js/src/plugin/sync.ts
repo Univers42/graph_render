@@ -10,7 +10,7 @@
 //     because unbounded is a hot loop against whatever else is writing.
 
 import { textOf } from "../hub/call.ts";
-import { batchOf, chunkOps, deleteOps, desiredOps, opKey, type SyncKey, type SyncOp } from "./batch.ts";
+import { batchOf, chunkOps, deleteOps, desiredOps, opKey, type SyncKey } from "./batch.ts";
 import { pushOnce } from "./push.ts";
 import { formatCursor, parseCursor } from "../hub/cursor.ts";
 import { breaking } from "../hub/wire.ts";

@@ -45,19 +45,23 @@ export function opKey(op: SyncKey): string {
   return `${op.collection}\0${op.id}`;
 }
 
-// A record an adapter marks `deleted: true` becomes a delete when its id is stored and is left
-// out of the desired set otherwise (§7, N14). Rows that mark records deleted still keep them in
-// `ingest.records`, so the decision belongs here and nowhere else.
+// What the source says should exist. A record an adapter marks `deleted: true` is *not* an op
+// here: §7 and N14 make it a delete only when the hub still holds the id, and the stored set is
+// known in `syncOnce`, not here. So it is simply left out of the desired set, and `deleteOps`
+// turns it into a delete exactly when its id is among the stored ones — dropped otherwise, which
+// is what "dropped otherwise" means. Rows that mark records deleted still keep them in
+// `ingest.records`, so the decision belongs to this module and nowhere else.
 export function desiredOps(ingest: Ingest): readonly SyncOp[] {
-  const ops = ingest.records.map(opOf);
+  const ops = ingest.records.filter((record) => !record.deleted).map(upsertOf);
   return ops.sort(byKey);
 }
 
 /** The stored ids that are no longer wanted, as deletes, in the same byte order.
  *
- * A record an adapter already marked `deleted: true` is an op in `desiredOps` already, so it is
- * never also a delete here: §5.2 refuses a batch that names one id in both `upserts` and
- * `deletes`, and the caller concatenates the two lists without a second pass to prevent it.
+ * This is where a `deleted: true` row becomes a delete: its key is in the stored set and is not
+ * in `wanted`, because `desiredOps` never names it. §5.2 refuses 422 a batch that names one id
+ * in both `upserts` and `deletes`, and the caller concatenates the two lists, so `wanted` must
+ * be every key `desiredOps` emitted — upserts only, which is all it emits.
  */
 export function deleteOps(stored: Iterable<SyncKey>, wanted: ReadonlySet<string>): readonly SyncOp[] {
   const ops: SyncOp[] = [];
@@ -103,8 +107,7 @@ export function batchOf(ops: readonly SyncOp[]): BatchWire {
   return { deletes, upserts };
 }
 
-function opOf(record: IngestRecord): SyncOp {
-  if (record.deleted) return { kind: "delete", collection: record.collection, id: record.id };
+function upsertOf(record: IngestRecord): SyncOp {
   return { kind: "upsert", collection: record.collection, id: record.id, updatedAt: record.updatedAt, values: record.values };
 }
 

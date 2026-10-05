@@ -9,7 +9,8 @@
     "./adapters/rows": "./src/adapters/rows.ts",
     "./adapters/notion": "./src/adapters/notion.ts",
     "./remote": "./src/remote.ts",
-    "./hub": "./src/hub.ts"
+    "./hub": "./src/hub.ts",
+    "./plugin": "./src/plugin.ts"
   },
   "files": [
     "src",

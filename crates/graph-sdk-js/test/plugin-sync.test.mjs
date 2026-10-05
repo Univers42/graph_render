@@ -7,7 +7,6 @@ import { hubCaller } from "../src/hub/call.ts";
 const BASE = "http://hub.test:8081";
 const WS = "ops";
 const PLUGIN = "tracker";
-const NEVER = () => assert.fail("the path under test must not reach this");
 const MANIFEST = {
   version: 1,
   manifestVersion: 1,
@@ -204,7 +203,8 @@ test("plugin_read_stored_follows_next_until_it_is_absent", async () => {
     baseUrl: BASE,
     fetch: async (url) => {
       urls.push(url);
-      return json(recordsPage(["1", "2"], "1.40", "cursor-1"));
+      // `next` only on the first page: the route is done when it is absent (§5.2).
+      return json(urls.length === 1 ? recordsPage(["1", "2"], "1.40", "cursor-1") : recordsPage(["3"], "1.40"));
     },
   });
   const page = await readStored(caller, WS, PLUGIN, 25);
@@ -214,30 +214,21 @@ test("plugin_read_stored_follows_next_until_it_is_absent", async () => {
   assert.deepEqual(page.keys, [
     { collection: "issue", id: "1" },
     { collection: "issue", id: "2" },
+    { collection: "issue", id: "3" },
   ]);
   assert.equal(page.pluginSeq, "1.40");
 });
 
 test("plugin_sync_gives_up_after_three_restarts", async () => {
   let calls = 0;
-  const caller = hubCaller({
-    baseUrl: BASE,
-    fetch: async (url) => {
-      if (url.includes("/batches")) {
-        calls += 1;
-        return json({ error: "conflict", message: "plugin_seq moved" }, 412);
-      }
-      return json(recordsPage([], "1.40"));
+  const hub = fakeHub({
+    pages: () => recordsPage([], "1.40"),
+    batches: () => {
+      calls += 1;
+      return json({ error: "conflict", message: "plugin_seq moved" }, 412);
     },
   });
-  const plugin = createPlugin({
-    baseUrl: BASE,
-    plugin: PLUGIN,
-    manifest: MANIFEST,
-    fetch: caller.call.bind(caller),
-    key: () => "k",
-    wait: async () => {},
-  });
+  const plugin = createPlugin({ baseUrl: BASE, plugin: PLUGIN, manifest: MANIFEST, fetch: hub.fetch, key: () => "k", wait: async () => {} });
   await assert.rejects(() => plugin.sync(WS, ingestOf([record("1")])), (e) => {
     assert.ok(e instanceof SyncRestartError, String(e));
     assert.equal(e.name, "SyncRestartError");
@@ -249,19 +240,14 @@ test("plugin_sync_gives_up_after_three_restarts", async () => {
 
 test("plugin_sync_honours_its_own_restart_bound", async () => {
   let calls = 0;
-  const caller = hubCaller({
-    baseUrl: BASE,
-    fetch: async (url) => (url.includes("/batches") ? (calls += 1, json({}, 412)) : json(recordsPage([], "1.40"))),
+  const hub = fakeHub({
+    pages: () => recordsPage([], "1.40"),
+    batches: () => {
+      calls += 1;
+      return json({}, 412);
+    },
   });
-  const plugin = createPlugin({
-    baseUrl: BASE,
-    plugin: PLUGIN,
-    manifest: MANIFEST,
-    fetch: caller.call.bind(caller),
-    key: () => "k",
-    wait: async () => {},
-    restarts: 1,
-  });
+  const plugin = createPlugin({ baseUrl: BASE, plugin: PLUGIN, manifest: MANIFEST, fetch: hub.fetch, key: () => "k", wait: async () => {}, restarts: 1 });
   await assert.rejects(() => plugin.sync(WS, ingestOf([record("1")])), SyncRestartError);
   assert.equal(calls, 2, "one try and one restart");
 });

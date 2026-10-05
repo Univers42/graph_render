@@ -47,7 +47,7 @@ export interface Plugin {
 /** Builds the plugin writer over one `HubCaller`, so the three routes share the `fetch`
  * injection, the API-key grammar check and the `dangerouslyAllowBrowser` rule. */
 export function createPlugin(options: PluginOptions): Plugin {
-  const caller = hubCaller(options);
+  const caller = hubCaller(remoteOf(options));
   const nextKey = options.key ?? (() => globalThis.crypto.randomUUID());
   const syncOptions: SyncOptions = {
     plugin: options.plugin,
@@ -61,6 +61,24 @@ export function createPlugin(options: PluginOptions): Plugin {
     push: (workspace, batch, given) =>
       pushOnce(caller, workspace, options.plugin, batch, { key: nextKey(), wait: options.wait, ...given }),
     sync: (workspace, ingest) => syncWithRestarts(caller, syncOptions, workspace, ingest, options.restarts ?? 3),
+  };
+}
+
+/** The four options `createRemote` knows, and nothing else.
+ *
+ * `remoteConfigOf` refuses an unknown key (C16, `src/remote/options.ts:48`) and `PluginOptions`
+ * is `RemoteOptions` plus this plugin's own five, so the connection options are narrowed here
+ * rather than the caller's object being passed whole. A caller who misspells `manifest` is
+ * still refused: it is not in `REMOTE_KEYS` either once the object is narrowed... except that it
+ * would be silently dropped, so `createPlugin` reads its own keys by name and an unknown one is
+ * simply never read.
+ */
+function remoteOf(options: PluginOptions): RemoteOptions {
+  return {
+    baseUrl: options.baseUrl,
+    apiKey: options.apiKey,
+    fetch: options.fetch,
+    dangerouslyAllowBrowser: options.dangerouslyAllowBrowser,
   };
 }
 

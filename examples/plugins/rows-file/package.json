@@ -1,0 +1,9 @@
+{
+  "name": "@graph-motor/example-rows-file",
+  "private": true,
+  "type": "module",
+  "description": "The smallest graph-hub plugin: read a JSON rows file, map it with rowsToIngest, and sync it into a workspace. The `hub-sdk` row in scripts/orch/rows/hub-sdk-live.rows runs it against live containers.",
+  "scripts": {
+    "sync": "node --experimental-strip-types sync.mjs"
+  }
+}
