@@ -4,7 +4,8 @@ Why: at 1M nodes, 8 workers, the particle-mesh collide `Gather` is 33.5 ms of a 
 (`docs/measurements/perf-pm-stencil.md:60`), the largest pass. A profile shows it bound by
 instructions, not memory, and shows where they go. Cut them without moving one output byte.
 
-Facts (verified on develop 08722f5a):
+Facts (first verified on develop 08722f5a, line numbers re-verified on develop bd98bf32,
+2026-10-05; re-check each on your branch before editing and stop if one no longer holds):
 
 - **Profile.** `valgrind --tool=callgrind --branch-sim=yes --dump-instr=yes
   '--toggle-collect=*Gather*step_range*'` on `graph-cli tick --layout particle-mesh --n 100000 --warm 1
@@ -19,7 +20,7 @@ Facts (verified on develop 08722f5a):
 - **The hit loop** (`gather.rs:88-92`). It loads `self.slot[j]` for every hit. The closure
   `ids = || (grid.order[k], grid.order[q])` (`:90`) is built per hit, and the profile charges its line
   about 5 instructions per hit. `ids` is only needed for a jiggle (`dx == 0.0` or `dy == 0.0`).
-- **`resolve`** (`particle_mesh/collide.rs:202-225`) re-tests `l.is_nan() || l >= c.d2` (`:209`). The
+- **`resolve`** (`particle_mesh/collide.rs:235-258`) re-tests `l.is_nan() || l >= c.d2` (`:242`). The
   filter has already decided this with the same expression on the same operands, `dx * dx + dy * dy`
   where `dx = px - qx`: a hit is never NaN and is `< d2`.
 - **The term order is the contract.** Each slot sums its hits in window order: `Reads` runs in order,
@@ -30,17 +31,31 @@ Facts (verified on develop 08722f5a):
   (every slot, every worker count, a crowd with more than one window) and `:68`
   `the_grid_finds_every_overlap_the_pairwise_scan_finds`.
 - **Cross-tree tools.** `~/goinfre/bench/pm-stencil/xtree.sh <worktree>` prints the PM snapshot
-  sha256 at 8 node counts. `~/goinfre/bench/pm-stencil/parity.sh` and
-  `~/goinfre/bench/pm-stencil/serial.wasm` (develop's PM, serial build) feed
-  `harness/wasm-threads.mjs hash --serial`.
-- **Limits.** `gather.rs` is 145 lines, `collide.rs` 249. Each function ≤ 40 lines, ≤ 4 parameters,
-  nesting ≤ 3, each file ≤ 300 lines. No `unsafe`, no `std::arch`, no new dependency. graph-core must
-  still build for `wasm32-unknown-unknown`.
+  sha256 at 8 node counts. `~/goinfre/bench/pm-stencil/parity.sh` is hard-wired to worktrees that no
+  longer exist (`~/goinfre/wt/perf-pm-*`): copy what you need into `~/goinfre/bench/pm-collide-soa/`
+  and point it at this worktree. Do **not** use `~/goinfre/bench/pm-stencil/serial.wasm` as the
+  parity base: it is the 2026-10-03 stencil tree, and the mesh has changed since (P4g, 2026-10-04).
+  Step 1 builds this branch's own base.
+- **A peer job may run beside you.** `perf-pm-velocity` edits `particle_mesh.rs`, `motion.rs`,
+  `charge.rs` and `mesh.rs` in its own worktree; none of your paths. Leave its files alone.
+- **Limits.** `gather.rs` is 145 lines, `collide.rs` 282: put the split push in a new file under
+  `particle_mesh/collide/` rather than take `collide.rs` past 300. Each function ≤ 40 lines,
+  ≤ 4 parameters, nesting ≤ 3, each file ≤ 300 lines. No `unsafe`, no `std::arch`, no new
+  dependency. graph-core must still build for `wasm32-unknown-unknown`. Every cargo call runs as
+  `CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 scripts/orch/gr ...`: a peer's full gate shares the host.
 
 Do, in order:
 
-1. **Pin first.** Copy `xtree.sh` into `~/goinfre/bench/pm-collide-soa/`. Run it on the untouched
-   worktree and keep the output as `xtree-base.out`.
+1. **Pin first**, on the untouched branch, before any edit (`git rev-parse HEAD` is the base; record
+   it):
+   - copy `xtree.sh` into `~/goinfre/bench/pm-collide-soa/`, run it on this worktree and keep the
+     output as `xtree-base.out`;
+   - build the serial wasm (`scripts/orch/gr cargo build -p graph-wasm --release --target
+     wasm32-unknown-unknown`) and copy it to `target/wf/pm-collide-soa/base-serial.wasm`;
+   - build the release CLI (`scripts/orch/gr cargo build --release -p graph-cli`) and copy
+     `target/release/graph-cli` to `target/wf/pm-collide-soa/base/graph-cli`. That frozen binary is
+     the bench's base arm (`scripts/orch/gr /w/target/wf/pm-collide-soa/base/graph-cli tick ...`);
+     never rebuild it.
 2. **Lazy ids.** The hit loop passes `(k, q)` and the grid to the jiggle path. `grid.order` and the
    window's `slot` are read only inside the `dx == 0.0` / `dy == 0.0` branches. Jiggle keys stay
    `(order[k], order[q])` in that order.
@@ -83,14 +98,19 @@ Do, in order:
      `scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8` → 1
    - `xtree.sh` on the branch: `diff xtree-base.out xtree-branch.out` → 0
    - this tree's threads wasm (`scripts/orch/wasm-threads.sh`), then
-     `harness/wasm-threads.mjs hash --serial ~/goinfre/bench/pm-stencil/serial.wasm` → rc 0, every row
+     `harness/wasm-threads.mjs hash --wasm <threads.wasm> --serial
+     /w/target/wf/pm-collide-soa/base-serial.wasm` → rc 0, every row
      `equal`; with `--break` → rc 1.
-8. **Bench.** Run only when `free -g` shows ≥ 12 GB available and the 1-minute load is < 14; wait
-   otherwise.
-   - Command: `GR_MEM=12g scripts/orch/gr cargo run --release -q -p graph-cli -- tick --layout
-     particle-mesh --n 1000000 --ticks 7 --workers 8 --passes`.
-   - Arms: base (develop at the branch point, in a second worktree) and branch, alternated, 3 rounds
-     each. Print the load per run.
+8. **Bench.** Before **each** 1M process, wait until all three hold, re-checking every 60 s:
+   `pgrep -f develop-full.rows` finds nothing (a peer's full gate owns the CPU while it runs),
+   `free -g` shows ≥ 12 GB available, and the 1-minute load is < 14. Run each process under
+   `flock ~/goinfre/orch/bench.lock` so no two 1M benches overlap on this host. Never take
+   `~/goinfre/orch/timed.lock`.
+   - Command: `tick --layout particle-mesh --n 1000000 --ticks 7 --workers 8 --passes`, with
+     `GR_MEM=12g`.
+   - Arms: base (the frozen binary from step 1) and branch (a release build of this tree, frozen the
+     same way under `target/wf/pm-collide-soa/final/`), alternated, 3 rounds each. Print the load
+     per run.
    - Also take the callgrind count of step 1's profile command on the branch, to compare with
      267.2 M.
    - **Keep rule:** keep only if the 8-worker collide `Gather` median drops by ≥ 3 ms and the tick
