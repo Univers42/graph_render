@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { COLUMNS, LogRefusal, parseLog, refsOf, toRows } from "../map.mjs";
+import { COLUMNS, FORMAT, LogRefusal, parseLog, refsOf, toRows } from "../map.mjs";
 import { H, LONG, SMALL_LOG } from "./small.mjs";
 
 const row = (rows, hash) => rows.tables[0].rows.find((r) => r.id === hash);
 
 test("the committed small.gitlog is the fixture module's text", () => {
   assert.equal(readFileSync(new URL("small.gitlog", import.meta.url), "utf8"), SMALL_LOG);
+});
+
+test("FORMAT asks git for committer time (%ct), never author time (%at)", () => {
+  assert.match(FORMAT, /%ct/);
+  assert.doesNotMatch(FORMAT, /%at/);
 });
 
 test("every commit becomes one row, in log order, with its time as updatedAt", () => {
