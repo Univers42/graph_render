@@ -2,6 +2,8 @@
 //! (`codegen.rs` is the writer, this is what holds it to the files it has already written —
 //! the only way a *generated* artefact stays honest).
 
+use super::*;
+
 #[test]
 fn schema_pins_every_wire_integer_to_uint32() {
     let schema = json_schema();
