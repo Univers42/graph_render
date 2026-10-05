@@ -177,14 +177,15 @@ function edgeKindOf(source: string, at: string, record: Record_, notes: string[]
     throw new IngestRefusal(source, `${at}.kind ${JSON.stringify(record.kind)} is not an edge kind`);
   }
   const spelling = optionalString(record.type) ?? "";
-  // The three hierarchy spellings are tested on the spelling as it stands, so the common edge —
-  // one that names `kind`, or a `type` that already is one of them — never pays for a lowercased
-  // copy: 107 694 of them on the 62 MB document.
-  if (hierarchySpelling(spelling)) {
+  // A spelling that already is one of the three skips the lowercased copy, so the common edge —
+  // one that names `kind`, or a `type` written exactly as the contract spells it — never pays for
+  // one: 107 694 of them on the 62 MB document. Only an exact match skips it, so `Parent` is
+  // lowercased, tested and mapped like any other spelling, and noted as it was written.
+  if (hierarchySpelling(spelling) || hierarchySpelling(spelling.toLowerCase())) {
     notes.push(`mapped edge \`type\` "${spelling}" to kind "hierarchy"`);
     return "hierarchy";
   }
-  return hierarchySpelling(spelling.toLowerCase()) ? "hierarchy" : "relation";
+  return "relation";
 }
 
 /** Whether a `type` spelling is one of the three that name a hierarchy. */

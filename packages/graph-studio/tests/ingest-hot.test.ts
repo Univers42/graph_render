@@ -40,6 +40,19 @@ test("a full document passes through with no notes and the ten members in contra
   assert.equal(result.doc.nodes[0].path, "n/a.md");
 });
 
+// The one note a mapped `type` produces names the spelling as the document wrote it, and it is
+// produced whether the spelling matched as it stands or only after lowercasing. A silent mapping
+// is a lie about what was read: the note is the only place the user learns the studio guessed.
+test("a `type` that only matches lowercased still says so, naming the spelling as written", () => {
+  const { doc, notes } = normaliseIngest(JSON.stringify({
+    nodes: [{ id: "a" }, { id: "b" }],
+    edges: [{ id: "e", source: "a", target: "b", type: "Parent" }],
+  }), "case.json");
+  assert.equal(doc.edges[0]?.kind, "hierarchy");
+  assert.ok(notes.includes('mapped edge `type` "Parent" to kind "hierarchy"'),
+    `the note names the spelling as written; got ${JSON.stringify(notes)}`);
+});
+
 test("every note of a ragged document, in the order they happen", () => {
   const result = normaliseIngest(JSON.stringify({
     about: "a tree",
