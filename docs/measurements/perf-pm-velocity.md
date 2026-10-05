@@ -1,5 +1,8 @@
-# Perf PM velocity: fuse the tick's link and charge merges, same bytes
+# Perf PM velocity: fuse the tick's link and charge merges, same bytes (measured, not kept)
 
+
+Status: measured on 2026-10-05 and **not kept** (see "Speed"). The code is at the tag
+`archive/perf-pm-velocity`; develop carries only this report.
 Measured 2026-10-05 on branch `perf-pm-velocity` (from develop bd98bf32). Host: dlesieur42,
 i5-13600KF, 20 threads, 31 GB. Rust from `scripts/orch/gr`, wasm under Node in the same image.
 
@@ -71,7 +74,36 @@ gather and `=charge` only the charge gather.
 
 ## Speed
 
-BENCH_TABLE_PLACEHOLDER
+**Verdict: not kept.** The keep rule set before the bench was: `motion::Velocity` at 8 workers
+drops by at least 2 ms (median), and the tick median does not rise. Velocity **rose** by
+1.25 ms. Four calls a tick do more work than six did, so the code stays off develop, at the
+tag `archive/perf-pm-velocity`.
+
+`graph-cli tick --layout particle-mesh --n 1000000 --ticks 7 --workers 8 --passes`, frozen
+release binaries of both trees, three rounds with the arms alternated, each run under
+`~/goinfre/orch/bench.lock`. Each run waited until no full gate was running, ≥ 12 GB was
+available and the 1-minute load was < 14. Raw output:
+`$GM_SCRATCH/bench/pm-velocity/passes-{base,branch}-w8-r{1,2,3}.out`, script
+`$GM_SCRATCH/bench/pm-velocity/passes.sh`.
+
+| arm | run | load (1 min) | `motion::Velocity` calls | `motion::Velocity` ms/tick | serial ms/tick | passes tick ms | tick median ms |
+|---|---|---|---:|---:|---:|---:|---:|
+| base | r1 | 4.18 | 6 | 10.25 | 12.59 | 91.17 | 93.60 |
+| branch | r1 | 4.41 | 4 | 10.78 | 12.93 | 89.46 | 88.60 |
+| base | r2 | 4.41 | 6 | 10.12 | 12.72 | 91.02 | 93.60 |
+| branch | r2 | 4.22 | 4 | 11.50 | 12.78 | 92.06 | 93.30 |
+| base | r3 | 4.12 | 6 | 10.37 | 12.62 | 90.97 | 91.79 |
+| branch | r3 | 4.12 | 4 | 11.59 | 13.13 | 91.36 | 93.22 |
+| **base median** | | | 6 | **10.25** | 12.62 | 91.02 | 93.60 |
+| **branch median** | | | 4 | **11.50** | 12.93 | 91.36 | 93.22 |
+
+- **Velocity is +1.25 ms (+12%).** The fused run reads two delta columns and two `slot` gathers
+  per node, so it saves one write-back of `vx`/`vy` per merge but adds a second random gather.
+  At 1M nodes the gathers cost more than the traffic it saves. The stated premise, "the tick is
+  memory-bound on the column re-read", does not survive this measurement.
+- **The tick median moved −0.38 ms.** The three branch runs span 4.7 ms, so that is inside the
+  spread, not a gain.
+- **Memory:** +16 MB at 1M nodes (the `Mesh.link` column) for no measured gain.
 
 Memory: `Mesh.link` holds 16 bytes a node, so **+16 MB at 1M nodes** and nothing at a size
 that does not tick. That is the price of holding both delta columns at once; it buys back two
