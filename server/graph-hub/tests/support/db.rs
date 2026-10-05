@@ -91,6 +91,53 @@ pub async fn fresh_collation(name: &str) -> String {
     .await
 }
 
+/// A workspace id no other case in this process has used, from `prefix`.
+///
+/// WHY a case that empties the change log needs one: `put_manifest` writes no seq for
+/// byte-identical content (§4), so a workspace whose manifest change was deleted can never register
+/// its plugin again, and a fixed name would make the second run of the suite fail for that reason
+/// rather than for the one under test.
+pub fn unique(prefix: &str) -> String {
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{prefix}-{}-{seq}", std::process::id())
+}
+
+/// Delete every row of `ws` in every table the store keeps, so a name a previous run used starts
+/// empty. Best effort per table: a table a given schema does not have is not an error.
+pub async fn forget(hub: &graph_hub::app::App, ws: &str) {
+    let store = hub.store().await.expect("the store under test");
+    let client = store.client().await.expect("a connection");
+    for table in [
+        "change_ops",
+        "change_headers",
+        "idempotency",
+        "links",
+        "records",
+        "manifests",
+        "workspaces",
+    ] {
+        let _ = client
+            .batch_execute(&format!("DELETE FROM {table} WHERE ws = '{ws}'"))
+            .await;
+    }
+}
+
+/// Delete every change row of `ws`, which is the shape a full retention prune leaves behind.
+///
+/// WHY here: graph-store's retention does not exist yet (its `retain` and `retain_bytes` are read
+/// by nothing), so a case that needs a cursor *below what is kept* has to make it so itself. This
+/// is test SQL and never hub SQL — the hub writes none.
+pub async fn drop_changes(hub: &graph_hub::app::App, ws: &str) {
+    let store = hub.store().await.expect("the store under test");
+    let client = store.client().await.expect("a connection");
+    client
+        .batch_execute(&format!(
+            "DELETE FROM change_ops WHERE ws = '{ws}'; DELETE FROM change_headers WHERE ws = '{ws}'"
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("drop the change log of {ws}: {error}"));
+}
+
 /// Drop the database `url` names, so a run does not accumulate one per case.
 ///
 /// Best effort by design: a container that is already gone has nothing left to drop, and a
@@ -140,6 +187,62 @@ async fn create(name: &str, options: &str) -> String {
     let (head, _) = base.rsplit_once('/').expect("GM_HUB_PG_URL has a database");
     format!("{head}/{database}")
 }
+
+/// A URL of a database of this test's own, created `C`-collated and UTF8 from `template0`, whose
+/// `public` schema `hub` may create in, and migrated.
+///
+/// WHY owned by `hub` and not merely granted: `scripts/orch/hub-pg.sh` grants `ALL ON SCHEMA public`
+/// on the **shared** `hub` database only, and PostgreSQL 15 moved `CREATE` on `public` from `PUBLIC`
+/// to `pg_database_owner`. A case that creates its own database and then migrates as `hub` therefore
+/// gets `permission denied for schema public` unless the database is `hub`'s.
+///
+/// Caveat: the role is named in this file rather than read from the URL, so it is the hub-pg.sh
+/// spelling; a container with another role name would need this and `admin_url` changed together.
+pub async fn fresh_migrated(name: &str) -> String {
+    let url = owned(
+        name,
+        "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'",
+    )
+    .await;
+    let store = store_on(&url).await;
+    let mut client = store
+        .client()
+        .await
+        .expect("a connection for the migration");
+    graph_store::migrate::apply(&mut client)
+        .await
+        .expect("the store's migrations");
+    url
+}
+
+/// A URL of a database of this test's own that **belongs to `hub`**, so the store's own role may
+/// create its tables in it.
+async fn owned(name: &str, options: &str) -> String {
+    let base = url();
+    let admin = store_on(&admin_url(&base)).await;
+    let client = admin.client().await.expect("an admin connection");
+    let (head, _) = base.rsplit_once('/').expect("GM_HUB_PG_URL has a database");
+    let database = database_name(name);
+    let _ = client
+        .batch_execute(&format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+             WHERE datname = '{database}' AND pid <> pg_backend_pid()"
+        ))
+        .await;
+    let _ = client
+        .batch_execute(&format!("DROP DATABASE IF EXISTS {database}"))
+        .await;
+    client
+        .batch_execute(&format!(
+            "CREATE DATABASE {database} {options} OWNER {ROLE}"
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("create {database}: {error}"));
+    format!("{head}/{database}")
+}
+
+/// The role the store connects as, and the owner of every database a case creates for itself.
+const ROLE: &str = "hub";
 
 /// The store's migrations on the shared database, once per test process.
 ///

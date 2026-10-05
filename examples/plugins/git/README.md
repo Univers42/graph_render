@@ -12,6 +12,14 @@ git-log.sh  ->  map.mjs (parseLog, toRows)  ->  SDK rowsToIngest  ->  {"ingest":
 The engine (motor, SDK, studio) does not know this plugin exists. It lives here, in
 `examples/plugins/`, beside `rows-file/`, and adds nothing to any product package.
 
+## Why committer time
+
+The plugin asks git for **committer** time (`%ct`), the time the commit was written, and not for
+author time. A rebased or cherry-picked commit keeps its old author time, so sorting records by
+author time interleaves branches and draws a wider lane count than the history really has.
+Committer time is what git's own `git log --date-order` sorts on.
+`docs/measurements/dag-lanes.md` records both widths side by side.
+
 ## Run it
 
 ```sh

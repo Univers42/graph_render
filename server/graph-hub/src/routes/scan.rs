@@ -12,10 +12,11 @@
 //! forward.
 //!
 //! Caveat: the scan is `O(retained changes)` per call, where retention is §6's `RETAIN` (100 000 by
-//! default), and a workspace past it cannot answer at all — the oldest manifest change may already
-//! have been pruned. A store API for these two reads is a "decision needed"
-//! (`docs/decisions/graph-hub.md`, round 2, Task 5); this module is what keeps every §5.2 status
-//! reachable today.
+//! default), plus a binary search for the low bound on the first call of a walk. A workspace whose
+//! manifest change has already been pruned answers what it can and no more: a plugin that registered
+//! before retention and has published nothing since reads as absent, which is a 404 on a plugin that
+//! exists. A store API for these reads is a "decision needed" (`docs/decisions/graph-hub.md`, round
+//! 2, Task 5); this module is what keeps every §5.2 status reachable today.
 
 use std::collections::BTreeMap;
 
@@ -23,44 +24,42 @@ use graph_contract::hub::{Cursor, Manifest, read_manifest};
 use graph_store::changes::{Change, ChangeKind, ChangePage, ChangesReq};
 use graph_store::{Store, StoreError};
 
-/// How many seqs one doubling probe skips.
-///
-/// Caveat: a fixed 256 rather than a doubling, because the number of probes is what a caller waits
-/// for and 256 keeps a full 100 000-change retention under 400 round trips while never being wrong
-/// about the answer — a smaller step only costs more probes.
-const PROBE_STEP: u64 = 256;
-
 /// The changes one page of the walk carries. §6 gives `SSE_PAGE` (256) for exactly this shape.
 const WALK_LIMIT: u64 = 256;
 
 /// §6's `CHANGES_BYTES` for one page of the walk, so a page is bounded the way a `/changes` page is.
 const WALK_BYTES: u64 = 8 << 20;
 
-/// The oldest cursor `ws` can still be paged from.
+/// The oldest cursor a fold of `ws` must start **at** so that no retained change is skipped.
 ///
-/// A cursor below the retained low bound is `StoreError::Gone`, and the store publishes no accessor
-/// for the low bound, so this starts at 0 and steps forward until a page comes back. The answer is a
-/// cursor at or above the low bound, so paging from it returns every change that is still there.
+/// The answer is one below the lowest retained seq, because a page returns the changes *after* its
+/// cursor: naming the lowest retained seq itself would drop that change, and naming the lowest
+/// servable cursor found by probing would drop up to a step's worth below it.
+///
+/// WHY a binary search: graph-store publishes no accessor for the low bound, so it has to be found,
+/// and "is this seq servable" is monotone — a seq at or above the bound is servable and one below it
+/// is not — so the bound is the false/true edge of a sorted predicate. A fixed step would leave a
+/// gap of up to `PROBE_STEP` changes, which is a missing manifest rather than a slow answer.
+///
+/// Caveat: `log2(head_seq)` probes, about 17 at §6's `RETAIN` of 100 000, and every one of them is a
+/// round trip; a store API for the low bound would replace the whole search with one read.
 pub async fn oldest(store: &Store, ws: &str, head: (u64, u64)) -> Result<Cursor, StoreError> {
-    let mut seq = 0u64;
-    loop {
-        let at = seq.min(head.1);
-        if servable(store, ws, head.0, at).await? {
-            return Ok(Cursor {
-                epoch: head.0,
-                seq: at,
-            });
+    let mut low = 0u64;
+    let mut high = head.1;
+    // `head_seq` is always servable — it is at or above the low bound by definition — so the search
+    // always has a true arm, and a workspace that keeps nothing still terminates.
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if servable(store, ws, head.0, mid).await? {
+            high = mid;
+        } else {
+            low = mid + 1;
         }
-        // `head_seq` is always servable — it is at or above the low bound by definition — so this
-        // arm is the loop's floor and the probe terminates even on a workspace that keeps nothing.
-        if at >= head.1 {
-            return Ok(Cursor {
-                epoch: head.0,
-                seq: head.1,
-            });
-        }
-        seq = seq.saturating_add(PROBE_STEP);
     }
+    Ok(Cursor {
+        epoch: head.0,
+        seq: low.saturating_sub(1),
+    })
 }
 
 /// Is `Cursor { epoch, seq }` a cursor this workspace can be paged from?
