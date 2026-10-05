@@ -61,21 +61,18 @@ await_motor() {
   return 1
 }
 
-# One `GET /healthz` over the bridge, on a raw socket so the measurement adds no HTTP client.
-# Only the status line is read, so the answer's own credential is never needed. Takes the address
-# rather than reading it, so the readiness loop probes the address it was given and no other.
+# One `GET /healthz` over the bridge; 0 when the motor answered 200.
+#
+# `curl` and not a raw `/dev/tcp` socket: `exec 3<>…` is a special builtin, so a refused connection
+# kills a non-interactive shell outright and no `||` guard catches it — measured here, not assumed.
+# `curl` is already this repo's readiness probe (scripts/service-limits.sh:161).
+#
+# The address is a parameter rather than read from the container, so the readiness loop probes the
+# one it was given. The motor takes no credential on /healthz, so none is sent and none is read.
 healthz() {
   local ip=${1-}
   [ -n "$ip" ] || return 1
-  exec 3<>"/dev/tcp/$ip/8080" 2>/dev/null || return 1
-  printf 'GET /healthz HTTP/1.0\r\nHost: %s\r\n\r\n' "$ip" >&3 || { exec 3<&-; return 1; }
-  local line
-  read -r line <&3
-  exec 3<&-
-  case $line in
-  'HTTP/1.'*' 200') return 0 ;;
-  *) return 1 ;;
-  esac
+  [ "$(curl -sS -o /dev/null -m 5 -w '%{http_code}' "http://$ip:8080/healthz" 2>/dev/null)" = 200 ]
 }
 
 # The hub's `layout-upload` lines, oldest first: `event`, `ws`, `bytes`, `records`, `upload_ms`.

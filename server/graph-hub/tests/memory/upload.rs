@@ -20,12 +20,28 @@
 
 use std::time::Duration;
 
-use crate::PLUGIN;
 use crate::support::db;
 use crate::support::wire::Remote;
 
-/// The workspace this case fills, and the plugin it is registered under.
+/// The workspace this case fills.
 const WS: &str = "upload-cap";
+
+/// The plugins the records are spread over, and why there are more than one.
+///
+/// `GRAPH_HUB_MAX_PLUGIN_BYTES` is 16 MiB (§6's default) and a 64 MiB document does not fit under
+/// one plugin, so the fill spreads its records over [`PLUGINS`] of them. Decision 4 asks for **one**
+/// document at the cap, not one plugin, and the cap it is measured against is `doc_bytes`.
+///
+/// Every name is the same length on purpose: the stored record spells its collection qualified
+/// (`p0.task`, `p1.task`, …, `crates/graph-contract/src/hub/ids.rs:67`), so names of equal length
+/// make every record in the document the same size — which is what lets one measured `record_bytes`
+/// stand for all ~880 000 of them.
+const PLUGINS: usize = 8;
+
+/// Plugin `i`'s name: `p0` … `p7`, two characters each.
+fn plugin(i: usize) -> String {
+    format!("p{i}")
+}
 
 /// The motor layout asked for: `layout.grid`, the first registry entry, as `hub-roundtrip` uses.
 const LAYOUT: &str = "layout.grid";
@@ -77,7 +93,9 @@ struct Filled {
 async fn a_capped_workspace_uploads_five_times_inside_the_motor_body_timeout() {
     db::migrated().await;
     let remote = Remote::with_timeout(REQUEST_TIMEOUT);
-    remote.ready(WS, PLUGIN).await;
+    for i in 0..PLUGINS {
+        remote.ready(WS, &plugin(i)).await;
+    }
     let cap = cap();
     let fill = fill_to_the_cap(&remote, cap).await;
     assert!(
@@ -86,7 +104,8 @@ async fn a_capped_workspace_uploads_five_times_inside_the_motor_body_timeout() {
         cap - fill.doc_bytes
     );
     println!(
-        "HUB_MEM upload cap={cap} doc_bytes={} records={} record_bytes={} batches={} id_width={ID_WIDTH}",
+        "HUB_MEM upload cap={cap} doc_bytes={} records={} record_bytes={} batches={} \
+         id_width={ID_WIDTH} plugins={PLUGINS}",
         fill.doc_bytes, fill.records, fill.record_bytes, fill.batches
     );
     let etag = graph_etag(&remote).await;
@@ -152,16 +171,21 @@ async fn fill_to_the_cap(remote: &Remote, cap: u64) -> Filled {
 }
 
 /// One batch of `take` records with ids `from`, `from + 1`, …, and the 200 that says it landed.
+///
+/// The plugin is `batch % PLUGINS`, so the records are spread evenly and no one plugin reaches its
+/// own 16 MiB cap before the document reaches 64 MiB. Round-robin on the batch index and not on the
+/// record index because a batch is the unit the cap is checked in (`writer/plan.rs:275`).
 async fn post(remote: &Remote, from: u64, take: usize, batch: u64) {
+    let name = plugin(batch as usize % PLUGINS);
     let body = batch_body(from, take);
     let reply = remote
-        .post_batch(WS, PLUGIN, &body, &format!("{WS}-fill-{batch}"))
+        .post_batch(WS, &name, &body, &format!("{WS}-fill-{batch}"))
         .await
         .unwrap_or_else(|error| panic!("the fill batch {batch}: {error}"));
     assert_eq!(
         reply.code(),
         200,
-        "the fill batch {batch} of {take}: {} {}",
+        "the fill batch {batch} of {take} into {name}: {} {}",
         reply.code(),
         reply.body()
     );
@@ -177,12 +201,17 @@ async fn post(remote: &Remote, from: u64, take: usize, batch: u64) {
 /// scalar. `values` is not empty because `Role::Scalar` accepts any JSON (`batch/cells.rs:74`) and a
 /// document of no cells is not a document any real workspace holds.
 ///
+/// The collection is written **unqualified** (`task`), which is what a batch spells and what
+/// `qualify` (`crates/graph-contract/src/hub/ids.rs:67`) turns into the plugin's own `p0.task` at
+/// write time. So one body serves every plugin, and the fill's `record_bytes` — read back off the
+/// store rather than computed here — is the qualified length.
+///
 /// Caveat: `updatedAt` is fixed at 0 rather than incremented per record. D6 says a `u32`, and every
 /// record here is a distinct id rather than a distinct version of one, so the value is not what the
 /// upload's byte count turns on — but it does mean the fill never exercises a store that has to
 /// resolve two versions of one id, which is a different question from this one.
 fn batch_body(from: u64, take: usize) -> String {
-    let mut out = String::with_capacity(take * (ID_WIDTH + 64));
+    let mut out = String::with_capacity(take * (ID_WIDTH + 72));
     out.push_str(r#"{"upserts":["#);
     for i in 0..take {
         if i > 0 {
