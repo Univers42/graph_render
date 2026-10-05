@@ -63,11 +63,14 @@ url() {
 # Caveat: 90 polls of one second is a guess above a cold container on a loaded host. It is only
 # a bound on how long THIS waits; `wait` failing means the container never became ready, which a
 # caller must not read as "the store is broken".
+# The probe goes over TCP, as every client does: on a first start the image's entrypoint runs a
+# socket-only server for its init scripts, and a socket probe then said "ready" while TCP still
+# refused (a negctl run on 2026-10-05 died on that window).
 wait_ready() {
   local limit=${1:-90}
   local i
   for ((i = 0; i < limit; i++)); do
-    docker exec "$name" pg_isready -U postgres >/dev/null 2>&1 && return 0
+    docker exec "$name" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && return 0
     sleep 1
   done
   echo "hub-pg: $name did not become ready in ${limit}s" >&2

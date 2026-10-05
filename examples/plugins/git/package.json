@@ -1,0 +1,9 @@
+{
+  "name": "@graph-motor/example-git",
+  "private": true,
+  "type": "module",
+  "description": "A repository's commit graph as a studio document, built on the SDK's rows adapter and graph-cli ingest. Knows git; the engine does not.",
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/"
+  }
+}
