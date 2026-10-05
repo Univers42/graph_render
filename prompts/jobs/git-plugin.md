@@ -33,8 +33,10 @@ longer holds):
   `tags`, the member its `tag:#x` query reads.
 - `examples/plugins/rows-file/sync.mjs` is the pattern for importing the SDK's `.ts` sources
   from a plugin, run with `node --experimental-strip-types`.
-- Bare clones for the bench: `~/goinfre/gitviz/{contributor-stats,activitywatch,aw-server-rust,git}.git`
-  (488, 1271, 989 and 85,928 commits).
+- Bare clones for the bench: `/tmp/gitviz/{contributor-stats,activitywatch,aw-server-rust,git}.git`
+  (488, 1271, 989 and 85,928 commits). They are copies of `~/goinfre/gitviz`, placed under
+  `/tmp` because the job permission layer denies every other directory outside the worktree. If
+  `/tmp/gitviz` is missing (a reboot), say so and measure this worktree only.
 
 Rules (beyond `scripts/orch/common.md`):
 - Node only through `scripts/orch/node-slim.sh`; cargo only through
