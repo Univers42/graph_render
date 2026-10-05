@@ -37,7 +37,7 @@ async fn the_graph_seq_header_equals_the_graph_etag() {
 /// must be none of this database's at any observation before the relay answers.
 #[tokio::test]
 async fn the_snapshot_closes_before_the_motor_answer_is_awaited() {
-    let (motor, key) = stub_after(
+    let (motor, served, key) = stub_parts(
         vec![StubReply::new(200, "", "")],
         Duration::from_millis(HOLD_MS),
     )
@@ -52,6 +52,11 @@ async fn the_snapshot_closes_before_the_motor_answer_is_awaited() {
         .body(Body::empty())
         .expect("the relay request"),
     );
+    // The window opens when the stub has drained the upload. Before that the relay is still opening
+    // its connection, and the restore detector `Store::client` runs there is a transaction of its own.
+    while served.load(Ordering::SeqCst) == 0 && !relay.is_finished() {
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
+    }
     let mut polls = 0;
     while !relay.is_finished() {
         assert_eq!(
@@ -94,10 +99,11 @@ const POLL_MS: u64 = 25;
 /// `BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY` and holds it until the walk is done, so
 /// `idle in transaction` on this database is the fact §5.3 says must not outlive the upload.
 ///
-/// Two statements are excluded, and both are this test's own rather than the relay's: the
-/// `pg_stat_activity` query itself, and the restore detector's `pg_control_system()` read, which
-/// `Store::client` runs on **every** connection it opens — including the one this function opens to
-/// ask. Counting them would make every observation find a transaction the test itself started.
+/// Nothing is excluded by statement text: the case only asks once the stub has drained the upload,
+/// when no connection of the relay's is still opening. The restore detector `Store::client` runs on
+/// the connection this function opens is over before the question is sent on that same connection.
+/// The old exclusion of the detector's `pg_control_system()` read broke when the detector gained a
+/// `pg_current_wal_flush_lsn()` read, which is what the timing now rules out instead.
 ///
 /// Caveat: this counts by database, so the case must own the database (see [`hub_alone`]). On the
 /// shared `hub` database another fixture's snapshot would be named here and the case would fail for
@@ -108,9 +114,7 @@ async fn open_snapshots(hub: &Hub) -> Vec<String> {
     let rows = client
         .query(
             "SELECT pid, state, left(query, 60) AS q FROM pg_stat_activity \
-             WHERE datname = current_database() AND state = 'idle in transaction' \
-               AND query NOT LIKE '%pg_stat_activity%' \
-               AND query NOT LIKE '%pg_control_system%'",
+             WHERE datname = current_database() AND state = 'idle in transaction'",
             &[],
         )
         .await

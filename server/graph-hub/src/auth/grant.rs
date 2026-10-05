@@ -25,6 +25,10 @@ pub fn allows(grants: &Grants, key: &str, ws: &str, need: &Need) -> bool {
 /// `Grants` checks the workspace first; this answers only the mode half.
 pub fn covers(mode: &Mode, need: &Need) -> bool {
     match (mode, need) {
+        // `Need::Any` is answered by `Grants::allows` from the line count, so it is unreachable
+        // here; the arm is `true` rather than `unreachable!()` because a panic on a public path is
+        // worse than a grant that is too generous on a route no request can reach.
+        (_, Need::Any) => true,
         (_, Need::Admin) => matches!(mode, Mode::Admin),
         (Mode::Admin, _) => true,
         (_, Need::Read) => true,

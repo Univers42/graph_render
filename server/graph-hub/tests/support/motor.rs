@@ -203,4 +203,4 @@ async fn healthz(addr: SocketAddr) -> Result<StatusCode, ClientError> {
 /// what it was told, not one that runs graph-server.
 pub mod stub;
 
-pub use stub::{STUB_KEY, StubReply, stub, stub_after, stub_counting, stub_parts, stub_with_key};
+pub use stub::{STUB_KEY, StubReply, stub, stub_counting, stub_parts, stub_with_key};

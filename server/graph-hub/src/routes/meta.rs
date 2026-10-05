@@ -9,7 +9,7 @@
 //! as `unset` here exactly as it does in the start line — a client's need to know that a database is
 //! configured is not a need to read the URL.
 
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
@@ -17,6 +17,7 @@ use std::sync::Arc;
 use crate::app::App;
 use crate::auth::Credential;
 use crate::config::Limits;
+use crate::error::HubApiError;
 
 /// `{"api":1,"version":…,"limits":{…}}`.
 ///
@@ -27,8 +28,8 @@ use crate::config::Limits;
 /// this is.
 pub async fn meta(
     State(app): State<Arc<App>>,
-    axum::extract::Extension(_credential): axum::extract::Extension<Credential>,
-) -> Result<Response, crate::error::HubApiError> {
+    Extension(_credential): Extension<Credential>,
+) -> Result<Response, HubApiError> {
     let body = serde_json::json!({
         "api": 1,
         "version": env!("CARGO_PKG_VERSION"),
@@ -36,7 +37,10 @@ pub async fn meta(
     });
     Ok((
         StatusCode::OK,
-        [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )],
         body.to_string(),
     )
         .into_response())
