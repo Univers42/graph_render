@@ -10,8 +10,9 @@
 # what makes this loopback between two containers on one host rather than a network measurement.
 #
 # Credentials: `scripts/service.sh keygen` writes `name <sha256>` into the keyfile at 0640 and the
-# plaintext on stdout, so the plaintext goes straight into a 0600 file the hub reads through
-# GRAPH_HUB_MOTOR_KEY_FILE. Neither the key nor the keyfile's line is ever printed here.
+# plaintext on stdout; the plaintext goes into a 0600 file the hub reads through
+# GRAPH_HUB_MOTOR_KEY_FILE (see motor_credentials for who owns it and why). Neither the key nor the
+# keyfile's line is ever printed here.
 #
 # Caveat: the motor's own build (`scripts/service.sh build`) stages the studio bundle as well as the
 # binary, so this verb is slow the first time and on any change under studio/. `hub.sh
@@ -33,17 +34,47 @@ motor_name() { printf 'gm-hub-motor-%s' "$(basename "$root")"; }
 # deliberately not used: it is a host path, and the measurement is between two containers.
 motor_ip() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$(motor_name)" 2>/dev/null; }
 
-# A keyfile for the motor and its plaintext, both under target/hub-mem/. Exits 2 if either is
-# missing, because a motor the hub cannot authenticate against answers 401 and the run would read
-# as an upload failure rather than as a setup failure.
+# A keyfile for the motor and its plaintext, both under target/hub-mem/.
+#
+# The plaintext is minted by `scripts/service.sh keygen` on stdout and then **written by a container
+# running as the hub's own uid (10001)**, because the hub container reads it as that uid and a 0600
+# file owned by the host user is unreadable to it: measured here, not assumed — the relay's
+# `bearer()` turned the unreadable file into `MotorUnavailable`, so every `/layout` answered 502 in
+# 6 ms. Mode 0600 is what Decision 6 and `docs/deploy/hub.md` name, and this is the only way to get
+# it and have the hub read it, since the host user cannot `chown` to 10001.
+#
+# The keyfile itself is written by keygen directly at 0640, which is the mode graph-server's own
+# `KeySet::load` requires and the mode `scripts/service.sh keygen` installs.
 motor_credentials() {
   mkdir -p "$out" || return 1
   [ -s "$out/motor-key" ] && [ -s "$out/motor-keys" ] && return 0
   rm -f "$out/motor-key" "$out/motor-keys"
-  # umask 077 first: the plaintext key is a live credential (Decision 6) and 0600 is the mode the
-  # deploy doc names for it.
-  (umask 077 && "$root/scripts/service.sh" keygen motor "$out/motor-keys" >"$out/motor-key") \
-    || { echo "hub-mem: the motor key could not be minted" >&2; return 1; }
+  local minted
+  minted=$("$root/scripts/service.sh" keygen motor "$out/motor-keys") || return 1
+  [ -n "$minted" ] || return 1
+  write_as_the_hub "$minted" || return 1
+  # The staged file's mode and owner, so a caller can see the credential is not world-readable.
+  ls -l "$out/motor-key" >&2
+}
+
+# `text` into target/hub-mem/motor-key, created by a container as uid 10001 at mode 0600.
+#
+# WHY a container and not a redirect: the hub reads this file as 10001 (the image's user) and 0600
+# grants nothing to anyone but the owner, so the file has to be **owned** by 10001 — and the host user
+# cannot `chown` to a uid it does not hold. A container as that uid can create it.
+#
+# The key arrives on the container's **stdin** and is written from there, so it never reaches a command
+# line and `ps` on the host never shows it. `--group-add` plus a group-writable `target/hub-mem` is
+# what lets uid 10001 create the file there at all; the directory is this script's own under
+# `target/`, and `hub-mem.sh reset` removes it. drun, like every container here.
+write_as_the_hub() {
+  local image
+  image=$(cat target/hub-image/name) || return 1
+  chmod g+w "$out" || return 1
+  printf '%s\n' "$1" \
+    | "$here/drun" --rm --network none -u 10001 --group-add "$(id -g)" --entrypoint /bin/sh \
+      -v "$root/$out:/run/keys" "$image" \
+      -c 'umask 077; cat > /run/keys/motor-key' >/dev/null 2>&1
 }
 
 # Wait for the motor to answer /healthz over its own bridge address, or give up. 120 half-second
