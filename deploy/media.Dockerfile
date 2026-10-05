@@ -4,7 +4,7 @@
 # Debian packages, no vendor image (docs/decisions/images-from-debian.md).
 #
 #   docker build -f deploy/media.Dockerfile -t gm-media deploy
-#   docker run --rm gm-media ffmpeg -version
+#   scripts/orch/drun --rm gm-media ffmpeg -version
 
 FROM debian:trixie-slim
 
