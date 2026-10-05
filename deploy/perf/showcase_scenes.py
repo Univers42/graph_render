@@ -120,8 +120,8 @@ ANALYSIS = [
     ("run", "appearance.theme", {"name": "scigraphs"}),
     ("run", "appearance.colour", {"by": "group"}),
     ("run", "appearance.size", {"by": "weight"}),
-    # A load re-runs the persisted analysis (studio/plan.ts `asked`): betweenness is O(nm), so
-    # left on it hangs the million-node load that follows.
+    # A load re-runs the persisted analysis; past 20 000 nodes betweenness is held back with a
+    # note (studio/plan.ts `heldBack`), so turning it off keeps that note off the million scene.
     ("run", "analysis.run", {"id": "off"}),
 ]
 
