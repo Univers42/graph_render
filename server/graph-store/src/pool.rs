@@ -1,6 +1,7 @@
 //! The connection pool and the restore detector that runs on every new connection.
 
 pub mod connect;
+pub mod detect;
 pub mod last_seen;
 
 use std::sync::Mutex;

@@ -48,34 +48,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# WHY manifests are copied and sources are linked, not `cp -r server`: the workspace's
-# `target/` holds root-owned incremental locks, and copying a tree the gate cannot read
-# fails on them before it reaches the feature at all. `cargo tree` reads manifests, so the
-# copy is the manifests plus links to the real `crates/` and each member's `src/`, and
-# nothing under `server/` is edited.
-#
-# WHY the links are RELATIVE. `scripts/orch/gr` bind-mounts the repository at `/w`, so a link
-# naming the host's own path (`$root`) dangles inside the container and cargo reports "no
-# targets specified" -- a failure that reads like a broken workspace rather than a bad link.
-#
-# WHY the member list is read from the manifest and not written out: a second member
-# (server/graph-store) joined `server/Cargo.toml` and this copy then named one member, so
-# the copy was a workspace cargo cannot resolve -- and the error reads like a broken
-# workspace, not a stale list.
-scratch_setup() {
-  local scratch=$1 link member
-  rm -rf "$scratch" || return 2
-  mkdir -p "$scratch/server" || return 2
-  for member in $(sed -n 's/^members = \[\(.*\)\]$/\1/p' server/Cargo.toml | tr -d '"' | tr ',' ' '); do
-    mkdir -p "$scratch/server/$member" || return 2
-    cp "server/$member/Cargo.toml" "$scratch/server/$member/" || return 2
-    link=$(realpath --relative-to="$scratch/server/$member" "$root/server/$member/src") || return 2
-    ln -s "$link" "$scratch/server/$member/src" || return 2
-  done
-  link=$(realpath --relative-to="$scratch" "$root/crates") || return 2
-  ln -s "$link" "$scratch/crates" || return 2
-  cp server/Cargo.toml server/Cargo.lock "$scratch/server/" || return 2
-}
+. "$here/lib/server-scratch.sh" || exit 2
 
 # WHY 2 and not 1 for a cargo failure: a check that could not look is not a check that found
 # nothing. A `nonzero` gate row would be satisfied by a toolchain that is simply absent.
