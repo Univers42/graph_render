@@ -66,6 +66,14 @@ pub struct Hooks {
 }
 
 #[cfg(feature = "test-hooks")]
+impl Default for Hooks {
+    /// The same as [`Hooks::new`]: every slot empty.
+    fn default() -> Self {
+        Hooks::new()
+    }
+}
+
+#[cfg(feature = "test-hooks")]
 impl std::fmt::Debug for Hooks {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Hooks").finish_non_exhaustive()

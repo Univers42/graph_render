@@ -35,7 +35,10 @@ async fn changes_after_a_cursor_are_in_seq_order() {
         "seq order, never a repeat"
     );
     assert!(value["next"].is_string(), "a page carries the next cursor");
-    assert_eq!(value["epoch"].as_u64().is_some(), true, "the page's epoch");
+    assert!(
+        value["epoch"].as_u64().is_some(),
+        "the page carries its epoch"
+    );
 }
 
 /// A cursor from another epoch is a 410: §5.3's rule, and the reason a promoted workspace's

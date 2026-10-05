@@ -29,13 +29,14 @@ use std::time::Duration;
 
 use axum::response::sse::Event;
 use futures_util::stream::{self, Stream as StreamTrait};
-use graph_contract::hub::{Cursor, notice_json};
+use graph_contract::hub::Cursor;
 use graph_store::StoreError;
 use tokio::sync::watch::Receiver;
 
 use crate::app::App;
 use crate::events::beat;
 use crate::events::page::{self, Head, PageReq};
+use crate::events::wire::{self, Step, Wake};
 use crate::gate::subscribers::Subscriber;
 
 /// The event name of a change notice.
@@ -68,55 +69,6 @@ impl Shape {
             at_most: app.settings.sse_page,
             max_bytes: app.settings.limits.changes_bytes,
             timeout: app.settings.timeout,
-        }
-    }
-}
-
-/// What woke the wait in step 3.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Wake {
-    /// The watch moved, so there is something to page.
-    Changed,
-    /// The heartbeat's interval elapsed.
-    Ticked,
-    /// The watch's sender is gone, which only happens at shutdown.
-    Shut,
-}
-
-/// One turn of the loop's answer: the event to write, and whether the stream goes on after it.
-///
-/// A struct rather than an `Option<Event>` because the two questions are different: a shutdown ends
-/// the stream with **nothing** written, while a `busy` or a `resync` ends it **after** an event that
-/// says why, and that event must still reach the client.
-struct Step {
-    /// The event, or `None` for the end of the stream with nothing to say.
-    event: Option<Event>,
-    /// Whether the stream continues after this event.
-    keep: bool,
-}
-
-impl Step {
-    /// One more event of an ordinary stream.
-    fn more(event: Event) -> Self {
-        Step {
-            event: Some(event),
-            keep: true,
-        }
-    }
-
-    /// The stream's last event, which names its own end.
-    fn last(event: Event) -> Self {
-        Step {
-            event: Some(event),
-            keep: false,
-        }
-    }
-
-    /// The end of the stream with nothing written, which is only shutdown.
-    fn end() -> Self {
-        Step {
-            event: None,
-            keep: false,
         }
     }
 }
@@ -204,7 +156,7 @@ impl Sub {
             if self.caught_up {
                 match self.wait().await {
                     Wake::Changed => self.caught_up = false,
-                    Wake::Ticked => return Step::more(heartbeat()),
+                    Wake::Ticked => return Step::more(wire::heartbeat()),
                     Wake::Shut => return Step::end(),
                 }
                 continue;
@@ -244,7 +196,7 @@ impl Sub {
             // A page answered from another epoch is a promotion, which the store reports as `Gone`
             // for a cursor of the old epoch and as a foreign `epoch` in a page that came back: both
             // are the same `resync`.
-            Ok(_) | Err(StoreError::Gone) => return Some(Step::last(close(RESYNC))),
+            Ok(_) | Err(StoreError::Gone) => return Some(Step::last(wire::close(RESYNC))),
             Err(_) => return Some(Step::last(self.busy())),
         };
         self.caught_up = answer.next.seq >= answer.head_seq;
@@ -286,17 +238,13 @@ impl Sub {
     /// before it trusts the position the watch reported.
     async fn wait(&mut self) -> Wake {
         let mut every = beat::ticker();
-        loop {
-            tokio::select! {
-                changed = self.receiver.changed() => {
-                    return match changed {
-                        Ok(()) => Wake::Changed,
-                        // The sender is gone, which only happens at shutdown.
-                        Err(_) => Wake::Shut,
-                    };
-                }
-                _ = every.tick() => return Wake::Ticked,
-            }
+        tokio::select! {
+            changed = self.receiver.changed() => match changed {
+                Ok(()) => Wake::Changed,
+                // The sender is gone, which only happens at shutdown.
+                Err(_) => Wake::Shut,
+            },
+            _ = every.tick() => Wake::Ticked,
         }
     }
 
@@ -329,7 +277,7 @@ impl Sub {
             epoch: self.epoch,
             seq: head.seq,
         };
-        Step::more(notice(&head, self.epoch))
+        Step::more(wire::notice(&head, self.epoch))
     }
 
     /// The `busy` close, with the slot freed **before** the event is yielded.
@@ -338,32 +286,6 @@ impl Sub {
     /// reconnects on the same key while this connection is still open finds the cap with room.
     fn busy(&mut self) -> Event {
         self.subscriber.take();
-        close(BUSY)
+        wire::close(BUSY)
     }
-}
-
-/// The header heartbeat, which never carries data: a client that reads it learns nothing about the
-/// workspace.
-fn heartbeat() -> Event {
-    Event::default().comment("keep-alive")
-}
-
-/// One change notice: `event: change`, `id: <epoch>.<seq>`, `data: <notice_json>`.
-fn notice(head: &Head, epoch: u64) -> Event {
-    Event::default()
-        .event(CHANGE)
-        .id(Cursor {
-            epoch,
-            seq: head.seq,
-        }
-        .to_string())
-        .data(notice_json(&head.as_change_head()))
-}
-
-/// One of the two early closes: a named event with **no** `id:` line and no data.
-///
-/// No `id:` is required, not merely nice: `Last-Event-ID` is what a reconnect resumes from, so an
-/// `id:` on `busy` would tell the SDK to resume from a change it never received.
-fn close(name: &str) -> Event {
-    Event::default().event(name)
 }

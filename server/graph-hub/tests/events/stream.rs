@@ -159,7 +159,7 @@ async fn last_event_id_wins_over_since() {
     // resumes from the header is identical on the wire to one that resumes from the query, so the
     // rule is pinned where it is decided instead.
     let headers = axum::http::HeaderMap::new();
-    let uri: axum::http::Uri = format!("{path}").parse().expect("a URI");
+    let uri: axum::http::Uri = path.parse().expect("a URI");
     let from_query =
         graph_hub::events::cursor_of(&headers, &uri, parsed, 7).expect("the query's cursor");
     assert_eq!(

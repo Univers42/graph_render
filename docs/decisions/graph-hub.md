@@ -162,3 +162,34 @@ and row `svc-supply` (D7), H1, H8 and row `hub-breaks-off` (D8), §10 slice 3 (`
   `svc-features` re-run in slices 2 and 3.
 - `server-and-write-path.md` deferred "streams". This record lifts that only for an SSE
   change feed. Remote access and TLS stay stop-and-ask: the hub binds loopback by default.
+
+## Round 2b (2026-10-06), Tasks 6 and 7 — decisions taken on the way
+
+- **`GET /v1/meta` and `GET /v1/workspaces` needed a new `Need::Any`.** §5.2 gives both rows the
+  grant "any key". The layer had been answering `Need::Read` on the *empty* workspace, which only a
+  `*` grant covers, so a deployment whose grants name workspaces (the ordinary case) was refused 403
+  on both rows. `Need::Any` is satisfied by having any grant line at all, and the listing still
+  filters per workspace. Changed: `src/grants.rs`, `src/auth/need.rs`, `src/auth/grant.rs`.
+- **`routes/scan.rs`'s `oldest()` was returning a cursor that skipped a change.** It probed forward
+  for the first *servable* seq and returned it, but a page returns the changes **after** its cursor,
+  so the change sitting at that seq was never seen. Invisible while a workspace's log starts at
+  seq 1; a workspace whose earliest retained change is above 0 (anything retention has pruned) read
+  its manifest as absent, and `POST …/batches` answered 404. It is now a binary search for the low
+  bound, returning one below it. `log2(head_seq)` probes, about 17 at §6's `RETAIN`; a store
+  accessor for the low bound would replace the search with one read.
+- **`Subscribers::admit` now takes `&self`.** It took `self: &Arc<Self>`, so the events route had to
+  own an `Arc<Subscribers>` to take a slot. `Subscriber` now holds the shared counters directly, which
+  is the only state it needs to release on drop.
+- **The `AsyncHook` seam is handed the route's name.** `the_busy_reconnect_reads_no_graph` needs a
+  counter on `/graph` and not on "some route", and every test hook had no way to tell two routes
+  apart. No existing test installed `pause_after_admit`, so the signature change cost nothing.
+- **A fourth test seam, `page_fault`.** A stream's two early closes are decided by *which* store
+  fault a read meets — `Gone` is a `resync`, `Busy` is a `busy` — and neither can be produced on
+  demand: a pool cannot be made short and a log cannot be pruned. The seam is a function from the
+  cursor to an optional fault, so one fixture forces either close.
+- **The epoch re-read rides on the page read, not on the heartbeat.** The stream's next read answers
+  with the epoch it read, so the check costs nothing, and a page answered from another epoch is the
+  same `resync` as a `Gone` cursor. Cost, stated as a Caveat in the code: an idle subscriber of a
+  promoted workspace is not told until its client times out or a change arrives.
+- **`subscribers.admit` is keyed by key *name*, never by the token.** Nothing else was available:
+  the hub only ever learns the name (`KeySet::name_of`).

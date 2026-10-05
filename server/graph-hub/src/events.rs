@@ -16,6 +16,7 @@
 pub mod beat;
 pub mod page;
 pub mod stream;
+pub mod wire;
 
 use std::sync::Arc;
 
