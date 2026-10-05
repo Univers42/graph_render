@@ -4,14 +4,15 @@
 // What it models: a working set of live branch tips. Each commit picks one of three moves —
 // branch (5%), merge (5%), or a commit on an existing branch (90%) — so the log has the fan-out
 // and re-convergence a real history has, and the lanes layout has something to lay out. Commit i's
-// hash is its index in hex, its time is 1600000000 + i, its author is `a<i % 50>`; the model is
-// exact and seeded, so the same seed writes the same log.
+// hash is its index in hex, its committer time is 1600000000 + i, its author is `a<i % 50>`; the
+// model is exact and seeded, so the same seed writes the same log.
 //
 // Caveat: a real history has what this does not model — octopus merges (more than two parents)
 // are all two-parent merges here, so nothing exercises the multi-parent row ordering; a
 // cherry-pick duplicates a change under a second hash rather than reusing one; commit times come
-// from the clock, so they are skewed, out of order and occasionally identical, while here `%at` is
-// strictly increasing by one second and never tied.
+// from the clock, so they are skewed, out of order and occasionally identical, while here the
+// committer time (`%ct`, the field `map.mjs` reads) is strictly increasing by one second and never
+// tied.
 
 import { createWriteStream } from "node:fs";
 
