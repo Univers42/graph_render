@@ -13,3 +13,6 @@ hub-epoch-trigger|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start
 negctl-no-trigger|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=no-trigger scripts/orch/hub-pg.sh run --test epoch; test $? -ne 0
 negctl-trigger-enable-origin|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=trigger-enable-origin scripts/orch/hub-pg.sh run --test epoch; test $? -ne 0
 negctl-one-trigger-origin|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=one-trigger-origin scripts/orch/hub-pg.sh run --test epoch; test $? -ne 0
+hub-epoch-detector|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-pg.sh run --test detector
+negctl-detector-at-start|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=detector-at-start scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
+negctl-lsn-only|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=lsn-only scripts/orch/hub-pg.sh run --test detector; test $? -ne 0
