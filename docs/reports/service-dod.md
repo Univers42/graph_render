@@ -81,6 +81,21 @@ and the logs of the rows below are kept host-local at
 | `capabilities-check` | 0 s | `84 rows, 0 problems`; `ceilings measured: 4 of 84 rows; 80 still reasoned` |
 | `bench-p9-campaign` | 146 s | PASS; the regenerated `phase09-bench.md` moved by timing noise only and was not committed |
 
+It ran again on develop `fe9c6403` plus `ca2794ec`, which adds `svc-floor.rows` (minus `root-fmt`,
+already the `fmt` row), `cargo-doc`, `svc-doc` and `negctl-cargo-doc` before `# slow:` (worktree
+`gate-full-fe9c`, 2026-10-05 08:29 → 13:25, under `timed.lock`): **130 rows, 130 PASS — green**
+(`summary-full-gate-fe9c6403.txt`, logs `full-gate-fe9c6403-<row>.log`). `hashgate-1000` 2738 s
+(`4-way equal on 1000/1000 seeds`), `hashgate-1000-tiers-all` 6294 s (`10-way equal`),
+`roundtrip-1000` 2911 s, `capabilities-check` `85 rows, 0 problems`, `svc-test` 75 s. The
+`phase09-bench.md` rewrite was timing noise again and was not committed. Caveat: `osage-check-negctl`
+and `dot-check-negctl` go non-zero with exit 2, `could not run: …-manifest.json: No such file`: they
+prove a missing fixture directory is refused, not that a wrong layout fails the check. Osage's two
+real controls were not in `develop-full.rows`; `5d0973ad` added them after `osage-check-1000`:
+`osage-oracle-perturb-negctl` (exit 1 at the `cmp`) and `negctl-osage-sizes`, which used to stop at
+the harness's manifest refusal and now fails at the check (worst 5.800e1 against the 1e-1 ceiling,
+exit 1). Neither has run inside a full gate yet. Dot keeps only the exit-2 control: its 1e5
+ceiling records a measured disagreement, so no sub-ceiling perturbation can turn the check red.
+
 The first run, on `178cef49` (2026-10-04), was **110 rows, 102 PASS, 8 FAIL**
 (`summary-full-gate-178cef49.txt`). Each red row below passed on `77b68d9b`:
 
@@ -103,7 +118,7 @@ The repairs since 178c: `git log 178cef49..origin/develop -- scripts/orch/rows/d
 | Step 2, the host contract | met, with two ruled deviations | Versioned (`hostApi: 2`, `host-api.md:27`), typed, with a devil verdict (`PROCEED-WITH-CONDITIONS`, `:95-97`). Deviation 1, the spelling: `focus(id)` cannot exist on an `HTMLElement` subclass — it fails `tsc` with TS2430 against `HTMLElement.focus(options?)` — so verdict condition 1 renames it `focusNode(id)` (`:111-115`), and row `host-api-types` (`packages/graph-studio/tests/host-types.test.ts`, its break `tests/breaks/focus-name.ts`, run by `studio-check`) keeps the native `focus()` callable; `load(columns)` is `loadColumns(rows)` beside `loadGraph(doc)` (`:29`). Deviation 2: `applyDeltas(batch)` is typed and documented (`:175-180`, `docs/contract/delta.md`) and gated by the embed replay rows, but labelled outside the v1 promise (verdict condition 8) until Step 3 meets its 30 ms target |
 | Step 3, P4 live growth end to end | met on a quiet host, not robustly | The sum per 10k batch at 1M, median of 3 medians, against a 30 ms target. Pair 1 at load 4–7, base `75c885b6` → final (`docs/measurements/perf-p4g-wasm.md:104-107`, per pair `:111-114`): native Barnes-Hut 15.50 ms and particle mesh 16.00 ms (met at every load), wasm32 Barnes-Hut 28.86 ms and particle mesh 28.36 ms. The quiet round (load ≤ 2.7) reads 28.37 / 27.62 ms. The wasm32 headroom is 1.1–2.4 ms, smaller than one loaded round's spread: 31.93 ms at load 5–7 and 41–43 ms at load ≥ 11 (`:363-371`), so a run at load ≥ 7 can read red on the same tree. Landed `c28ac2d1`. `gm_force_session_apply` does not exist — the exports are `gm_graph_extend` and `gm_force_session_grow` (`docs/contract/delta.md:156`). The SDK carries no `applyDeltas` and no per-animation-frame coalescing; coalescing is in the studio (`packages/graph-studio/src/motor/deltas.ts:3`) and `host-api.md:147` forbids coalescing across calls, so the two halves of the step cannot both hold as written |
 | Step 6, the full gate | met | 114 of 114 rows PASS on `77b68d9b` (§5), after 8 of 110 red on `178cef49`. `hashgate-1000` and `hashgate-1000-tiers-all` both ran inside `CHILD_TIMEOUT` once sharded |
-| The server floor after `77b68d9b` | repaired | `svc-test` went red on develop when `layout.dag.dot` was registered and circo's block order changed: `tests/caps.rs` found no caps row for dot, and `tests/digest.rs` found the n400 circo digest moved. `quick.rows` does not run `svc-floor.rows`, so neither landing saw it. Repaired at `2a22e5ad`: the dot cap 8192 nodes / 12692 edges (`docs/measurements/service-caps.md`, ladder and the fourth `svc-caps-time` run, 58/58 answered 200, negative control 58/58 answered 503), the circo re-pin (its author confirmed the change), and two dot digest rows. That land gated 21 rows, `svc-floor.rows` included, all PASS. Only §5 ran the full gate, and it ran on `77b68d9b`, not on this tree |
+| The server floor after `77b68d9b` | repaired | `svc-test` went red on develop when `layout.dag.dot` was registered and circo's block order changed: `tests/caps.rs` found no caps row for dot, and `tests/digest.rs` found the n400 circo digest moved. `quick.rows` does not run `svc-floor.rows`, so neither landing saw it. Repaired at `2a22e5ad`: the dot cap 8192 nodes / 12692 edges (`docs/measurements/service-caps.md`, ladder and the fourth `svc-caps-time` run, 58/58 answered 200, negative control 58/58 answered 503), the circo re-pin (its author confirmed the change), and two dot digest rows. That land gated 21 rows, `svc-floor.rows` included, all PASS. The full gate now runs the server floor and both `cargo doc` rows (`ca2794ec`), and ran green on `fe9c6403` with them (§5, 130/130) |
 | `review-host-api.md` LOW, LRU dispose hook | won't fix (YAGNI) | The review calls it harmless today: the one holder caches frozen plain data (`previews.ts:162`). No hook without a caller; the limit is now the `Caveat:` at `packages/graph-studio/src/host/lru.ts:5-9`, which names the trigger for `onEvict` |
 | `review-svc-r3.md` condition 5 | met | `hashgate --seeds 1000` (2792 s) and the full gate (114/114) green on develop `77b68d9b` (§5) |
 | Merge to main | not attempted | The merge to main needs the user's go-ahead. This job wrote one file and changed nothing else under version control |

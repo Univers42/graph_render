@@ -256,6 +256,22 @@ negctl-studio-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
 env-ignored|0|grep -qx '.env' .dockerignore
 
 # ---------------------------------------------------------------------------------------------
+# The server workspace's merge floor and the rustdoc rows. Neither ran in the full gate before
+# 2026-10-05: server/ is its own Cargo workspace, so `cargo test --workspace` above never builds
+# it, and a registry entry without its digest row turned svc-test red on develop after 77b68d9b
+# (docs/reports/service-dod.md §6). Copied from scripts/orch/rows/svc-floor.rows; gate.sh has no
+# include, so a change there is made here too.
+# ---------------------------------------------------------------------------------------------
+svc-fmt|0|scripts/orch/gr cargo fmt --manifest-path server/Cargo.toml --all --check
+svc-clippy|0|scripts/orch/gr cargo clippy --manifest-path server/Cargo.toml --workspace --all-targets -- -D warnings
+svc-test|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --workspace --no-fail-fast
+hooks-gated|0|d=target/hooks-gated; mkdir -p $d && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --release --bin graph-server -- --print cfg >$d/release.cfg 2>/dev/null && ! grep -qx 'feature="test-hooks"' $d/release.cfg && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --profile test --test limits -- --print cfg >$d/test.cfg 2>/dev/null && grep -qx 'feature="test-hooks"' $d/test.cfg
+negctl-hooks-gated|0|d=target/hooks-gated; mkdir -p $d && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --release --bin graph-server --features test-hooks -- --print cfg >$d/forced.cfg 2>/dev/null && grep -qx 'feature="test-hooks"' $d/forced.cfg
+cargo-doc|0|scripts/orch/gr -e RUSTDOCFLAGS=-Dwarnings cargo doc --workspace --no-deps --document-private-items
+svc-doc|0|scripts/orch/gr -e RUSTDOCFLAGS=-Dwarnings cargo doc --manifest-path server/Cargo.toml --workspace --no-deps --document-private-items
+negctl-cargo-doc|0|scripts/orch/gr bash -c 'rm -rf target/negctl-doc && mkdir -p target/negctl-doc/src && printf "[package]\nname = \"negctl-doc\"\nversion = \"0.0.0\"\nedition = \"2021\"\n[workspace]\n" > target/negctl-doc/Cargo.toml && printf "mod hidden {}\n/// Links [\`hidden\`].\npub struct Shown;\n" > target/negctl-doc/src/lib.rs && out=$(RUSTDOCFLAGS=-Dwarnings cargo doc --offline --no-deps --document-private-items --manifest-path target/negctl-doc/Cargo.toml 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "links to private item" <<<"$out"'
+
+# ---------------------------------------------------------------------------------------------
 # slow: the 1000-seed gate and the 10^5 / 10^6 arms, so they run last. The hashgate-1000 rows run
 # release: debug's first native arm hit CHILD_TIMEOUT 2700 s (gate-develop-178c); release arm output
 # is byte-identical and 10x faster. Caveat: release drops debug_assert!; the 8-seed rows keep them.
@@ -296,6 +312,10 @@ negctl-cargo-deny-license|0|sed '/^    "MIT",$/d' deny.toml >target/deny-negctl.
 osage-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 1000
 osage-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage --differential
 osage-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage
+# The real controls for the two osage rows above (p13-gv1-osage.rows): osage-check-negctl only
+# proves the check refuses absent fixtures (exit 2); these make the oracle and the check fail on data.
+osage-oracle-perturb-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 20 --out target/osage-negctl && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-negctl osage target/gv-osage-negctl-a --differential && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-negctl osage target/gv-osage-negctl-b --differential && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/gv-osage-negctl-b/graphviz-osage.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['points'][0][0] += 1e-6; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && cmp target/gv-osage-negctl-a/graphviz-osage.jsonl target/gv-osage-negctl-b/graphviz-osage.jsonl
+negctl-osage-sizes|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 20 --out target/osage-size-negctl && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import hashlib, json; d='target/osage-size-negctl/'; rows=[json.loads(l) for l in open(d + 'osage.jsonl')]; rows[0]['box'][0][0] += 9.0 / 18432.0; body=('\n'.join(json.dumps(r) for r in rows) + '\n').encode(); open(d + 'osage.jsonl', 'wb').write(body); m=json.load(open(d + 'osage-manifest.json')); m['sha256']['osage.jsonl']=hashlib.sha256(body).hexdigest(); json.dump(m, open(d + 'osage-manifest.json', 'w'), indent=2)" && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-size-negctl osage target/gv-osage-size-negctl --differential && scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-size-negctl
 osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-fixtures-absent
 
 # The dot differential (scripts/orch/rows/p13-gv3-dot.rows), beside the osage rows above and in
