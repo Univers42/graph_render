@@ -40,13 +40,16 @@ snapshots.
 
 ### `capabilities --check` is red, and why
 
+`gate.sh target/rows-dag-lanes scripts/orch/rows/dag-lanes.rows` wrote
+`target/rows-dag-lanes/summary.txt`: **16 of 17 rows PASS**, the one FAIL being this row.
+
 `--check` refuses a `gated` row whose hashgate or roundtrip record carries fewer than 1000
 seeds (`capabilities/verdict.rs:13`, `MIN_SEEDS`). This worktree's gate runs are 8 seeds and
 100 seeds — the sizes `scripts/orch/rows/dag-lanes.rows` uses — and running
 `hashgate --seeds 1000` is forbidden to this job. Every `gated` row reports it, not this one
 alone: `layout.dag.sugiyama`, `layout.packing.osage` and `transport.wasm.columnar` print the
-same two lines. The record lives in `target/gates/`, untracked build output that this
-worktree never had.
+same lines. The record lives in `target/gates/`, untracked build output that this worktree
+never had.
 
 So the row is **UNKNOWN from this branch**, which the house rules score as a failure. It is
 not a defect in the layout and it is not fixable here: it goes green the moment the
