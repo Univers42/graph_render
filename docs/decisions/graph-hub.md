@@ -1,6 +1,6 @@
 # ADR — graph-hub: a stateful service that plugins feed
 
-- Status: **proposed**, revision 2 re-submitted to the `devil` on 2026-10-05. No hub code
+- Status: **proposed**, revision 3 re-submitted to the `devil` on 2026-10-05. No hub code
   before a verdict of PROCEED or PROCEED-WITH-CONDITIONS is recorded here.
 - Date: 2026-10-05
 - Design: `docs/superpowers/specs/2026-10-05-graph-service-plugins-design.md`
@@ -22,7 +22,7 @@ A second service, **graph-hub**, in front of PostgreSQL. Plugins are out-of-proc
 clients that push records into their own namespace of a workspace. The hub numbers each
 change, streams changes over SSE, serves the workspace as an ingest document, and asks
 graph-server for layouts over HTTP. The stored model is the ingest contract. The decisions
-are H1–H13 in the spec, §2.
+are H1–H15 in the spec, §2.
 
 ## Verdicts
 
@@ -40,10 +40,23 @@ in spec §12. Ten statements were found false against the tree:
 | 6 | the hub reuses graph-server's auth | `auth::check` needs graph-server's `App`; `bearer` is private (`auth.rs:34`) |
 | 7 | keys and grants reload atomically through `KeyStore` | `KeyStore` swaps keys alone |
 | 8 | `at` is the commit time | it is read before commit; `seq` is the order |
-| 9 | tags stay inside a plugin | `tag:<value>` is workspace-wide (`crates/graph-core/src/ingest/build.rs`) |
+| 9 | tags stay inside a plugin | `tag:<value>` is workspace-wide (`crates/graph-core/src/ingest/build/builder.rs:254-255`, `check_tag`) |
 | 10 | the records it leans on are final | `server-dependencies.md` is "proposed"; `service-api.md:3` still reads "blocked" |
 
-**Revision 2: pending.** Its verdict is recorded here when it comes.
+**Revision 2: BLOCK (2026-10-05).** Axes: blast radius 3, reversibility 3, cost on failure 4,
+confidence 4; worst: cost and confidence. 18 conditions per slice (nine lift the block) and 13
+defects. The two that carried the BLOCK: the memory bound contradicted the measured ingest peak
+(18.25× the body, `server/graph-server/src/config/slots.rs:22`), and `sync` diffed against the
+lossy `/graph`, so it churned forever. The others: resume holes (no epoch, `since > head`
+undefined, a watch that could step back), negative controls that could not fire (`drop-record`,
+`ack-before-commit`), vetoes across plugins, lock-parity and svc-features scratch copies that break
+on new members, the motor linked into the hub, and features of the hub unifying into the shipped
+graph-server at the `server/` virtual root (D13). Auth reuse was accepted on four conditions:
+`default-features = false` with no forwarded `negctl` or `test-hooks`; the hub rebuilds the 400 for
+a second header and the uniform 401; `pub fn bearer` with its first caller, slice confirmed by 4f;
+D13 resolved. Spec §13 maps every condition and defect to where revision 3 meets it.
+
+**Revision 3: pending.** Its verdict is recorded here when it comes.
 
 ## Agreements before slice 2
 
@@ -79,6 +92,35 @@ Their reply, 2026-10-05, verbatim:
 
 So the `pub` is the hub's edit, made in slice 3 (hub-api, the first caller), not 4f's.
 Conditions (a)–(e) and the reuse limit are acceptance criteria of slices 2 and 3.
+
+After the revision 2 verdict, asked about D13, D7, D8 and the slice of `bearer`. Their second
+reply, 2026-10-05, verbatim:
+
+> yes to D13, you make the D7 fix, D8 option (i), and bearer goes in slice 3.
+> 1. D13: YES, add `default-members = ["graph-server"]` in hub-store. That's a real catch; my (b)
+> was blind to virtual-root unification. Make the virtual-root diff the binding check:
+> `cargo tree --manifest-path server/Cargo.toml -e features --locked`, with no -p, byte-identical
+> before and after. Put it in the slice report next to (b).
+> 2. D7: make it in hub-store yourself. Give lock-parity.sh `scratch_setup` and svc-features.sh the
+> same shape: loop over the workspace members, copy each one's Cargo.toml and link each one's src
+> with the computed relative `..`. Change nothing else. Run all of service-supply.rows on the merged
+> tree. The three negctls (`--break`, `--break-version`, `--break-feature`) must still exit 1 for
+> their original reason; grep their message, don't trust the exit code alone. Send me the diff
+> before it lands.
+> 3. D8: (i), with default-features = false.
+> Why not (ii): keys.rs:74 calls breaks::on("accept-group-writable"). Without `negctl` it compiles
+> to a const false (breaks.rs:11-14), so nothing reaches a hub release build. (ii) would add a
+> forwarded negctl feature to a new crate and re-prove service.rows' group-writable control, which
+> means more edits on a gated auth surface to save link size.
+> Conditions: hub-breaks-off shows neither negctl nor test-hooks on graph-server's edge in the
+> release build. The spec states the graph-core and graph-wasm linkage, with a Caveat.
+> Reopen trigger: extract graph-keys when a third consumer appears, or when a hub size or
+> attack-surface budget refuses graph-core.
+> 4. Confirmed: `pub fn bearer` lands in the slice whose commit adds its first caller, i.e. slice 3
+> (hub-api). My "slice 2" was wrong.
+
+Revision 3 takes each answer as written: spec H2 and row `hub-virtual-root` (D13), slice 2 step 2
+and row `svc-supply` (D7), H1, H8 and row `hub-breaks-off` (D8), §10 slice 3 (`bearer`).
 
 ## Consequences
 
