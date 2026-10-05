@@ -98,10 +98,12 @@ struct Reserved {
 }
 
 impl Reserved {
-    fn push(&mut self, v: u32, lane: u32, pool: &Pool) {
+    /// `pool` is read only by the debug-only invariant check below, so it is named `_pool`:
+    /// in a release build there is no check and the argument is genuinely unused.
+    fn push(&mut self, v: u32, lane: u32, _pool: &Pool) {
         self.hold(lane);
         #[cfg(debug_assertions)]
-        self.assert_sole(lane, v, pool);
+        self.assert_sole(lane, v, _pool);
         if self.next.len() <= lane as usize {
             self.next.resize(lane as usize + 1, NONE);
         }
