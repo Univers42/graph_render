@@ -8,6 +8,8 @@
 #[path = "support/mod.rs"]
 mod support;
 
+use axum::body::Body;
+
 use support::fixtures::*;
 use support::*;
 
@@ -15,10 +17,14 @@ use support::*;
 /// answer carries no seq: creating a workspace moves no stream.
 #[tokio::test]
 async fn put_workspaces_is_201_then_200_and_takes_no_seq() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     let first = hub.put("/v1/workspaces/created", "").await;
     assert_eq!(first.code(), 201, "{}", first.body());
-    assert_eq!(first.header("graph-seq"), "", "no seq on a workspace create");
+    assert_eq!(
+        first.header("graph-seq"),
+        "",
+        "no seq on a workspace create"
+    );
     let again = hub.put("/v1/workspaces/created", "").await;
     assert_eq!(again.code(), 200, "{}", again.body());
 }
@@ -27,7 +33,7 @@ async fn put_workspaces_is_201_then_200_and_takes_no_seq() {
 /// same-content republication is not growth.
 #[tokio::test]
 async fn put_manifest_is_201_then_200_and_the_same_content_takes_no_seq() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     assert_eq!(hub.put("/v1/workspaces/same", "").await.code(), 201);
     let first = hub
         .put("/v1/workspaces/same/plugins/task", manifest_at(1))
@@ -47,11 +53,9 @@ async fn put_manifest_is_201_then_200_and_the_same_content_takes_no_seq() {
 /// records.
 #[tokio::test]
 async fn put_manifest_refuses_a_removed_field_with_409() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     assert_eq!(hub.put("/v1/workspaces/shrink", "").await.code(), 201);
-    let grown = hub
-        .put("/v1/workspaces/shrink/plugins/task", grown())
-        .await;
+    let grown = hub.put("/v1/workspaces/shrink/plugins/task", grown()).await;
     assert_eq!(grown.code(), 201, "{}", grown.body());
     let shrunk = hub
         .put("/v1/workspaces/shrink/plugins/task", shrunk())
@@ -64,22 +68,20 @@ async fn put_manifest_refuses_a_removed_field_with_409() {
 /// different manifests at one version are not a growth.
 #[tokio::test]
 async fn put_manifest_refuses_the_same_version_with_other_content_with_409() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     assert_eq!(hub.put("/v1/workspaces/stale", "").await.code(), 201);
     let first = hub
         .put("/v1/workspaces/stale/plugins/task", manifest_at(2))
         .await;
     assert_eq!(first.code(), 201, "{}", first.body());
-    let other = hub
-        .put("/v1/workspaces/stale/plugins/task", grown())
-        .await;
+    let other = hub.put("/v1/workspaces/stale/plugins/task", grown()).await;
     assert_eq!(other.code(), 409, "{}", other.body());
 }
 
 /// §6's `MAX_PLUGINS` is 64, so the sixty-fifth registration is a 413 and the first sixty-four stay.
 #[tokio::test]
 async fn put_manifest_refuses_the_sixty_fifth_plugin_with_413() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     assert_eq!(hub.put("/v1/workspaces/many", "").await.code(), 201);
     for index in 0..64 {
         let name = format!("p{index}");
@@ -102,7 +104,7 @@ async fn put_manifest_refuses_the_sixty_fifth_plugin_with_413() {
 /// whole — and carries `Graph-Seq: <epoch>.<seq>` so a caller can subscribe from the answer.
 #[tokio::test]
 async fn post_batch_answers_seq_and_applied_and_a_graph_seq_header() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "answers", "task").await;
     let reply = hub
         .post(
@@ -126,7 +128,7 @@ async fn post_batch_answers_seq_and_applied_and_a_graph_seq_header() {
 /// was applied.
 #[tokio::test]
 async fn an_identical_upsert_answers_applied_zero() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "noop", "task").await;
     let body = upsert("task", "same", "note");
     let path = "/v1/workspaces/noop/plugins/task/batches";
@@ -142,17 +144,19 @@ async fn an_identical_upsert_answers_applied_zero() {
 /// no seq.
 #[tokio::test]
 async fn a_batch_with_one_bad_record_changes_nothing() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "atomic", "task").await;
     let path = "/v1/workspaces/atomic/plugins/task/batches";
     let good = hub.post(path, upsert("task", "kept", "note")).await;
     assert_eq!(good.code(), 200, "{}", good.body());
-    let before: serde_json::Value =
-        serde_json::from_str(&good.body()).expect("a JSON answer");
+    let before: serde_json::Value = serde_json::from_str(&good.body()).expect("a JSON answer");
     // The second upsert names a collection the manifest does not declare, so `Batch::check` refuses
     // the whole body rather than the one record.
     let refused = hub
-        .post(path, batch(&[("task", "ok", "n"), ("elsewhere", "bad", "n")], &[]))
+        .post(
+            path,
+            batch(&[("task", "ok", "n"), ("elsewhere", "bad", "n")], &[]),
+        )
         .await;
     assert_eq!(refused.code(), 422, "{}", refused.body());
     let after = hub.post(path, upsert("task", "kept", "note")).await;
@@ -170,7 +174,7 @@ async fn a_batch_with_one_bad_record_changes_nothing() {
 /// §5.1's `If-Match`: a stale `plugin_seq` is a 412, and another plugin's writes never move it.
 #[tokio::test]
 async fn if_match_gives_412_on_a_stale_plugin_seq() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "precond", "task").await;
     ready(&hub, "precond", "other").await;
     let page = hub
@@ -178,7 +182,10 @@ async fn if_match_gives_412_on_a_stale_plugin_seq() {
         .await;
     assert_eq!(page.code(), 200, "{}", page.body());
     let value: serde_json::Value = serde_json::from_str(&page.body()).expect("a JSON page");
-    let plugin_seq = value["plugin_seq"].as_str().expect("a plugin_seq").to_owned();
+    let plugin_seq = value["plugin_seq"]
+        .as_str()
+        .expect("a plugin_seq")
+        .to_owned();
 
     // Another plugin's write must not move this plugin's seq.
     hub.post(
@@ -191,7 +198,7 @@ async fn if_match_gives_412_on_a_stale_plugin_seq() {
         .send(
             hub.request("POST", "/v1/workspaces/precond/plugins/task/batches")
                 .header("if-match", "1.999")
-                .body(upsert("task", "one", "n"))
+                .body(Body::from(upsert("task", "one", "n")))
                 .expect("the request"),
         )
         .await;
@@ -201,7 +208,7 @@ async fn if_match_gives_412_on_a_stale_plugin_seq() {
         .send(
             hub.request("POST", "/v1/workspaces/precond/plugins/task/batches")
                 .header("if-match", plugin_seq)
-                .body(upsert("task", "one", "n"))
+                .body(Body::from(upsert("task", "one", "n")))
                 .expect("the request"),
         )
         .await;
@@ -213,42 +220,45 @@ async fn if_match_gives_412_on_a_stale_plugin_seq() {
 /// turns red.
 #[tokio::test]
 async fn idempotency_replay_returns_the_same_response_and_the_same_head_seq() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "idem", "task").await;
     let path = "/v1/workspaces/idem/plugins/task/batches";
     let body = upsert("task", "replayed", "note");
-    let send = |hub: &Hub| {
-        let path = path.to_owned();
-        let body = body.clone();
-        async move {
-            hub.send(
-                hub.request("POST", &path)
-                    .header("idempotency-key", "key-one")
-                    .body(body)
-                    .expect("the request"),
-            )
-            .await
-        }
-    };
-    let first = send(&hub).await;
+    let first = keyed(&hub, path, &body).await;
     assert_eq!(first.code(), 200, "{}", first.body());
-    let replay = send(&hub).await;
+    let replay = keyed(&hub, path, &body).await;
     assert_eq!(replay.code(), 200, "{}", replay.body());
-    assert_eq!(replay.body(), first.body(), "the stored response, byte for byte");
+    assert_eq!(
+        replay.body(),
+        first.body(),
+        "the stored response, byte for byte"
+    );
+}
+
+/// One batch sent under the fixed key `key-one`, which is what makes the two arms above the same
+/// request.
+async fn keyed(hub: &Hub, path: &str, body: &str) -> Reply {
+    hub.send(
+        hub.request("POST", path)
+            .header("idempotency-key", "key-one")
+            .body(Body::from(body.to_owned()))
+            .expect("the request"),
+    )
+    .await
 }
 
 /// The same key with a different body is a 422 and applies nothing: §5.1 treats the key as a claim
 /// about one body.
 #[tokio::test]
 async fn the_same_key_with_another_body_is_422() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "idem2", "task").await;
     let path = "/v1/workspaces/idem2/plugins/task/batches";
     let first = hub
         .send(
             hub.request("POST", path)
                 .header("idempotency-key", "shared")
-                .body(upsert("task", "one", "n"))
+                .body(Body::from(upsert("task", "one", "n")))
                 .expect("the request"),
         )
         .await;
@@ -257,7 +267,7 @@ async fn the_same_key_with_another_body_is_422() {
         .send(
             hub.request("POST", path)
                 .header("idempotency-key", "shared")
-                .body(upsert("task", "two", "n"))
+                .body(Body::from(upsert("task", "two", "n")))
                 .expect("the request"),
         )
         .await;
@@ -268,14 +278,14 @@ async fn the_same_key_with_another_body_is_422() {
 /// is a claim, not a payload.
 #[tokio::test]
 async fn an_idempotency_key_over_128_bytes_is_422() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "idem3", "task").await;
     let long = "k".repeat(129);
     let refused = hub
         .send(
             hub.request("POST", "/v1/workspaces/idem3/plugins/task/batches")
                 .header("idempotency-key", long)
-                .body(upsert("task", "one", "n"))
+                .body(Body::from(upsert("task", "one", "n")))
                 .expect("the request"),
         )
         .await;
@@ -286,11 +296,17 @@ async fn an_idempotency_key_over_128_bytes_is_422() {
 /// at `limit`.
 #[tokio::test]
 async fn a_record_page_is_in_byte_order_and_carries_plugin_seq() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "paged", "task").await;
     let path = "/v1/workspaces/paged/plugins/task/batches";
-    hub.post(path, batch(&[("task", "b", "n"), ("task", "a", "n"), ("task", "c", "n")], &[]))
-        .await;
+    hub.post(
+        path,
+        batch(
+            &[("task", "b", "n"), ("task", "a", "n"), ("task", "c", "n")],
+            &[],
+        ),
+    )
+    .await;
     let reply = hub
         .get_with("/v1/workspaces/paged/plugins/task/records?limit=2")
         .await;
@@ -311,12 +327,15 @@ async fn a_record_page_is_in_byte_order_and_carries_plugin_seq() {
 /// a client never asks past the end.
 #[tokio::test]
 async fn a_records_page_next_cursor_terminates() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "walk", "task").await;
     let path = "/v1/workspaces/walk/plugins/task/batches";
     hub.post(
         path,
-        batch(&[("task", "a", "n"), ("task", "b", "n"), ("task", "c", "n")], &[]),
+        batch(
+            &[("task", "a", "n"), ("task", "b", "n"), ("task", "c", "n")],
+            &[],
+        ),
     )
     .await;
     let mut next = String::new();
@@ -339,7 +358,10 @@ async fn a_records_page_next_cursor_terminates() {
         }
         match value["next"].as_str() {
             Some(cursor) => next = cursor.to_owned(),
-            None => break,
+            None => {
+                next.clear();
+                break;
+            }
         }
     }
     assert_eq!(seen, ["a", "b", "c"], "every id exactly once, in order");
@@ -349,7 +371,7 @@ async fn a_records_page_next_cursor_terminates() {
 /// One record is 200 with its `rev` and its `values`, read from the store's own canonical text.
 #[tokio::test]
 async fn one_record_is_200_with_its_rev() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "one", "task").await;
     hub.post(
         "/v1/workspaces/one/plugins/task/batches",
@@ -363,8 +385,14 @@ async fn one_record_is_200_with_its_rev() {
     let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON record");
     assert_eq!(value["id"], "solo");
     assert_eq!(value["collection"], "task");
-    assert!(value["rev"].as_u64().expect("a rev") > 0, "the store's own rev");
-    assert_eq!(value["values"]["note"], "the note", "the record's own values");
+    assert!(
+        value["rev"].as_u64().expect("a rev") > 0,
+        "the store's own rev"
+    );
+    assert_eq!(
+        value["values"]["note"], "the note",
+        "the record's own values"
+    );
 }
 
 /// The one-record route of **another** plugin is a 403, not a 404: authorization runs before
@@ -372,8 +400,14 @@ async fn one_record_is_200_with_its_rev() {
 /// Review Focus 1's second case on a different route.
 #[tokio::test]
 async fn one_record_of_another_plugin_is_403_not_404() {
-    let hub = hub_db_grants("tester * admin\nstranger * write:other\n");
+    let hub = hub_db_grants("tester * admin\nstranger * write:other\n").await;
     let stranger = add_key(&hub, "stranger");
+    // The keyring read both files when the hub was built, so a key minted after that is unknown
+    // until a reload; the same `SIGHUP` path `reload.rs` covers, reached directly here.
+    hub.app
+        .keys
+        .reload()
+        .expect("the second key is in the pair");
     assert_eq!(hub.put("/v1/workspaces/guarded", "").await.code(), 201);
     ready(&hub, "guarded", "task").await;
     hub.post(
@@ -397,7 +431,7 @@ async fn one_record_of_another_plugin_is_403_not_404() {
 /// `GET .../plugins` answers every registered manifest, one per plugin, in plugin order.
 #[tokio::test]
 async fn get_plugins_returns_every_manifest() {
-    let hub = hub_db(&[]);
+    let hub = hub_db(&[]).await;
     ready(&hub, "listed", "alpha").await;
     ready(&hub, "listed", "beta").await;
     let reply = hub.get_with("/v1/workspaces/listed/plugins").await;
@@ -421,7 +455,7 @@ async fn every_write_route_takes_its_permit() {
 
     use graph_hub::gate::deadline;
 
-    let hub = hub_db(&[("GRAPH_HUB_WRITERS", "1"), ("GRAPH_HUB_TIMEOUT_MS", "150")]);
+    let hub = hub_db(&[("GRAPH_HUB_WRITERS", "1"), ("GRAPH_HUB_TIMEOUT_MS", "150")]).await;
     let held = hub
         .app
         .gates
@@ -436,7 +470,11 @@ async fn every_write_route_takes_its_permit() {
             "/v1/workspaces/permit/plugins/task",
             &manifest_at(1)[..],
         ),
-        ("POST", "/v1/workspaces/permit/plugins/task/batches", &upsert("task", "a", "n")[..]),
+        (
+            "POST",
+            "/v1/workspaces/permit/plugins/task/batches",
+            &upsert("task", "a", "n")[..],
+        ),
     ] {
         let refused = hub
             .send(

@@ -76,6 +76,12 @@ impl Watch {
         self.lock().len()
     }
 
+    /// Always false: a registry that has published once holds an entry, and a subscriber that has
+    /// subscribed creates one. Named because `len` alone trips `clippy::len_without_is_empty`.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Drops the entries no subscriber is watching, so a workspace that is written once and never
     /// subscribed to does not stay for the hub's life.
     ///

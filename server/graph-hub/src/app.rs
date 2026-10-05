@@ -71,7 +71,9 @@ impl App {
                 Store::connect(&config).await
             })
             .await
-            .map_err(|error| HubApiError::Internal(format!("the store is unusable: {}", error.code())))
+            .map_err(|error| {
+                HubApiError::Internal(format!("the store is unusable: {}", error.code()))
+            })
     }
 
     /// Hands the hub the store the binary already opened, so the shipped process never opens two.

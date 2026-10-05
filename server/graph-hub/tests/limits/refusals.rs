@@ -162,7 +162,11 @@ async fn the_refusal_headers_come_from_the_status_and_not_the_variant() {
             false,
         ),
         (HubApiError::Forbidden("no grant"), 403, false),
-        (HubApiError::NotFound(String::from("no such route")), 404, false),
+        (
+            HubApiError::NotFound(String::from("no such route")),
+            404,
+            false,
+        ),
         (HubApiError::busy_subscriber(1), 429, true),
         (HubApiError::busy_wait(), 503, true),
         (HubApiError::Motor(MotorFault::Unavailable), 502, false),

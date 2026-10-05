@@ -180,9 +180,9 @@ impl IntoResponse for HubApiError {
             }
             Self::Motor(fault) => fault.message().to_owned(),
             Self::Internal(why) => why.clone(),
-            Self::PreconditionFailed => String::from(
-                "If-Match does not equal this plugin's plugin_seq",
-            ),
+            Self::PreconditionFailed => {
+                String::from("If-Match does not equal this plugin's plugin_seq")
+            }
             Self::NotImplemented => String::from(
                 "this route is registered and authorized, and its handler lands in a later task",
             ),

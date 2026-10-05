@@ -67,7 +67,10 @@ pub fn deadline(timeout: Duration) -> Instant {
 ///
 /// This is the one place a route's "admit the permit (or 503)" step is written down, so every route
 /// bounds its wait by the same setting and none of them invents its own deadline.
-pub async fn admit(app: &Arc<crate::app::App>, gate: &Gate) -> Result<OwnedSemaphorePermit, HubApiError> {
+pub async fn admit(
+    app: &Arc<crate::app::App>,
+    gate: &Gate,
+) -> Result<OwnedSemaphorePermit, HubApiError> {
     gate.admit(deadline(app.settings.timeout)).await
 }
 

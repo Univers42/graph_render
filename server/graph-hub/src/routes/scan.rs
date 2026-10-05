@@ -64,12 +64,7 @@ pub async fn oldest(store: &Store, ws: &str, head: (u64, u64)) -> Result<Cursor,
 }
 
 /// Is `Cursor { epoch, seq }` a cursor this workspace can be paged from?
-async fn servable(
-    store: &Store,
-    ws: &str,
-    epoch: u64,
-    seq: u64,
-) -> Result<bool, StoreError> {
+async fn servable(store: &Store, ws: &str, epoch: u64, seq: u64) -> Result<bool, StoreError> {
     let request = ChangesReq {
         ws: ws.to_owned(),
         since: Cursor { epoch, seq },

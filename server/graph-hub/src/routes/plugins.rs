@@ -40,7 +40,8 @@ pub async fn put(
         app.settings.limits.body_timeout,
     )
     .await?;
-    let manifest = read_manifest(&lossy(&text), &plugin).map_err(|e| crate::routes::hub_fault(&e))?;
+    let manifest =
+        read_manifest(&lossy(&text), &plugin).map_err(|e| crate::routes::hub_fault(&e))?;
     let write = ManifestWrite {
         ws: ws.clone(),
         plugin: plugin.clone(),
@@ -57,7 +58,12 @@ pub async fn put(
     // §5.1's ordering: the store's step 8 has returned before anything is answered or published.
     crate::hooks::before_ack(&app.hooks, written.seq);
     drop(permit);
-    Ok((status, [(header::CONTENT_TYPE, json())], manifest_json(&write.manifest)).into_response())
+    Ok((
+        status,
+        [(header::CONTENT_TYPE, json())],
+        manifest_json(&write.manifest),
+    )
+        .into_response())
 }
 
 /// `GET /v1/workspaces/{ws}/plugins`: every registered manifest, in plugin order.
@@ -73,7 +79,9 @@ pub async fn list(
     crate::hooks::pause_after_admit(&app.hooks, "list-plugins").await;
     let store = app.store().await?;
     let head = head_of(store, &ws).await?;
-    let manifests = scan::manifests(store, &ws, head).await.map_err(|e| write_fault(&e))?;
+    let manifests = scan::manifests(store, &ws, head)
+        .await
+        .map_err(|e| write_fault(&e))?;
     drop(permit);
     Ok(plugins_body(&manifests))
 }
@@ -84,7 +92,9 @@ pub async fn list(
 /// manifest as a JSON **string** rather than as an embedded object. That is deliberate: the bytes a
 /// client reads back are the bytes it published, and §5.2's manifest row is the stored manifest and
 /// not a re-serialization of it. A client parses the string with the same reader it wrote with.
-fn plugins_body(manifests: &std::collections::BTreeMap<String, graph_contract::hub::Manifest>) -> Response {
+fn plugins_body(
+    manifests: &std::collections::BTreeMap<String, graph_contract::hub::Manifest>,
+) -> Response {
     let rows: Vec<serde_json::Value> = manifests
         .iter()
         .map(|(plugin, manifest)| {

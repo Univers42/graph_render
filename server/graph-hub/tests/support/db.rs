@@ -141,6 +141,29 @@ async fn create(name: &str, options: &str) -> String {
     format!("{head}/{database}")
 }
 
+/// The store's migrations on the shared database, once per test process.
+///
+/// WHY here and not in the binary: `Store::connect` validates and builds and opens no connection,
+/// so a hub that starts against an unmigrated database answers 500 on its first write. The rows run
+/// `hub-pg.sh reset` before the suite, which drops the schema, so every process migrates once.
+///
+/// `migrate::apply` is idempotent by construction (`hub_migrations` records what ran), so the
+/// `OnceCell` here is a saving and not a correctness requirement.
+pub async fn migrated() {
+    static ONCE: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+    ONCE.get_or_init(|| async {
+        let store = store().await;
+        let mut client = store
+            .client()
+            .await
+            .expect("a connection for the migration");
+        graph_store::migrate::apply(&mut client)
+            .await
+            .expect("the store's migrations");
+    })
+    .await;
+}
+
 /// Apply the store's migrations to the database `url` names, and insert one workspace row.
 ///
 /// The hub never writes SQL, so a test that needs a workspace to *exist* writes the row itself, the

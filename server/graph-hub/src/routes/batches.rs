@@ -48,7 +48,7 @@ pub async fn post(
     let manifest = scan::manifest(store, &ws, &plugin, head_of(store, &ws).await?)
         .await
         .map_err(|error| write_fault(&error))?
-        .ok_or(HubApiError::NotFound("no such plugin"))?;
+        .ok_or_else(|| HubApiError::NotFound(String::from("no such plugin")))?;
     let batch = read_batch(&lossy(&raw), &read_limits).map_err(|e| crate::routes::hub_fault(&e))?;
     let write = BatchWrite {
         ws: ws.clone(),
@@ -64,11 +64,15 @@ pub async fn post(
         .await
         .map_err(|error| write_fault(&error))?;
     crate::hooks::before_ack(&app.hooks, outcome.seq);
+    let (epoch, _) = head_of(store, &ws).await?;
     if outcome.applied > 0 {
-        publish(&app, &ws, outcome.seq);
+        // §5.1's order: the store's step 8 has returned, and only now is the watch updated and the
+        // response sent. A subscriber that wakes on this sees the change it is about to read.
+        app.watch.publish(&ws, epoch, outcome.seq);
+        app.watch.prune();
     }
     drop((permit, per_key));
-    Ok(answer(outcome.seq, outcome.applied, &outcome.response, store, &ws).await)
+    Ok(answer(outcome.seq, &outcome.response, epoch))
 }
 
 /// `GET …/plugins/{plugin}/records?cursor=&limit=`: one page in byte order, with `plugin_seq` on
@@ -104,7 +108,7 @@ pub async fn page(
     let body = serde_json::json!({
         "plugin_seq": found.plugin_seq.to_string(),
         "records": rows,
-        "next": found.next.as_ref().map(|(c, i)| format!("{c}\u{1f}{i}")),
+        "next": found.next.as_ref().map(|(c, i)| encode_cursor(c, i)),
     });
     Ok(json(body))
 }
@@ -151,40 +155,24 @@ fn record_body(collection: &str, id: &str, rev: u64, text: &str) -> serde_json::
 
 /// The batch's answer: graph-contract's `answer_json` body, under 200, with `Graph-Seq`.
 ///
-/// Caveat: the header is read back from the workspace row rather than from `BatchOutcome`, which
-/// carries the seq and not the epoch. One extra statement, and the epoch is the store's own number.
-async fn answer(seq: u64, applied: u64, response: &str, store: &graph_store::Store, ws: &str) -> Response {
-    let _ = applied;
-    let (epoch, _) = head_of(store, ws).await.unwrap_or((0, 0));
+/// Caveat: `BatchOutcome` carries the seq and not the epoch, so the header's epoch is the one the
+/// workspace row read returned just before. Both numbers are the store's, and they are read in one
+/// statement, so the header is the same position `/graph`'s `ETag` would carry at that seq.
+fn answer(seq: u64, response: &str, epoch: u64) -> Response {
     let value = HeaderValue::from_str(&Cursor { epoch, seq }.to_string())
         .unwrap_or_else(|_| HeaderValue::from_static("0.0"));
     (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, HeaderValue::from_static("application/json")),
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            ),
             (HeaderName::from_static("graph-seq"), value),
         ],
         response.to_owned(),
     )
         .into_response()
-}
-
-/// Raises the workspace's watch after the store's step 8 returned, which is §5.1's order: only then
-/// is the response sent and the watch updated.
-fn publish(app: &Arc<App>, ws: &str, seq: u64) {
-    let store = app.store();
-    let ws_owned = ws.to_owned();
-    let app = Arc::clone(app);
-    // The position is read through the store's own row read, off the accept path: the answer is
-    // already on its way and a subscriber must not wait for this statement.
-    tokio::spawn(async move {
-        if let Ok(store) = store.await {
-            if let Ok((epoch, _)) = head_of(&store, &ws_owned).await {
-                app.watch.publish(&ws_owned, epoch, seq);
-                app.watch.prune();
-            }
-        }
-    });
 }
 
 /// `Idempotency-Key` and the SHA-256 of the body it claims, or `None` when the header is absent.
@@ -232,7 +220,12 @@ fn if_match(headers: &HeaderMap) -> Result<Option<Cursor>, HubApiError> {
 /// (plan fact 1), so this is the whole of the query reader the hub has.
 fn query_of(uri: &Uri) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
-    for pair in uri.query().unwrap_or("").split('&').filter(|p| !p.is_empty()) {
+    for pair in uri
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .filter(|p| !p.is_empty())
+    {
         let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
         let name = decode(name);
         if out.contains_key(&name) {
@@ -254,9 +247,10 @@ fn decode(text: &str) -> String {
 
 /// The `cursor` query parameter as the records page's `(collection, id)` pair.
 ///
-/// Caveat: the page's cursor is **opaque** on the wire and is the pair joined by `\u{1f}`, which no
-/// collection or record id can hold (`check_collection_id` and `check_record_id` both refuse it).
-/// The SDK passes it back without reading it, which is what "opaque" means.
+/// Caveat: the page's cursor is **opaque** on the wire and is the pair joined by a `\u{1f}` no
+/// collection or record id can hold (`check_collection_id` and `check_record_id` both refuse it),
+/// percent-encoded by [`encode_cursor`] so it survives a URL unquoted. The SDK passes it back
+/// without reading it, which is what "opaque" means.
 fn cursor_pair(query: &BTreeMap<String, String>) -> Result<Option<(String, String)>, HubApiError> {
     let Some(cursor) = query.get("cursor") else {
         return Ok(None);
@@ -286,11 +280,46 @@ fn limit(query: &BTreeMap<String, String>) -> Result<u64, HubApiError> {
     Ok(crate::config::capped(asked.min(MAX_LIMIT)))
 }
 
+/// The characters a `next` token is percent-encoded over: the unit separator itself, plus every
+/// byte that could end a query value or begin a header, so the token is safe in a URL unquoted.
+///
+/// Caveat: the encoding is the hub's own and not `base64url`, because the token is opaque to the
+/// SDK either way and percent-encoding keeps it readable in a log line without decoding it.
+const CURSOR_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'%')
+    .add(b'&')
+    .add(b'/')
+    .add(b':')
+    .add(b'<')
+    .add(b'=')
+    .add(b'>')
+    .add(b'?')
+    .add(b'@')
+    .add(b'[')
+    .add(b'\\')
+    .add(b']')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}');
+
+/// The opaque `next` token for a page ending at `(collection, id)`.
+fn encode_cursor(collection: &str, id: &str) -> String {
+    percent_encoding::utf8_percent_encode(&format!("{collection}\u{1f}{id}"), CURSOR_SET)
+        .to_string()
+}
+
 /// A JSON answer under 200.
 fn json(body: serde_json::Value) -> Response {
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        )],
         body.to_string(),
     )
         .into_response()
