@@ -25,6 +25,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// The hub container `hub-run.sh` started.
 pub struct Remote {
     client: Client<HttpConnector, Full<Bytes>>,
+    timeout: Duration,
 }
 
 impl Remote {
@@ -33,7 +34,19 @@ impl Remote {
         let client = Client::builder(TokioExecutor::new())
             .pool_max_idle_per_host(0)
             .build_http();
-        Self { client }
+        Self {
+            client,
+            timeout: REQUEST_TIMEOUT,
+        }
+    }
+
+    /// The same client with `timeout` per request instead of [`REQUEST_TIMEOUT`], for a case whose
+    /// requests wait on each other inside the hub.
+    pub fn with_timeout(timeout: Duration) -> Self {
+        Self {
+            timeout,
+            ..Self::new()
+        }
     }
 
     /// `PUT path` with `body`, panicking on a transport error: the callers are fixtures.
@@ -91,7 +104,7 @@ impl Remote {
                 body,
             })
         };
-        tokio::time::timeout(REQUEST_TIMEOUT, exchange)
+        tokio::time::timeout(self.timeout, exchange)
             .await
             .map_err(|_| String::from("timed out"))?
     }

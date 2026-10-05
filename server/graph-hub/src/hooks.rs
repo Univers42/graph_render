@@ -1,4 +1,4 @@
-//! The test-only seams: three hooks a test installs to force an interleaving or a pause that
+//! The test-only seams: four hooks a test installs to force an interleaving or a pause that
 //! timing alone would not produce.
 //!
 //! Without the `test-hooks` feature every function here is an empty (and where possible `const`)
@@ -33,6 +33,9 @@ pub struct Hooks {
     pub before_ack: Option<Arc<dyn Fn(u64) + Send + Sync>>,
     /// Runs with the number of change headers one stream read returned.
     pub count_headers: Option<Arc<dyn Fn(u64) + Send + Sync>>,
+    /// Runs after a write read its body and before it parses it, so a memory test can put every
+    /// writer's body in flight at once.
+    pub hold_body: Option<AsyncHook>,
 }
 
 /// The seams. The whole type without `test-hooks`: there is nothing to install.
@@ -46,6 +49,11 @@ impl Hooks {
     pub const fn new() -> Self {
         Self
     }
+
+    /// Hooks with nothing installed: a shipped build reads no test variable.
+    pub const fn from_env() -> Self {
+        Self
+    }
 }
 
 #[cfg(feature = "test-hooks")]
@@ -56,7 +64,29 @@ impl Hooks {
             pause_after_admit: None,
             before_ack: None,
             count_headers: None,
+            hold_body: None,
         }
+    }
+
+    /// The hooks the environment asks for: `GM_HUB_HOLD_BODIES=N` makes [`Hooks::hold_body`] a
+    /// barrier N writes reach before any of them parses. Row `hub-memory` measures a hub running as
+    /// its own process, where a test cannot install a closure, so the variable is the only way in.
+    ///
+    /// Caveat: the barrier waits for exactly N writes. A run that sends fewer leaves the ones it
+    /// sent parked until their client gives up, so the caller must send N, and send them at once.
+    pub fn from_env() -> Self {
+        let mut hooks = Self::new();
+        let parties = std::env::var("GM_HUB_HOLD_BODIES").ok();
+        if let Some(parties) = parties.and_then(|n| n.parse::<usize>().ok()) {
+            let barrier = Arc::new(tokio::sync::Barrier::new(parties));
+            hooks.hold_body = Some(Arc::new(move || {
+                let barrier = Arc::clone(&barrier);
+                Box::pin(async move {
+                    barrier.wait().await;
+                })
+            }));
+        }
+        hooks
     }
 }
 
@@ -73,6 +103,18 @@ pub async fn pause_after_admit(hooks: &Hooks, route: &'static str) {
 /// the state machine in a shipped build and the call site folds away.
 #[cfg(not(feature = "test-hooks"))]
 pub async fn pause_after_admit(_hooks: &Hooks, _route: &'static str) {}
+
+/// Hold a write between reading its body and parsing it.
+#[cfg(feature = "test-hooks")]
+pub async fn hold_body(hooks: &Hooks) {
+    if let Some(hook) = &hooks.hold_body {
+        hook().await;
+    }
+}
+
+/// Hold a write between reading its body and parsing it. A no-op without `test-hooks`.
+#[cfg(not(feature = "test-hooks"))]
+pub async fn hold_body(_hooks: &Hooks) {}
 
 /// Run the acknowledgement seam for `seq`, before a write answers.
 #[cfg(feature = "test-hooks")]

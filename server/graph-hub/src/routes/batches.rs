@@ -49,6 +49,7 @@ pub async fn post(
         .await
         .map_err(|error| write_fault(&error))?
         .ok_or_else(|| HubApiError::NotFound(String::from("no such plugin")))?;
+    crate::hooks::hold_body(&app.hooks).await;
     let batch = read_batch(&lossy(&raw), &read_limits).map_err(|e| crate::routes::hub_fault(&e))?;
     let write = BatchWrite {
         ws: ws.clone(),

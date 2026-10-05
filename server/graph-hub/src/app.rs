@@ -51,7 +51,7 @@ impl App {
             settings: settings.clone(),
             keys,
             gates,
-            hooks: Hooks::new(),
+            hooks: Hooks::from_env(),
             watch: crate::watch::Watch::new(),
             store: tokio::sync::OnceCell::new(),
         }))
