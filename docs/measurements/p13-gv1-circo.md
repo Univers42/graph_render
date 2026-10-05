@@ -649,7 +649,11 @@ coordinates, the pin for `GRAPHVIZ_CIRCO` is `1ca5ecf45c65d248…` in
 `crates/graph-cli/src/oracle_python/conformance/baseline/table/graphviz.rs:84`, and §8.3 changes
 what circo emits, so the pin no longer matches. The harness's own proposal agrees — it wrote
 `row("GRAPHVIZ_CIRCO", "253896a89f0801055141e8eaaa7aad86fbbaab0171aeeb14a9f86a79c136c726", …)` into
-`target/scigraphs-conformance/conformance-baseline-proposed.rs:30`, changing **only** the motor sha
-and leaving the reference sha, the ceiling, the tier and the cause as they were. **Adopting it is
-outside this job's paths**, and it is left undone rather than worked around; the row is reported
+`target/scigraphs-conformance/conformance-baseline-proposed.rs:30`, changing the motor sha
+and leaving the reference sha, the tier and the cause as they were (it proposes a ceiling of `1e-5`
+against the pinned `1e0`, which is not adopted). **Adopting it was
+outside this job's paths**, and it was left undone rather than worked around; the row was reported
 red, not silenced.
+
+The orchestrator adopted the motor sha alone on 2026-10-05, before landing: `graphviz.rs:84` now
+pins `253896a8…`, with the reference sha, the `1e0` ceiling, the tier and the cause unchanged.

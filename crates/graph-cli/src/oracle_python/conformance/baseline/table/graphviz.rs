@@ -81,7 +81,7 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_CIRCO",
-        "1ca5ecf45c65d2488dae1670de6275e9334998271b654c29530192caa627c4ea",
+        "253896a89f0801055141e8eaaa7aad86fbbaab0171aeeb14a9f86a79c136c726",
         "44c7d9126464d770bdb899791363f3295a57acda8e6e9fa0079d040cb87cb886",
         "",
         1e0,
