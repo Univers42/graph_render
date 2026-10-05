@@ -2,8 +2,9 @@
 //! which state and which rung it was written from, that nothing on the wire is non-finite,
 //! and that the only integer the writer puts on the wire is a `u32`.
 
-use super::*;
-use crate::gpu_fixtures::settle;
+use super::emit::{self, HEADER_LEN, scale_for};
+use super::settle::{self, State};
+use graph_core::layout::force::{ForceSession, MeshProbe};
 
 /// A 64-node case, small enough to build in a test and large enough that every section of
 /// the payload is longer than the header.
@@ -42,10 +43,11 @@ fn a_written_fixture_round_trips() {
     assert_eq!(words[3], 64, "the node count is the case's own");
     assert_eq!(words[4] as usize, words.len(), "the edge count is a column length");
     let side = words[5];
-    let cells = words[words.len() - 2];
-    let reach = words[words.len() - 1];
-    let expected = HEADER_LEN + 8 + 16 * words[4] + 64 * words[3] + 16 * side + 16 * side * side;
-    assert_eq!(bytes.len(), expected as usize, "every length follows from n, m and P");
+    let (n, m) = (words[3], words[4]);
+    let expected = 64 + 8 + 16 * m + 16 * n + 16 * side + 16 * side * side + 48 * n;
+    assert_eq!(bytes.len() as u64, expected, "every length follows from n, m and P");
+    assert_eq!(HEADER_LEN, 64, "the header is the 64 bytes the README's table states");
+    let (cells, reach) = (words[10], words[11]);
     assert!(cells > 0 && reach > 0 && cells >= reach, "the frame is placed");
     assert!(reals[3] > 0.0, "the cell size is positive");
 }
@@ -61,7 +63,7 @@ fn the_header_carries_the_state_and_the_rung() {
     assert_eq!(start_words[9], 0, "the pad word is zero");
     assert_eq!(settled_words[9], 0, "on both files");
     let step = start_words[8];
-    assert_eq!(step, (start_words[8] as i32) as u32, "the rung is two's-complemented on the wire");
+    assert_eq!(step, (step as u32 as i32) as u64, "the rung is two's-complemented on the wire");
     let (_, _, settled_reals) = written(64, State::Settled);
     let (_, _, start_reals) = written(64, State::Start);
     assert_ne!(
@@ -86,12 +88,8 @@ fn no_column_holds_a_non_finite_value() {
     }
     probe.charge_dy[0] = f64::NAN;
     let refused = emit::write(&probe, session.xs(), session.ys(), State::Start, &mut emit::Knobs::none());
-    assert!(refused.is_err(), "a non-finite column is a refusal, not a written byte");
-    assert!(
-        refused.unwrap_err().contains("finite"),
-        "the refusal names what is wrong: {}",
-        refused.unwrap_err()
-    );
+    let refusal = refused.expect_err("a non-finite column is a refusal, not a written byte");
+    assert!(refusal.contains("finite"), "the refusal names what is wrong: {refusal}");
 }
 
 #[test]
@@ -136,16 +134,18 @@ fn the_size_is_what_the_format_promises() {
 
 #[test]
 fn a_mutated_pass_and_a_mutated_rung_move_bytes() {
-    let (_, plain, _) = written(1_000, State::Start);
-    let (session, probe) = probe(1_000);
+    let (plain, _, _) = written(1_000, State::Start);
     let mut knobs = emit::Knobs::none();
     knobs.pass = Some("collide");
-    let swapped = emit::write(&probe, session.xs(), session.ys(), State::Start, &mut knobs)
-        .expect("the mutation writes bytes too");
+    let swapped = written_with(&mut knobs, State::Start);
     assert_ne!(swapped, plain, "swapping a delta column moves the payload");
     let mut knobs = emit::Knobs::none();
     knobs.rung = 1;
-    let rung = emit::write(&probe, session.xs(), session.ys(), State::Start, &mut knobs)
-        .expect("the mutation writes bytes too");
+    let rung = written_with(&mut knobs, State::Start);
     assert_ne!(rung, plain, "moving the rung moves the header");
+    assert_eq!(
+        rung.len(),
+        plain.len(),
+        "and moves only the bytes, not the length, so --check reports one difference"
+    );
 }
