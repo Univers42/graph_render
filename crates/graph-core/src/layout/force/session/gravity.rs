@@ -14,7 +14,6 @@ use crate::layout::force::barnes_hut::sim::Sim;
 
 /// `forceX(0) + forceY(0)` at `sim.params.gravity`, in `x.js`'s own order.
 pub(crate) fn apply(sim: &mut Sim) {
-    let _span = crate::pmprobe::Span::new(3);
     let gravity = sim.params.gravity;
     let alpha = sim.alpha;
     for i in 0..sim.x.len() {

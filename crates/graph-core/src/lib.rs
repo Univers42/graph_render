@@ -35,7 +35,6 @@ mod legend;
 mod linalg;
 mod neighborhood;
 pub mod post;
-pub mod pmprobe;
 mod records;
 pub mod registry;
 mod rng;
