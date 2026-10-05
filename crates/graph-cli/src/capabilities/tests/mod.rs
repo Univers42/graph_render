@@ -163,6 +163,7 @@ fn honest() -> Evidence {
                         "layout.circular.radial": hand(6),
                         "layout.packing.circle": hand(5),
                         "layout.dag.sugiyama": hand(9),
+                        "layout.dag.lanes": hand(5),
                     }
                 }),
             ),

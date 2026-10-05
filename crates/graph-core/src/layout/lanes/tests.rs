@@ -31,10 +31,7 @@ fn arc(id: &str, source: &str, target: &str) -> EdgeRecord {
 }
 
 /// `(x, y, paths, note edge indices)` of one run at unit spacing.
-fn drawn(
-    nodes: &[NodeRecord],
-    edges: &[EdgeRecord],
-) -> (Vec<f32>, Vec<f32>, Paths, Vec<u32>) {
+fn drawn(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> (Vec<f32>, Vec<f32>, Paths, Vec<u32>) {
     let topology = index_model(nodes, edges).expect("fits");
     let geometry = run(&topology, &LanesParams::default()).expect("unit spacing is legal");
     let NodeGeometry::Point { x, y } = geometry.nodes else {
@@ -44,7 +41,10 @@ fn drawn(
         panic!("not Polyline edges")
     };
     assert!(
-        geometry.notes.iter().all(|n| n.code == NoteCode::EdgeReversed)
+        geometry
+            .notes
+            .iter()
+            .all(|n| n.code == NoteCode::EdgeReversed)
     );
     let notes = geometry.notes.iter().map(|n| n.index).collect();
     (x, y, paths, notes)
@@ -95,21 +95,18 @@ fn a_branch_and_its_merge_take_two_lanes() {
 
 #[test]
 fn a_directed_cycle_is_broken_at_the_lowest_index_and_noted() {
-    let n = [
-        vertex("a", 0.0),
-        vertex("b", 0.0),
-        vertex("c", 0.0),
+    let n = [vertex("a", 0.0), vertex("b", 0.0), vertex("c", 0.0)];
+    let e = [
+        arc("ab", "a", "b"),
+        arc("bc", "b", "c"),
+        arc("ca", "c", "a"),
     ];
-    let e = [arc("ab", "a", "b"), arc("bc", "b", "c"), arc("ca", "c", "a")];
     let (x, y, paths, notes) = drawn(&n, &e);
     assert_eq!(y, [0.0, 1.0, 2.0]);
     assert_eq!(x, [0.0, 0.0, 0.0]);
     assert_eq!(notes, [2], "c -> a runs against the rows");
     assert_eq!(paths.offsets, [0, 0, 0, 2]);
-    assert_eq!(
-        paths.pts, [1.0, 1.5, 1.0, 0.5],
-        "source c to target a"
-    );
+    assert_eq!(paths.pts, [1.0, 1.5, 1.0, 0.5], "source c to target a");
 }
 
 /// The seed of `docs/decisions/dag-lanes.md` condition 7(c): the seeded gate model holds
@@ -173,11 +170,7 @@ fn degenerate_graphs_draw() {
 
 #[test]
 fn spacing_scales_both_axes_and_a_bad_one_is_refused() {
-    let n = [
-        vertex("m", 2.0),
-        vertex("a", 1.0),
-        vertex("b", 1.0),
-    ];
+    let n = [vertex("m", 2.0), vertex("a", 1.0), vertex("b", 1.0)];
     let e = [arc("ma", "m", "a"), arc("mb", "m", "b")];
     let t = index_model(&n, &e).expect("fits");
     let wide = LanesParams {

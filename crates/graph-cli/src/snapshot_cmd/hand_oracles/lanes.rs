@@ -65,13 +65,17 @@ fn rows(t: &Topology) -> Vec<u32> {
         }
     }
     let key = |v: u32| (Reverse(total_key(version[v as usize])), v);
-    let mut ready: BTreeSet<(Reverse<i64>, u32)> =
-        (0..n as u32).filter(|&v| pending[v as usize] == 0).map(key).collect();
+    let mut ready: BTreeSet<(Reverse<i64>, u32)> = (0..n as u32)
+        .filter(|&v| pending[v as usize] == 0)
+        .map(key)
+        .collect();
     let mut row = vec![u32::MAX; n];
     for r in 0..n as u32 {
         let v = match ready.pop_first() {
             Some((_, v)) => v,
-            None => (0..n as u32).find(|&v| row[v as usize] == u32::MAX).expect("one left"),
+            None => (0..n as u32)
+                .find(|&v| row[v as usize] == u32::MAX)
+                .expect("one left"),
         };
         row[v as usize] = r;
         if let Some(list) = succ.get(&v) {
@@ -95,7 +99,11 @@ fn forward(t: &Topology, row: &[u32]) -> BTreeMap<u32, Vec<(u32, u32)>> {
         if s == d {
             continue;
         }
-        let (early, late) = if row[s as usize] < row[d as usize] { (s, d) } else { (d, s) };
+        let (early, late) = if row[s as usize] < row[d as usize] {
+            (s, d)
+        } else {
+            (d, s)
+        };
         out.entry(early).or_default().push((e as u32, late));
     }
     out
@@ -141,7 +149,11 @@ struct Assign {
 
 impl Assign {
     fn new() -> Self {
-        Self { free: BTreeSet::new(), width: 0, reserved: BTreeMap::new() }
+        Self {
+            free: BTreeSet::new(),
+            width: 0,
+            reserved: BTreeMap::new(),
+        }
     }
 
     /// The smallest free lane, or a new one when the pool is empty.
@@ -187,7 +199,10 @@ impl Assign {
             self.reserved.entry(late).or_default().insert(own);
             return own;
         }
-        let shared = self.reserved.get(&late).and_then(|set| set.iter().next().copied());
+        let shared = self
+            .reserved
+            .get(&late)
+            .and_then(|set| set.iter().next().copied());
         if let Some(low) = shared {
             return low;
         }

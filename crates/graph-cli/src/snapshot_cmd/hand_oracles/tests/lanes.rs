@@ -86,7 +86,11 @@ fn lanes_matches_its_own_layout_on_the_gate_models() {
         let snapshot = super::super::super::pipeline(seed, nodes, "dag.lanes")
             .expect("runs")
             .snapshot;
-        assert_eq!(super::super::lanes(seed, nodes, &snapshot), Ok(()), "seed {seed}");
+        assert_eq!(
+            super::super::lanes(seed, nodes, &snapshot),
+            Ok(()),
+            "seed {seed}"
+        );
     }
 }
 
@@ -109,17 +113,29 @@ fn every_compared_column_has_a_control_that_catches_its_perturbation() {
         // The pts column.
         if let Some(point) = first_point(&snapshot) {
             let err = call(&rebent(&snapshot, point, 0.5)).expect_err("a bend moved");
-            assert!(err.contains("interior point"), "pts control, seed {seed}: {err}");
+            assert!(
+                err.contains("interior point"),
+                "pts control, seed {seed}: {err}"
+            );
         }
         // The offsets column.
         if let Some(edge) = first_spanned(&snapshot) {
             let err = call(&unspanned(&snapshot, edge)).expect_err("a span dropped");
-            assert!(err.contains("interior points"), "offsets control, seed {seed}: {err}");
+            assert!(
+                err.contains("interior points"),
+                "offsets control, seed {seed}: {err}"
+            );
         }
         // The notes column: an extra note on an edge that is not reversed.
-        let extra = [Note { code: NoteCode::EdgeReversed, index: 0 }];
+        let extra = [Note {
+            code: NoteCode::EdgeReversed,
+            index: 0,
+        }];
         let err = call(&renoted(&snapshot, &extra)).expect_err("a note added");
-        assert!(err.contains("notes") || err.contains("note "), "notes control, seed {seed}: {err}");
+        assert!(
+            err.contains("notes") || err.contains("note "),
+            "notes control, seed {seed}: {err}"
+        );
     }
 }
 
@@ -127,7 +143,9 @@ fn every_compared_column_has_a_control_that_catches_its_perturbation() {
 /// mistaken for a passing draw.
 #[test]
 fn a_snapshot_of_another_kind_is_refused_before_any_arithmetic() {
-    let grid = super::super::super::pipeline(1, 9, "grid").expect("runs").snapshot;
+    let grid = super::super::super::pipeline(1, 9, "grid")
+        .expect("runs")
+        .snapshot;
     assert_eq!(
         super::super::lanes(1, 9, &grid),
         Err("not Point nodes with Polyline edges".into())

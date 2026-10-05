@@ -177,7 +177,12 @@ fn nothing_sits_on_an_edge(t: &Topology, d: &Drawing) -> Result<(), String> {
 /// edge whose source has the later row, ascending, and nothing else.
 fn notes(got: &Notes, t: &Topology, d: &Drawing) -> Result<(), String> {
     let want = want_notes(t, d);
-    let mine: Vec<(u32, u32)> = got.code.iter().copied().zip(got.index.iter().copied()).collect();
+    let mine: Vec<(u32, u32)> = got
+        .code
+        .iter()
+        .copied()
+        .zip(got.index.iter().copied())
+        .collect();
     if mine.len() != want.len() {
         return Err(format!(
             "the snapshot carries {} notes, the convention gives {want:?}",
@@ -187,7 +192,9 @@ fn notes(got: &Notes, t: &Topology, d: &Drawing) -> Result<(), String> {
     for (k, (&(mc, mi), note)) in mine.iter().zip(&want).enumerate() {
         let (wc, wi) = (note.code as u32, note.index);
         if (mc, mi) != (wc, wi) {
-            return Err(format!("note {k} is ({mc}, {mi}), the convention gives ({wc}, {wi})"));
+            return Err(format!(
+                "note {k} is ({mc}, {mi}), the convention gives ({wc}, {wi})"
+            ));
         }
     }
     Ok(())
@@ -200,7 +207,10 @@ fn want_notes(t: &Topology, d: &Drawing) -> Vec<Note> {
             let (s, g) = (cols.source[e] as usize, cols.target[e] as usize);
             cols.directed[e] && s != g && d.row[s] > d.row[g]
         })
-        .map(|e| Note { code: NoteCode::EdgeReversed, index: e as u32 })
+        .map(|e| Note {
+            code: NoteCode::EdgeReversed,
+            index: e as u32,
+        })
         .collect()
 }
 

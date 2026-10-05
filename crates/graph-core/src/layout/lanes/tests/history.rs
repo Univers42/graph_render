@@ -84,11 +84,7 @@ fn no_vertex_sits_on_an_edge_it_does_not_end() {
 /// (`docs/decisions/dag-lanes.md` condition 2).
 #[test]
 fn parallel_edges_between_one_pair_leave_nothing_sitting() {
-    let n = [
-        vertex("a", 1.0),
-        vertex("b", 2.0),
-        vertex("c", 3.0),
-    ];
+    let n = [vertex("a", 1.0), vertex("b", 2.0), vertex("c", 3.0)];
     let e = [
         edge("u", "a", "b"),
         arc("d1", "b", "a"),

@@ -253,10 +253,11 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
     }
     assert_eq!(
         KNOBS.len(),
-        51,
+        52,
         "fifteen parameter controls, then the fifteen ANALYSIS and POST stage controls, then \
          the six igraph layout controls, then the seven 3D layout controls, then the one \
-         Graphviz packing control, then the one Graphviz dot control, then the two compute-tier \
+         Graphviz packing control, then the one Graphviz dot control, then the one lanes \
+         control, then the two compute-tier \
          controls, then the overlap pass's control, then the layout parameters' default \
          control, then the live session's two own controls: {KNOBS:?}"
     );

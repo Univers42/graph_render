@@ -47,7 +47,11 @@ fn the_lanes_control_names_its_own_variable_record_and_stage() {
         "the variable, the record and the stage are each spelled out independently of the \
          table the arm reads"
     );
-    assert_eq!(lanes::ID, "layout.dag.lanes", "the table's id is the constant");
+    assert_eq!(
+        lanes::ID,
+        "layout.dag.lanes",
+        "the table's id is the constant"
+    );
 }
 
 /// The control names a *stage*, not a count: the same variable with the shared
