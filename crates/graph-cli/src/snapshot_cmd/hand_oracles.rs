@@ -10,6 +10,10 @@ use graph_contract::notes::NoteCode;
 use graph_core::layout::hierarchy::Hierarchy;
 use graph_core::{REFERENCE_DEGREE, index_model, seeded_model};
 
+pub use lanes::lanes;
+
+mod lanes;
+
 /// The grid's conventions restated in f64, independently of graph-core's integer
 /// `dimensions`: `cols = ceil(sqrt(n))`, `rows = ceil(n / cols)`, node `i` in cell
 /// `(i mod cols, floor(i / cols))`, the lattice centred on the origin at unit spacing,

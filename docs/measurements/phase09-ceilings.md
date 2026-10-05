@@ -15,6 +15,7 @@ Medians over 3 runs. Not portable, and not stable under load — `BENCHMARKS.md`
 | id | declared | measured | how |
 |---|---:|---:|---|
 | layout.force.barnes_hut | 200000 | 4000 | largest N whose *wasm32* tick fits 16.67 ms; the native arm reaches 10000 on an idle host. A tick is `run / 112` in both, because the ABI has no per-tick entry |
+| layout.dag.lanes | 1000000 | 1000000 | dag-lanes: native medians at n = 10 000 / 100 000 / 1 000 000 are in `docs/measurements/dag-lanes.md`; 1M is under the 1 s target, so the declared figure stands. A projection, not a proof — see `registry/lanes.rs`'s `Ponytail (scale_ceiling)` |
 | scale.lod | 9200000 | 1235726 | `O(n + m)` over an indexed topology; the measured cost is the topology's own columns at N = 10 000, the largest size measured |
 | scale.simplify | 9200000 | 1235726 | same shape, plus the O(m log m) simple adjacency; bounded by the same measured columns |
 | scale.adaptive | 9200000 | 1235726 | `O(1)`, a pure function of (n, m); the ceiling it inherits is its input's, not its own |

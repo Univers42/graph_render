@@ -270,6 +270,9 @@ pub enum Knob {
     /// reads is the whole `Topology`. See [`knobs::DOT_LAYOUT_STAGES`] for why this row is what
     /// `layout.dag.dot` needs before the ledger can call the capability `gated`.
     DagDotNodes,
+    /// `GM_MUTATE_DAG_LANES_NODES`: `layout.dag.lanes`'s own model, re-drawn with one more
+    /// vertex, since its whole `Topology` is its input. See [`knobs::LANES_LAYOUT_STAGES`].
+    DagLanesNodes,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
     /// Names which gathered pass's merge reads a neighbouring node's delta. The full argument

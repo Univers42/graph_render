@@ -49,6 +49,7 @@ layout.forceatlas2.3d	8192	32768
 layout.random.3d	1000000	4000000
 layout.force.yifan_hu.3d	32768	131072
 layout.dag.dot	8192	12692
+layout.dag.lanes	1000000	4000000
 post.route.grid	3225	4988
 post.bundle.fdeb	4451	6900
 post.bundle.mingle	1935	3000
