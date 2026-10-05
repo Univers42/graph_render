@@ -52,51 +52,53 @@ fn growth_is_only_adding_or_nothing_at_all() {
 /// growth cannot absorb: the records already stored carry its cells, and a hub that
 /// silently dropped them would answer a read with a document the client cannot round trip.
 /// Every one of them is a 409.
-const REMOVALS: [(&str, &str); 3] = [
-    // `up` is the task collection's last field, so removing it is removing the line and
-    // the comma before it.
-    (
-        "a removed field",
-        ",\n        { \"id\": \"up\", \"name\": \"Up\", \"role\": \"parent\", \"link\": null }",
-    ),
-    ("a changed role", r#"role": "parent""#),
-    (
-        // The whole `task` collection, comma and all. `note` is kept because `task.peer`
-        // links to it: removing `note` first would make the *reader* refuse the fixture, and
-        // then the growth rule would never be reached.
-        "a removed collection",
-        ",\n    { \"id\": \"task\"",
-    ),
-];
-
 #[test]
-fn a_removed_or_changed_declaration_is_a_conflict() {
-    for (what, marker) in REMOVALS {
-        let outcome = growth(&v1(), &at(2, &edited(marker)));
-        assert_eq!(
-            outcome.as_ref().map(|_| ()).unwrap_err().status(),
-            409,
-            "{what} must be a conflict, got {outcome:?}"
-        );
-    }
+fn a_removed_field_is_a_conflict() {
+    // `up` is the task collection's *last* field, so removing it is removing its line and
+    // the comma before it — and nothing else, so the fixture still reads.
+    let text = TWO.replace(
+        ",\n        { \"id\": \"up\", \"name\": \"Up\", \"role\": \"parent\", \"link\": null }",
+        "",
+    );
+    assert_conflict(&text, "a removed field");
 }
 
-/// `TWO` with the declaration named by `marker` changed or removed.
-///
-/// `role": "parent"` becomes a `scalar` role — the same member, a different meaning, which
-/// is the case a *reader* would happily accept and growth must refuse. The other two
-/// markers start a span that is cut out whole, from the comma before it through its last
-/// `}`.
-fn edited(marker: &str) -> String {
-    if marker.starts_with("role") {
-        return TWO.replace(r#"role": "parent""#, r#"role": "scalar""#);
-    }
+#[test]
+fn a_field_whose_role_changed_is_a_conflict() {
+    // The reader accepts this one happily — same members, same types — which is exactly why
+    // growth has to refuse it: the stored cells under that id mean something else now.
+    let text = TWO.replace(r#"role": "parent""#, r#"role": "scalar""#);
+    assert_conflict(&text, "a changed role");
+}
+
+#[test]
+fn a_removed_collection_is_a_conflict() {
+    // The whole `task` collection, comma and all. `note` is kept because `task.peer` links
+    // to it: removing `note` first would make the *reader* refuse the fixture, and then the
+    // growth rule would never be reached at all.
+    let text = TWO.replace(&task_collection(), "");
+    assert_conflict(&text, "a removed collection");
+}
+
+/// `text` published at version 2 over [`TWO`]: the growth rule's own answer must be a 409.
+fn assert_conflict(text: &str, what: &str) {
+    let outcome = growth(&v1(), &at(2, text));
+    assert_eq!(
+        outcome.as_ref().map(|_| ()).unwrap_err().status(),
+        409,
+        "{what} must be a conflict, got {outcome:?}"
+    );
+}
+
+/// The task collection as it appears in [`TWO`], from the comma before it through its last
+/// brace — named once so the removal above is a span rather than an escape.
+fn task_collection() -> String {
     let at = TWO
-        .find(marker)
-        .unwrap_or_else(|| panic!("no {marker:?} in the fixture"));
+        .find(",\n    { \"id\": \"task\"")
+        .expect("the task collection is in TWO");
     let rest = &TWO[at..];
-    let end = rest.find("]}").map_or(rest.len(), |i| i + 1);
-    TWO.replace(&rest[..end], "")
+    let end = rest.find("\n      ] }").expect("the collection ends") + "\n      ] }".len();
+    rest[..end].to_owned()
 }
 
 /// A link that starts pointing somewhere else is the sharpest case, and it is worth its

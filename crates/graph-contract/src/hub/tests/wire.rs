@@ -184,59 +184,67 @@ fn a_duplicate_key_is_the_ingest_readers_own_refusal() {
     );
 }
 
-/// Every variant's class, in one table — the mapping a server would otherwise write
-/// once per handler.
+/// Every variant's class, in one table — the mapping a server would otherwise write once
+/// per handler. `(a refusal of every kind, the status it answers)`.
+const CLASSES: [(HubError, u16); 7] = [
+    (
+        HubError::Shape(IngestError::Json(JsonError::Syntax { at: 0, what: "x" })),
+        422,
+    ),
+    (
+        HubError::Invalid {
+            path: String::new(),
+            what: String::new(),
+        },
+        422,
+    ),
+    (
+        HubError::Grammar {
+            coordinate: "workspace id",
+            value: String::new(),
+        },
+        422,
+    ),
+    (
+        HubError::Nul {
+            path: String::new(),
+        },
+        422,
+    ),
+    (
+        HubError::TooLarge {
+            what: "body",
+            limit: 0,
+        },
+        413,
+    ),
+    (
+        HubError::Conflict {
+            what: String::new(),
+        },
+        409,
+    ),
+    (
+        HubError::Cursor {
+            text: String::new(),
+        },
+        400,
+    ),
+];
+
 #[test]
 fn every_refusal_answers_the_status_its_reason_implies() {
-    let cases: [(HubError, u16); 7] = [
-        (
-            HubError::Shape(IngestError::Json(JsonError::Syntax { at: 0, what: "x" })),
-            422,
-        ),
-        (
-            HubError::Invalid {
-                path: String::new(),
-                what: String::new(),
-            },
-            422,
-        ),
-        (
-            HubError::Grammar {
-                coordinate: "workspace id",
-                value: String::new(),
-            },
-            422,
-        ),
-        (
-            HubError::Nul {
-                path: String::new(),
-            },
-            422,
-        ),
-        (
-            HubError::TooLarge {
-                what: "body",
-                limit: 0,
-            },
-            413,
-        ),
-        (
-            HubError::Conflict {
-                what: String::new(),
-            },
-            409,
-        ),
-        (
-            HubError::Cursor {
-                text: String::new(),
-            },
-            400,
-        ),
-    ];
-    for (mut error, status) in cases {
+    for (error, status) in CLASSES {
         assert_eq!(error.status(), status, "{error:?}");
-        // Every real refusal carries text; the table's are empty strings standing for a
-        // cause, so a message is checked with them filled in rather than not at all.
+    }
+}
+
+/// And every variant has a message: a refusal that prints as nothing is a refusal a client
+/// cannot act on, whatever its status. The table's reasons are empty strings standing for a
+/// cause, so they are filled in here rather than checked as they stand.
+#[test]
+fn every_refusal_says_something() {
+    for (mut error, _) in CLASSES {
         if let HubError::Conflict { what } = &mut error {
             *what = "manifest v2 removed field `x`".to_owned();
         }

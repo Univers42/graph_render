@@ -132,7 +132,12 @@ impl Batch {
             }
         }
         for (i, delete) in self.deletes.iter().enumerate() {
-            cells::declared(manifest, plugin, &delete.collection, &format!("deletes[{i}]"))?;
+            cells::declared(
+                manifest,
+                plugin,
+                &delete.collection,
+                &format!("deletes[{i}]"),
+            )?;
         }
         Ok(())
     }

@@ -145,7 +145,15 @@ fn a_body_under_max_body_can_still_produce_a_change_over_max_change() {
         "the body must be inside its own cap for this to be a finding: {}",
         body.len()
     );
-    let change = change_json(&ChangeHead { seq: 1, plugin: &plugin, at: "2026-01-02T03:04:05Z" }, &records, &[]);
+    let change = change_json(
+        &ChangeHead {
+            seq: 1,
+            plugin: &plugin,
+            at: "2026-01-02T03:04:05Z",
+        },
+        &records,
+        &[],
+    );
     assert!(
         change.len() as u64 > max_change(&limits),
         "the finding needs an over-cap change: {} vs {}",
