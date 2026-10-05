@@ -35,6 +35,7 @@ pub(super) fn side_for(n: u32) -> usize {
 
 /// The seven words of a placed frame, as `u32`/`f64`: a rung is an `i32` on the way out and
 /// a `u32` on the wire, and the origin is two columns rather than a tuple.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::layout::force) struct PlacedFrame {
     pub(in crate::layout::force) side: u32,
@@ -156,10 +157,19 @@ impl Mesh {
         let side = self.plan.side();
         let xy = (&sim.x[..], &sim.y[..]);
         let found = frame::bounds(xy, runner, workers, &mut self.blocks);
-        self.frame = found.and_then(|b| frame::place(b, side, f64::sqrt(law.dmax2)));
-        let Some(frame) = self.frame.filter(|_| sim.x.len() > 1 && law.dmax2 > 0.0) else {
+        // The frame is kept only when there is a field to read out of it. A solve that
+        // returns `false` has no reader — `charge::apply` returns before it reads one — so
+        // dropping the frame here moves no byte, and it is what makes [`Mesh::solution`]'s
+        // `None` mean "no field was solved" rather than "a frame was placed and discarded".
+        let Some(placed) = found
+            .and_then(|b| frame::place(b, side, f64::sqrt(law.dmax2)))
+            .filter(|_| sim.x.len() > 1 && law.dmax2 > 0.0)
+        else {
+            self.frame = None;
             return false;
         };
+        self.frame = Some(placed);
+        let frame = placed;
         self.deposit(&frame, xy, runner, workers);
         let fft = Fft {
             plan: &self.plan,

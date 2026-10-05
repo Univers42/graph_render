@@ -37,7 +37,11 @@ use crate::layout::force::particle_mesh::{self, Mesh};
 
 /// The runner the probe divides nothing by: a probe's answer is a number a report prints,
 /// not a tick, so there is no tier to choose and one worker is the only honest schedule.
-pub(super) const WORKERS: u32 = 1;
+const WORKERS: u32 = 1;
+
+/// The worker count a probe's serial `How` names, as a free function for the same reason
+/// [`charge_probe_on`] is: one value, read in one place, by both probes.
+pub(super) const PROBE_WORKERS: u32 = WORKERS;
 
 impl ForceSession {
     /// This session's engine's many-body force at this session's positions, at `alpha` 1
@@ -81,13 +85,20 @@ impl ForceSession {
     /// the parameters. The link geometry [`Sim::from_parts`] recomputes on the way is
     /// unused by this pass — it is paid once per probe, which is a report's cost and not a
     /// tick's.
-    pub(super) fn charge_probe(&self, theta: f64) -> Sim {
-        let mut params = self.sim.params;
-        params.theta = theta;
-        let graph = self.sim.graph.clone();
-        let positions = (self.sim.x.clone(), self.sim.y.clone());
-        let mut sim = Sim::from_parts(graph, params, self.sim.seed, positions);
-        sim.alpha = 1.0;
-        sim
+    fn charge_probe(&self, theta: f64) -> Sim {
+        charge_probe_on(self, theta)
     }
+}
+
+/// The same copy as a free function over a session, so the mesh probe — a sibling module
+/// with the same need — shares this body instead of writing a second construction of the
+/// copy. `theta` is `0.0` for the mesh, which has no opening angle.
+pub(super) fn charge_probe_on(session: &ForceSession, theta: f64) -> Sim {
+    let mut params = session.sim.params;
+    params.theta = theta;
+    let graph = session.sim.graph.clone();
+    let positions = (session.sim.x.clone(), session.sim.y.clone());
+    let mut sim = Sim::from_parts(graph, params, session.sim.seed, positions);
+    sim.alpha = 1.0;
+    sim
 }

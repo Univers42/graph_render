@@ -112,7 +112,7 @@ pub(in crate::layout::force) fn pass<R: Runner>(
     }
 }
 
-pub(in crate::layout::force) use mesh::{Mesh, Solved};
+pub(in crate::layout::force) use mesh::Mesh;
 use motion::Gathered;
 
 /// Particle-mesh force layout.

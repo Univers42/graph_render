@@ -21,12 +21,12 @@
 //! (`particle_mesh/mesh.rs:119-125`), so a start state and a settled state have different
 //! frames, different `h` and different kernel spectra. One probe is one state.
 
-use super::fidelity::WORKERS;
+use super::fidelity::{PROBE_WORKERS, charge_probe_on};
 use super::ForceSession;
 use crate::exec::Serial;
 use crate::layout::force::Split;
 use crate::layout::force::barnes_hut::sim::{How, Sim};
-use crate::layout::force::particle_mesh::{self, Mesh, MeshPass, Solved};
+use crate::layout::force::particle_mesh::{self, Mesh, MeshPass};
 
 /// The CPU mesh at one session state: its adjacency, frame, twiddles, kernel spectrum, and
 /// what each force pass adds to the velocities from rest.
@@ -139,12 +139,12 @@ impl ForceSession {
     /// with one worker — `charge_deltas`'s own schedule, so the columns are comparable.
     fn run(&self, pass: MeshPass) -> Run {
         let runner = Serial;
-        let mut sim = self.charge_probe(0.0);
+        let mut sim = charge_probe_on(self, 0.0);
         let mut mesh = Mesh::new(sim.rows());
         let mut deltas = Vec::with_capacity(sim.rows() as usize);
         let mut how = How {
             runner: &runner,
-            workers: WORKERS,
+            workers: PROBE_WORKERS,
             deltas: &mut deltas,
             split: Split::None,
         };
