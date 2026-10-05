@@ -6,11 +6,13 @@ use crate::canonical_json::{self, JsonError, Value};
 
 mod cell;
 
-pub(in crate::ingest) use cell::cell;
+pub(crate) use cell::cell;
 
 impl IngestError {
-    /// A refusal, or the JSON fault underneath.
-    pub(super) fn from_json(err: JsonError) -> Self {
+    /// A refusal, or the JSON fault underneath. `pub(crate)` because the hub readers
+    /// re-wrap the same JSON faults as `HubError::Shape`: one set of JSON rules, one
+    /// reader of them.
+    pub(crate) fn from_json(err: JsonError) -> Self {
         Self::Json(err)
     }
 }
@@ -62,7 +64,7 @@ const FIELD_MEMBERS: [&str; 4] = ["id", "name", "role", "link"];
 const LINK_MEMBERS: [&str; 3] = ["collection", "cardinality", "symmetric"];
 const RECORD_MEMBERS: [&str; 5] = ["id", "collection", "deleted", "updatedAt", "values"];
 
-fn collection(value: &Value, path: &str) -> Result<Collection, IngestError> {
+pub(crate) fn collection(value: &Value, path: &str) -> Result<Collection, IngestError> {
     let members = object(value, path)?;
     require_only(members, &COLLECTION_MEMBERS, path)?;
     let fields_path = format!("{path}.fields");
@@ -85,7 +87,7 @@ fn collection(value: &Value, path: &str) -> Result<Collection, IngestError> {
     })
 }
 
-fn field(value: &Value, path: &str) -> Result<Field, IngestError> {
+pub(crate) fn field(value: &Value, path: &str) -> Result<Field, IngestError> {
     let members = object(value, path)?;
     require_only(members, &FIELD_MEMBERS, path)?;
     let role_path = format!("{path}.role");
@@ -123,7 +125,7 @@ fn field(value: &Value, path: &str) -> Result<Field, IngestError> {
     })
 }
 
-fn link(value: &Value, path: &str) -> Result<Link, IngestError> {
+pub(crate) fn link(value: &Value, path: &str) -> Result<Link, IngestError> {
     let members = object(value, path)?;
     require_only(members, &LINK_MEMBERS, path)?;
     let card_path = format!("{path}.cardinality");
@@ -144,7 +146,7 @@ fn link(value: &Value, path: &str) -> Result<Link, IngestError> {
     })
 }
 
-fn record(value: &Value, path: &str) -> Result<Record, IngestError> {
+pub(crate) fn record(value: &Value, path: &str) -> Result<Record, IngestError> {
     let members = object(value, path)?;
     require_only(members, &RECORD_MEMBERS, path)?;
     // Sorted by key on the way in, so an `Ingest` is in canonical member order the moment
@@ -179,21 +181,24 @@ fn record(value: &Value, path: &str) -> Result<Record, IngestError> {
 
 // ------------------------------------------------------------------ scalars
 
-fn object<'a>(value: &'a Value, path: &str) -> Result<&'a [(String, Value)], IngestError> {
+pub(crate) fn object<'a>(
+    value: &'a Value,
+    path: &str,
+) -> Result<&'a [(String, Value)], IngestError> {
     match value {
         Value::Object(members) => Ok(members),
         _ => Err(shape(path, "expected an object")),
     }
 }
 
-fn array<'a>(value: &'a Value, path: &str) -> Result<&'a [Value], IngestError> {
+pub(crate) fn array<'a>(value: &'a Value, path: &str) -> Result<&'a [Value], IngestError> {
     match value {
         Value::Array(items) => Ok(items),
         _ => Err(shape(path, "expected an array")),
     }
 }
 
-fn member<'a>(
+pub(crate) fn member<'a>(
     members: &'a [(String, Value)],
     key: &str,
     path: &str,
@@ -206,7 +211,7 @@ fn member<'a>(
 }
 
 /// Refuses a member the shape does not name: a stray camelCase becomes a loud refusal.
-fn require_only(
+pub(crate) fn require_only(
     members: &[(String, Value)],
     allowed: &[&str],
     path: &str,
@@ -219,14 +224,14 @@ fn require_only(
     Ok(())
 }
 
-fn text_of<'a>(value: &'a Value, path: &str) -> Result<&'a str, IngestError> {
+pub(crate) fn text_of<'a>(value: &'a Value, path: &str) -> Result<&'a str, IngestError> {
     match value {
         Value::String(text) => Ok(text),
         _ => Err(shape(path, "expected a string")),
     }
 }
 
-fn boolean(value: &Value, path: &str) -> Result<bool, IngestError> {
+pub(crate) fn boolean(value: &Value, path: &str) -> Result<bool, IngestError> {
     match value {
         Value::Bool(b) => Ok(*b),
         _ => Err(shape(path, "expected a boolean")),
@@ -235,7 +240,7 @@ fn boolean(value: &Value, path: &str) -> Result<bool, IngestError> {
 
 /// A `u32` written as a plain non-negative integer literal, never `1.0` or `1e0` read as
 /// `1` (D6: a version is compared, not rounded).
-fn integer(value: &Value, path: &str) -> Result<u32, IngestError> {
+pub(crate) fn integer(value: &Value, path: &str) -> Result<u32, IngestError> {
     let Value::Number(text) = value else {
         return Err(shape(path, "expected a number"));
     };
@@ -243,7 +248,7 @@ fn integer(value: &Value, path: &str) -> Result<u32, IngestError> {
         .map_err(|_| shape(path, "expected a plain non-negative integer"))
 }
 
-fn shape(path: &str, what: impl Into<String>) -> IngestError {
+pub(crate) fn shape(path: &str, what: impl Into<String>) -> IngestError {
     IngestError::Shape {
         path: path.to_string(),
         what: what.into(),

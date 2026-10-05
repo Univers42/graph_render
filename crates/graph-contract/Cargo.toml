@@ -12,6 +12,9 @@ publish.workspace = true
 [features]
 default = []
 codegen = ["dep:serde", "dep:schemars", "dep:serde_json"]
+# Reads GM_HUB_BREAK so a gate row can turn one hub property off. Never on by default:
+# a shipped build must not read an environment to decide whether to enforce a rule.
+negctl = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
