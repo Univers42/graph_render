@@ -31,7 +31,7 @@ pub fn check(app: &App, headers: &HeaderMap) -> Result<Option<String>, ApiError>
 }
 
 /// The token of a `Bearer` credential (RFC 6750 §2.1; the scheme is case-insensitive).
-fn bearer(value: &str) -> Option<&str> {
+pub fn bearer(value: &str) -> Option<&str> {
     let (scheme, token) = value.trim().split_once(' ')?;
     let token = token.trim_start();
     (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then_some(token)
