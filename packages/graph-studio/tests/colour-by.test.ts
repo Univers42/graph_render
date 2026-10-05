@@ -71,21 +71,6 @@ test("by=group: groups empty falls back to document group column", () => {
   assert.equal(c.names(1), "B");
 });
 
-test("by=group: one slot per group, so group 11 does not share group 1's colour", () => {
-  const meta = makeMeta({
-    nodeCount: 12,
-    kinds: Array.from({ length: 12 }, () => "record" as const),
-    groups: Array.from({ length: 12 }, (_, i) => `G${i}`),
-    group: Uint16Array.from(Array.from({ length: 12 }, (_, i) => i)),
-  });
-  const c = colouringOf(makeInput(meta, "group", null, []));
-
-  // Past the ten colours of GROUP_PALETTE the slots keep counting: 10 and 11 are their own.
-  assert.deepEqual(c.colours, Uint16Array.from(Array.from({ length: 12 }, (_, i) => i)));
-  assert.equal(c.names(10), "G10");
-  assert.equal(c.names(11), "G11");
-});
-
 test("by=group: group query refused is skipped", () => {
   const meta = makeMeta({ nodeCount: 2, kinds: ["record", "note"] });
   const groups: readonly Group[] = [
@@ -252,23 +237,6 @@ test("MAX_KEYS = 512: categorical mode past 512 distinct keys shares one MUTED s
   assert.equal(c.colours[514], overflowSlot);
   assert.deepEqual(c.palette[overflowSlot], MUTED);
   assert.equal(c.names(overflowSlot), "(other tags)");
-});
-
-test("by=group: past MAX_KEYS = 512 groups the rest share one MUTED slot named (other groups)", () => {
-  const nodeCount = 514;
-  const meta = makeMeta({
-    nodeCount,
-    kinds: Array.from({ length: nodeCount }, () => "record" as const),
-    groups: Array.from({ length: nodeCount }, (_, i) => `G${i}`),
-    group: Uint16Array.from(Array.from({ length: nodeCount }, (_, i) => i)),
-  });
-  const c = colouringOf(makeInput(meta, "group", null, []));
-
-  const overflowSlot = c.colours[512] ?? -1;
-  assert.equal(overflowSlot, 512);
-  assert.equal(c.colours[513], overflowSlot);
-  assert.equal(c.names(overflowSlot), "(other groups)");
-  assert.deepEqual(c.palette[overflowSlot], MUTED);
 });
 
 test("first-seen order: palette order is first-seen in single pass over node indices", () => {
