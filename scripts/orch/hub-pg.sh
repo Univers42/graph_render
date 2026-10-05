@@ -231,7 +231,13 @@ start_recovery() {
       [ '$mode' = standby ] && touch /data/standby.signal || touch /data/recovery.signal" || return 1
   "$drun" --name "$name" -d -e POSTGRES_PASSWORD=hub -e POSTGRES_DB=hub \
     -v "$data_vol":/var/lib/postgresql/data -v "$archive_vol":/archive "$image" >/dev/null || return 1
-  wait_ready 90
+  wait_ready 90 || return 1
+  # WHY this rewrites the URL file and not only `start`: every verb that replaces the container
+  # gives the replacement a NEW bridge IP, and `replica`, `replica-promote` and `pitr` all land
+  # here. A test that reads target/hub-pg-url between the verb and the next `run` would otherwise
+  # dial the address of a container that no longer exists.
+  url || return 1
+  echo
 }
 
 # A standby on a copy of the data volume, following the archive.
@@ -260,8 +266,14 @@ pitr() {
 run() {
   local u
   u=$(url) || { echo "hub-pg: no $name; run hub-pg.sh start first" >&2; return 1; }
+  # WHY the step directory climbs two levels instead of naming `target/hub-steps`: cargo runs a
+  # test binary with its CWD at the PACKAGE root (server/graph-store), so `target/hub-steps` would
+  # resolve to server/graph-store/target — a directory the test container has to create as root
+  # and one no host-side inspection can read. An ABSOLUTE host path is worse still: it does not
+  # exist inside the container. Two levels up from the package root is `/w/target`, which is the
+  # repository's own `target/` because gr bind-mounts it there.
   "$here/gr" -e GM_HUB_PG_URL="$u" -e GM_HUB_BREAK="${GM_HUB_BREAK-}" \
-    -e GM_HUB_STEP_DIR=target/hub-steps cargo test --manifest-path server/Cargo.toml \
+    -e GM_HUB_STEP_DIR=../../target/hub-steps cargo test --manifest-path server/Cargo.toml \
     -p graph-store --features db-tests,negctl,test-hooks "$@"
 }
 

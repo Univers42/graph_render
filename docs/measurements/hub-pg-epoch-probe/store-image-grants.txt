@@ -1,5 +1,37 @@
- has_parameter_privilege 
--------------------------
- t
+# The GRANT lines scripts/orch/hub-pg.sh start applies, and what the role reaches with them.
+# Applied as postgres against database hub, on every start (hub-pg.sh:100-121).
+
+$ scripts/orch/hub-pg.sh sql "SELECT rolname, rolsuper, rolcreatedb, rolcanlogin FROM pg_roles WHERE rolname IN ('hub','postgres') ORDER BY rolname"
+ rolname  | rolsuper | rolcreatedb | rolcanlogin 
+----------+----------+-------------+-------------
+ hub      | f        | t           | t
+ postgres | t        | t           | t
+(2 rows)
+
+
+$ scripts/orch/hub-pg.sh sql "SELECT has_parameter_privilege('hub','hub.writer','SET') AS set_hub_writer, has_schema_privilege('hub','public','CREATE') AS create_public, pg_has_role('hub','pg_monitor','MEMBER') AS pg_monitor"
+ set_hub_writer | create_public | pg_monitor 
+----------------+---------------+------------
+ t              | t             | t
+(1 row)
+
+
+$ scripts/orch/hub-pg.sh sql "SELECT has_function_privilege('hub', fn, 'EXECUTE') AS exec FROM unnest(ARRAY['pg_control_system()','pg_control_checkpoint()','pg_control_init()','pg_control_recovery()','pg_create_restore_point(text)','pg_switch_wal()']) AS fn"
+              fn               | exec 
+-------------------------------+------
+ pg_control_system()           | t
+ pg_control_checkpoint()       | t
+ pg_control_init()             | t
+ pg_control_recovery()         | t
+ pg_create_restore_point(text) | f
+ pg_switch_wal()               | f
+(6 rows)
+
+
+# The three reads the restore detector makes, as the non-superuser role hub:
+$ scripts/orch/hub-pg.sh sql "SELECT (pg_control_system()).system_identifier AS sysid, (SELECT oid FROM pg_database WHERE datname = current_database()) AS datoid, pg_current_wal_flush_lsn()::text AS flush, substr(pg_walfile_name(pg_current_wal_lsn()),1,8) AS timeline, pg_is_in_recovery() AS in_recovery"
+        sysid        | datoid |   flush   | timeline | in_recovery 
+---------------------+--------+-----------+----------+-------------
+ 7693238449923551276 |  16384 | 0/191F528 | 00000001 | f
 (1 row)
 
