@@ -262,7 +262,7 @@ run() {
   u=$(url) || { echo "hub-pg: no $name; run hub-pg.sh start first" >&2; return 1; }
   "$here/gr" -e GM_HUB_PG_URL="$u" -e GM_HUB_BREAK="${GM_HUB_BREAK-}" \
     -e GM_HUB_STEP_DIR=target/hub-steps cargo test --manifest-path server/Cargo.toml \
-    -p graph-store --features db-tests,negctl "$@"
+    -p graph-store --features db-tests,negctl,test-hooks "$@"
 }
 
 case "${1-}" in
