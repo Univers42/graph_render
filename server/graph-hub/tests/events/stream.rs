@@ -3,12 +3,10 @@
 //! Every case drives the real hub over a real socket, so what is asserted is §5.3's wire text rather
 //! than a typed event: the `id:` line, the `event:` name and the `data:` body a client parses.
 
-use crate::common::{
-    epoch_of, hub_with_one_change, raw_events, serve, until_subscribed,
-};
-use crate::support::fixtures::{ready, upsert};
+use crate::common::{epoch_of, hub_with_one_change, raw_events, serve, until_subscribed};
 use crate::support::db;
 use crate::support::fixtures::hub_db;
+use crate::support::fixtures::{ready, upsert};
 
 /// Four writers commit while one subscriber is connected: the seqs it sees are `n+1, n+2, …`, with no
 /// repeat and no hole. This is the property that makes the watch a *position* rather than a payload.
@@ -21,7 +19,7 @@ async fn a_reconnect_while_four_writers_commit_has_no_gap_and_no_duplicate() {
     let key = hub.key.clone();
     let reader = key.clone();
     let stream = tokio::spawn(async move { raw_events(&url, &path, &reader, 40).await });
-    until_subscribed(&hub, &key).await;
+    until_subscribed(&hub).await;
     // The stream holds its slot before the writes, so every seq is delivered rather than summarised:
     // a subscriber that connects after them resumes from its own cursor and never sees them at all.
     for i in 0..4 {
@@ -36,8 +34,7 @@ async fn a_reconnect_while_four_writers_commit_has_no_gap_and_no_duplicate() {
     assert!(!seqs.is_empty(), "the subscriber saw the writes: {lines:?}");
     let expected: Vec<u64> = (2..=seqs.len() as u64 + 1).collect();
     assert_eq!(
-        seqs,
-        expected,
+        seqs, expected,
         "every seq after the cursor exactly once, in order, from epoch {epoch}: {lines:?}"
     );
 }
@@ -60,9 +57,10 @@ async fn a_stream_resumed_100_000_changes_back_reads_at_most_256_headers_per_rea
         .await;
     }
     let url = serve(hub.router.clone()).await;
+    let epoch = epoch_of(&hub, &ws).await;
     let lines = raw_events(
         &url,
-        &format!("/v1/workspaces/{ws}/events?since=0.0"),
+        &format!("/v1/workspaces/{ws}/events?since={epoch}.0"),
         &hub.key,
         24,
     )
@@ -72,7 +70,9 @@ async fn a_stream_resumed_100_000_changes_back_reads_at_most_256_headers_per_rea
         "the resumed stream pages through the log: {lines:?}"
     );
     assert!(
-        lines.windows(2).all(|w| !(w[0] == "" && w[1] == "event: change")),
+        lines
+            .windows(2)
+            .all(|w| !(w[0] == "" && w[1] == "event: change")),
         "no two changes in one frame, so every read's page was bounded: {lines:?}"
     );
 }
@@ -85,9 +85,8 @@ async fn the_per_key_subscriber_cap_is_429() {
     let ws = db::unique("perkey");
     ready(&hub, &ws, "task").await;
     let url = serve(hub.router.clone()).await;
-    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key)
-        .await;
-    assert_eq!(hub.app.gates.subscribers.of(&hub.key), 1);
+    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
+    assert_eq!(hub.app.gates.subscribers.of(crate::common::KEY), 1);
     let second = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 12).await;
     let status = status_of(&second);
     assert_eq!(status, 429, "the second stream on one key: {second:?}");
@@ -106,8 +105,7 @@ async fn the_total_subscriber_cap_is_429() {
     let ws = db::unique("total");
     ready(&hub, &ws, "task").await;
     let url = serve(hub.router.clone()).await;
-    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key)
-        .await;
+    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
     assert_eq!(hub.app.gates.subscribers.total(), 1);
     let second = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 12).await;
     assert_eq!(status_of(&second), 429, "{second:?}");
@@ -129,7 +127,10 @@ async fn the_first_change_after_a_reconnect_is_cursor_plus_one_or_it_resyncs() {
     )
     .await;
     let seqs = ids_of(&lines);
-    assert!(!seqs.is_empty(), "the resumed stream sends what it missed: {lines:?}");
+    assert!(
+        !seqs.is_empty(),
+        "the resumed stream sends what it missed: {lines:?}"
+    );
     assert_eq!(seqs[0], 2, "cursor plus one, from epoch {epoch}: {lines:?}");
     assert!(
         seqs.windows(2).all(|pair| pair[0] < pair[1]),
@@ -152,7 +153,10 @@ async fn last_event_id_wins_over_since() {
     let uri: axum::http::Uri = format!("{path}").parse().expect("a URI");
     let from_query =
         graph_hub::events::cursor_of(&headers, &uri, parsed, 7).expect("the query's cursor");
-    assert_eq!(from_query.seq, 99, "?since= is read when there is no header");
+    assert_eq!(
+        from_query.seq, 99,
+        "?since= is read when there is no header"
+    );
     let mut headers = axum::http::HeaderMap::new();
     headers.insert(
         "last-event-id",
@@ -160,7 +164,13 @@ async fn last_event_id_wins_over_since() {
     );
     let from_header =
         graph_hub::events::cursor_of(&headers, &uri, parsed, 7).expect("the header's cursor");
-    assert_eq!(from_header, graph_contract::hub::Cursor { epoch: 12345, seq: 1 });
+    assert_eq!(
+        from_header,
+        graph_contract::hub::Cursor {
+            epoch: 12345,
+            seq: 1
+        }
+    );
 }
 
 /// The notice body is graph-contract's `notice_json`, so a client parses the same bytes the contract
@@ -169,9 +179,10 @@ async fn last_event_id_wins_over_since() {
 async fn a_notice_carries_the_contract_own_text() {
     let (hub, ws) = hub_with_one_change(&[], "notice").await;
     let url = serve(hub.router.clone()).await;
+    let epoch = epoch_of(&hub, &ws).await;
     let lines = raw_events(
         &url,
-        &format!("/v1/workspaces/{ws}/events?since=0.0"),
+        &format!("/v1/workspaces/{ws}/events?since={epoch}.0"),
         &hub.key,
         12,
     )
@@ -183,7 +194,10 @@ async fn a_notice_carries_the_contract_own_text() {
     let body = data.trim_start_matches("data: ");
     let value: serde_json::Value = serde_json::from_str(body).expect("a JSON notice");
     for member in ["seq", "plugin", "at"] {
-        assert!(value.get(member).is_some(), "the notice carries {member}: {body}");
+        assert!(
+            value.get(member).is_some(),
+            "the notice carries {member}: {body}"
+        );
     }
 }
 

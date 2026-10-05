@@ -80,6 +80,7 @@ pub async fn page(store: &Store, req: &PageReq) -> Result<Page, StoreError> {
         },
     )
     .await?;
+    eprintln!("DEBUG page since={} heads={:?} next={} head={}", req.since.seq, answer.changes.iter().map(|c| c.seq).collect::<Vec<_>>(), answer.next.seq, answer.head_seq);
     let heads = answer
         .changes
         .iter()

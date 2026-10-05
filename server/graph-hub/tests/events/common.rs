@@ -14,6 +14,12 @@ use graph_store::StoreError;
 use crate::support::fixtures::{hub_db, ready, upsert};
 use crate::support::{Hub, db};
 
+/// The name of the key every fixture mints, which is what a subscriber slot is counted under.
+///
+/// The slot is counted by key **name**, never by the secret: the hub only ever learns the name, so
+/// a case that counted by the token would find nothing.
+pub const KEY: &str = crate::support::KEY_NAME;
+
 /// A short read budget, so a case waiting for a line the hub will not send fails instead of hanging.
 pub const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -38,7 +44,7 @@ pub async fn open(url: &str, path: &str, key: &str) -> tokio::net::TcpStream {
         .expect("the hub's port");
     let request = format!(
         "GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: text/event-stream\r\n\
-         Authorization: Bearer {key}\r\nConnection: close\r\n\r\n"
+         Authorization: Bearer {key}\r\n\r\n"
     );
     stream
         .write_all(request.as_bytes())
@@ -66,6 +72,17 @@ pub async fn raw_events(url: &str, path: &str, key: &str, lines: usize) -> Vec<S
             _ => return out,
         }
     }
+    if std::env::var("GM_DEBUG_RAW").is_ok() {
+        use tokio::io::AsyncReadExt;
+        let mut raw = Vec::new();
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_millis(1500),
+            reader.read_to_end(&mut raw),
+        )
+        .await;
+        eprintln!("RAWALL {:?}", String::from_utf8_lossy(&raw));
+        return out;
+    }
     read_body(&mut reader, &mut out, lines).await;
     out
 }
@@ -75,7 +92,6 @@ async fn read_body<R>(reader: &mut R, out: &mut Vec<String>, count: usize)
 where
     R: tokio::io::AsyncBufRead + Unpin,
 {
-    use std::str::FromStr;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt};
     let mut taken = 0;
     while taken < count {
@@ -85,18 +101,26 @@ where
             Ok(Ok(_)) => {}
             _ => return,
         }
-        let Ok(size) = usize::from_str(size_line.trim()) else {
+        // The chunk length is hex, per RFC 9112 §7.1: "f" is fifteen bytes, and reading it as
+        // decimal is the mistake that makes every SSE body look empty.
+        let Ok(size) = usize::from_str_radix(size_line.trim(), 16) else {
             return;
         };
         if size == 0 {
             return;
         }
         let mut chunk = vec![0u8; size];
-        if tokio::time::timeout(PATIENCE, reader.read_exact(&mut chunk)).await.is_err() {
+        if tokio::time::timeout(PATIENCE, reader.read_exact(&mut chunk))
+            .await
+            .is_err()
+        {
             return;
         }
         let mut trailer = [0u8; 2];
         let _ = reader.read_exact(&mut trailer).await;
+        if std::env::var("GM_DEBUG_RAW").is_ok() {
+            eprintln!("RAW line={:?} size={size} bytes={:?}", size_line, String::from_utf8_lossy(&chunk));
+        }
         for line in String::from_utf8_lossy(&chunk).lines() {
             out.push(line.to_owned());
             taken += 1;
@@ -180,9 +204,9 @@ pub async fn epoch_of(hub: &Hub, ws: &str) -> String {
 ///
 /// The alternative is a sleep, and a sleep is a race that passes on a fast host and fails on a slow
 /// one; the count is the fact the case actually needs.
-pub async fn until_subscribed(hub: &Hub, key: &str) {
+pub async fn until_subscribed(hub: &Hub) {
     for _ in 0..200 {
-        if hub.app.gates.subscribers.of(key) > 0 {
+        if hub.app.gates.subscribers.of(KEY) > 0 {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;

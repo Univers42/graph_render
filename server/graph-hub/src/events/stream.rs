@@ -348,6 +348,8 @@ fn heartbeat() -> Event {
 
 /// One change notice: `event: change`, `id: <epoch>.<seq>`, `data: <notice_json>`.
 fn notice(head: &Head, epoch: u64) -> Event {
+    eprintln!("DEBUG notice seq={}", head.seq);
+    let _ = epoch;
     Event::default()
         .event(CHANGE)
         .id(Cursor {

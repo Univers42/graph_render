@@ -12,8 +12,8 @@ use graph_store::StoreError;
 use crate::common::{
     epoch_of, fault_on_reads, hub_with_one_change, raw_events, read_for_real, serve,
 };
-use crate::support::fixtures::{hub_db, ready};
 use crate::support::db;
+use crate::support::fixtures::{hub_db, ready};
 
 /// A cursor below what the log keeps is a `resync` on the stream rather than a 410 before it: the
 /// request was well formed, so the refusal belongs on the wire the client is already reading.
@@ -91,8 +91,7 @@ async fn the_busy_slot_is_free_before_the_close() {
     ready(&hub, &ws, "task").await;
     fault_on_reads(&hub.app, || StoreError::Busy { retry_after: 1 });
     let url = serve(hub.router.clone()).await;
-    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key)
-        .await;
+    let first = crate::common::open(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key).await;
     let lines = raw_events(&url, &format!("/v1/workspaces/{ws}/events"), &hub.key, 12).await;
     assert!(
         lines.iter().any(|line| line == "event: busy"),
@@ -181,9 +180,10 @@ async fn a_heartbeat_is_a_comment_and_never_carries_data() {
 async fn a_notice_carries_the_contract_own_text() {
     let (hub, ws) = hub_with_one_change(&[], "text").await;
     let url = serve(hub.router.clone()).await;
+    let epoch = epoch_of(&hub, &ws).await;
     let lines = raw_events(
         &url,
-        &format!("/v1/workspaces/{ws}/events?since=0.0"),
+        &format!("/v1/workspaces/{ws}/events?since={epoch}.0"),
         &hub.key,
         12,
     )
@@ -195,7 +195,10 @@ async fn a_notice_carries_the_contract_own_text() {
     let body = data.trim_start_matches("data: ");
     let value: serde_json::Value = serde_json::from_str(body).expect("a JSON notice");
     for member in ["seq", "plugin", "at"] {
-        assert!(value.get(member).is_some(), "the notice carries {member}: {body}");
+        assert!(
+            value.get(member).is_some(),
+            "the notice carries {member}: {body}"
+        );
     }
 }
 
