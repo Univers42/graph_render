@@ -231,8 +231,10 @@ impl Reads {
 /// jiggle, which most overlaps never need.
 ///
 /// This is the test plus [`push::hit`](push::hit): what `Gather` skips, because its filter
-/// already decided it. It stays the branched reference the tests compare against, and it
-/// shares the push so the two paths cannot drift.
+/// already decided it. It shares the push, so the branched reference the tests compare
+/// against cannot drift from the filtered path — and it is the reference only: the gather
+/// no longer calls it, so it is built for the tests and nowhere else.
+#[cfg(test)]
 fn resolve(c: Contact, ids: impl Fn() -> (u32, u32), (dx, dy): (f64, f64), out: &mut (f64, f64)) {
     let l = dx * dx + dy * dy;
     if l.is_nan() || l >= c.d2 {

@@ -2,8 +2,8 @@
 //!
 //! [`Gather`](super::gather::Gather) filters its window first and then pushes only the hits,
 //! so the push must not re-run the test the filter made on the same `dx * dx + dy * dy`.
-//! [`resolve`](super::resolve) keeps the test and calls [`hit`](hit), so the branched
-//! reference the tests compare against cannot drift from the filtered path.
+//! [`resolve`](super::resolve) — the tests' branched reference, and no longer on the gather's
+//! path — keeps the test and calls [`hit`](hit), so the two cannot drift.
 //!
 //! Caveat: `hit` trusts its caller. A `dx`/`dy` whose `dx * dx + dy * dy` is NaN or not under
 //! `c.d2` reaches a `sqrt` and a division the test would have refused; the NaN case is what
