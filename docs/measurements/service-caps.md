@@ -115,6 +115,7 @@ not order.
 | `layout.forceatlas2.3d` | layout | O(n^2) per iteration | 14000 | 14000 (21712) | 27039.5 | 25.3 | 32768 / 14486.7 | 8192 | 32768 |
 | `layout.random.3d` | layout | O(n) | 1000000 | 1000000 (1549929) | 581.7 | 1399.7 | 4000000 / 1346 | 1000000 | 4000000 |
 | `layout.force.yifan_hu.3d` | layout | O(n log n) x (112 + 48 x levels) for the... | 100000 | 65536 (101565) | 20743.1 | 140.4 | 131072 / 6671.2 | 32768 | 131072 |
+| `layout.dag.dot` | layout | O(r + 2m + 2s) after k pivots on the... | 9200000 | 8192 (12692) | 13310.3 | 38.6 | failed | 8192 | 12692 |
 largest peak at cap: 257.7 MiB (`layout.mds.pivot3d`)
 | `post.route.grid` | post, over `layout.grid` | O(m · cells · log cells) | 5000 | 3225 (4988) | 9447 | 35.3 | 12900 / 34524.9 | 3225 | 4988 |
 | `post.bundle.fdeb` | post, over `layout.grid` | O(m^2) to build the pair list once | 6900 | 4451 (6867) | 558.4 | 30.5 | 17804 / 2488.7 | 4451 | 6900 |
@@ -145,6 +146,7 @@ them ran on the loaded host, so they could rise on a re-run.
 | `layout.forceatlas2.barnes_hut` | n 131072 | 15157 | 38.75 |
 | `layout.force.particle_mesh` | n 524288 at 30025; dense n 262144 is 15424 | 30025 | 28.3 |
 | `layout.force.yifan_hu.3d` | n 65536 | 20743 | 12.44 |
+| `layout.dag.dot` | n 16384; dense n 8192 exit 137 | killed at 40 s | 9.84 |
 | `post.route.grid` | dense, over radial 21945 and over grid 34525 | 34525 | |
 | `post.separate.grid` | n 6451 over `layout.packing.circle` | killed at 40 s | |
 
@@ -153,6 +155,8 @@ them ran on the loaded host, so they could rise on a re-run.
 The five rows `layout.force.yifan_hu.2z`, `layout.force.fruchterman_reingold.3d`, `layout.force.kamada_kawai.3d`, `layout.force.drl.3d` and `layout.forceatlas2.3d` came from one more ladder run (2026-10-04, 34 rungs, load1 11.5 to 30.1 on 20 cores), with the commands above and those five ids, after develop registered them. `layout.force.yifan_hu.2z`, `layout.force.drl.3d` (its n 4096 rung was killed past 40 s) and `layout.forceatlas2.3d` are bound by time; the two others are at their ceiling of 2000.
 
 The two rows `layout.random.3d` and `layout.force.yifan_hu.3d` came from one more ladder run (2026-10-04, 25 rungs, load1 8.48 to 12.90 on 20 cores), with the commands above and those two ids, after develop registered them; `tests/caps.rs` had been red on develop without them. `layout.random.3d` is at its ceiling of 1000000. `layout.force.yifan_hu.3d` is bound by time: n 65536 took 20743 ms, so its cap is the n 32768 rung (11183 ms), with the dense rung at 131072 edges in 6671 ms. The larger dense peak of the two, 2491.6 MiB for `layout.random.3d` at n 1000000, is under the run peak at cap below, so the per-slot budget is unchanged.
+
+The row `layout.dag.dot` came from one more ladder run (2026-10-05, 7 rungs, load1 9.84 on 20 cores), with the commands above and that id, after develop registered it; `tests/caps.rs` had been red on develop without it. It is bound by time: n 16384 was killed past 40 s, so its cap is the n 8192 rung (13308 ms, 38.6 MiB). Its dense rung at n 8192 failed with exit 137, so its cap_m is the sparse rung's 12692 edges.
 
 The `post.separate.grid` kill comes from its input. `layout.packing.circle` runs untimed before the post
 and is slow at 6451 nodes. Over `layout.treemap.squarified` the post reached 6451 nodes in 1.58 s. Its cap
