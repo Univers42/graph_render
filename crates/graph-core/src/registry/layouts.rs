@@ -305,4 +305,6 @@ pub static LAYOUTS: [Capability; 50] = [
         params: &params::LayoutParams::NONE,
         meta: DOT,
     },
+    // ---- dag-lanes: one row per vertex, reused lanes, appended last (append only).
+    lanes::LANES_LAYOUT,
 ];
