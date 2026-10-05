@@ -4,6 +4,11 @@
 #
 #   hub-mem.sh measure    GRAPH_HUB_WRITERS=2, GRAPH_HUB_DB_POOL=8, the defaults   (row: expect 0)
 #   hub-mem.sh control    GRAPH_HUB_WRITERS=6, GRAPH_HUB_DB_POOL=10                (row: expect 137)
+#   hub-mem.sh upload     one GRAPH_HUB_MAX_DOC_BYTES document, five timed /layout uploads against a
+#                         real graph-server in a second container (Decision 4; row hub-upload-timeout)
+#
+# upload execs scripts/orch/hub-mem-upload-run.sh, which starts that second container and holds the
+# rest of the plumbing; scripts/orch/hub-mem-upload.sh holds the helpers it calls.
 #
 # Each run builds the client case, resets this worktree's database and hub (hub-pg.sh, hub-run.sh),
 # and starts the hub with GM_HUB_HOLD_BODIES and GRAPH_HUB_WRITERS_PER_KEY equal to the writer count
@@ -15,6 +20,10 @@
 # Exit: 0 every write answered and VmHWM under 1 GiB · 1 a write failed, the hub died, or VmHWM
 #       reached 1 GiB · 137 the kernel killed the hub at its cap · 2 could not run (usage, a build,
 #       docker)
+#
+# upload's exit codes are its own, from scripts/orch/hub-mem-upload-run.sh: 0 the slowest of the five
+# uploads was under 8000 ms, the motor's log held no 408 and every Graph-Seq matched · 1 one of those
+# failed, and target/hub-mem/upload.txt names which · 2 could not run.
 #
 # Caveat: the barrier aligns the start of every parse, not the peaks; a write that finishes before
 # the slowest one peaks has freed part of its tree, so the measured peak can sit below WRITERS × the
@@ -36,8 +45,9 @@ case_name=container::peak_rss_at_every_cap_fits_one_gib
 case "${1-}" in
 measure) writers=2 pool=8 ;;
 control) writers=6 pool=10 ;;
+upload) exec "$here/hub-mem-upload-run.sh" ;;
 --help | -h) sed -n '2,/^$/p' "$0" | sed -e 's/^# \{0,1\}//' -e '/^$/d'; exit 0 ;;
-*) echo "hub-mem: usage: hub-mem.sh measure|control" >&2; exit 2 ;;
+*) echo "hub-mem: usage: hub-mem.sh measure|control|upload" >&2; exit 2 ;;
 esac
 verb=$1
 export GRAPH_HUB_WRITERS=$writers GRAPH_HUB_WRITERS_PER_KEY=$writers GRAPH_HUB_DB_POOL=$pool
