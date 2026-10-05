@@ -117,6 +117,7 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
             "hashgate-control-packing-osage-nodes",
             &["layout.packing.osage"],
         ),
+        control("hashgate-control-dag-lanes-nodes", &["layout.dag.lanes"]),
     ]
 }
 
