@@ -14,7 +14,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A per-process counter, so two tests with the same name cannot collide on a database name.
+/// A per-process counter, so two tests whose names sanitize to the same string cannot collide.
 static SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// The database URL, or a panic naming the command that sets it.
@@ -25,11 +25,22 @@ pub fn url() -> String {
     }
 }
 
-/// The same URL with `database` replaced, for a test's own database.
+/// The same URL with the database replaced, for a test's own database.
 fn url_for(database: &str) -> String {
     let base = url();
     let (head, _) = base.rsplit_once('/').expect("GM_HUB_PG_URL has a database");
     format!("{head}/{database}")
+}
+
+/// The same URL with the *role* replaced by `postgres`, for the cases that inherently need a
+/// superuser.
+///
+/// `session_replication_role` is a superuser-only GUC and `ALTER ROLE ... SET` needs role
+/// administration, so those cases cannot run as `hub`. `hub` itself stays a non-superuser: the
+/// point of `GRANT pg_monitor` was to avoid making it one, and a test that needed a superuser to
+/// observe the store would prove nothing about the store.
+fn admin_url_for(database: &str) -> String {
+    url_for(database).replacen("postgres://hub:hub@", "postgres://postgres:hub@", 1)
 }
 
 /// One connected client on the shared database, for reads that must not disturb anything.
@@ -48,7 +59,7 @@ async fn connect(target: &str) -> tokio_postgres::Client {
     client
 }
 
-/// The database name a test called `name` gets: letters, digits and `_` only, unique per call.
+/// The database name a test called `name` gets: letters, digits and `_` only.
 fn database_name(name: &str) -> String {
     let clean: String = name
         .chars()
@@ -64,6 +75,12 @@ fn database_name(name: &str) -> String {
 /// test's own database exactly as it does for the real one, and `locale -a` differences on the
 /// host cannot change the answer.
 pub async fn fresh(name: &str) -> tokio_postgres::Client {
+    fresh_pair(name).await.0
+}
+
+/// A client on a database that belongs to this test alone, migrated to the current code, plus a
+/// superuser connection to the *same* database for the cases that need one.
+pub async fn fresh_pair(name: &str) -> (tokio_postgres::Client, tokio_postgres::Client) {
     let database = database_name(name);
     let mut admin = open().await;
     drop_database(&mut admin, &database).await;
@@ -74,11 +91,12 @@ pub async fn fresh(name: &str) -> tokio_postgres::Client {
         ))
         .await
         .unwrap_or_else(|e| panic!("create {database}: {e}"));
-    let mut client = connect(&url_for(&database)).await;
-    graph_store::migrate::apply(&mut client)
+    let mut hub = connect(&url_for(&database)).await;
+    graph_store::migrate::apply(&mut hub)
         .await
         .unwrap_or_else(|e| panic!("migrate {database}: {e}"));
-    client
+    let admin = connect(&admin_url_for(&database)).await;
+    (hub, admin)
 }
 
 /// Drop `database`, terminating anything still attached to it.

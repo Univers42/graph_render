@@ -82,6 +82,16 @@ start() {
   # `detector_refuses_a_hub_writer_default` sets that GUC as a role default, which needs this.
   "$drun" --rm --network "container:$name" "$image" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d hub \
     -c "GRANT SET ON PARAMETER hub.writer TO hub;" >/dev/null || return 1
+  # The restore detector reads `pg_control_system()`, `pg_current_wal_flush_lsn()` and
+  # `pg_walfile_name()`, all of which are superuser-only by default. `hub` is deliberately NOT a
+  # superuser, so it is granted `pg_monitor`, which is the least-privilege role that carries
+  # `pg_read_all_settings` and EXECUTE on the WAL-position readers.
+  # Caveat: `pg_control_system()` is not among them. `detector_refuses_fsync_off` proves which of
+  # the three the role actually reaches; if it cannot, `pg_control_checks()` (the row-level
+  # view, superuser-only too) or an explicit per-function GRANT is the alternative, and the test
+  # that proved it is named in docs/measurements/hub-pg-epoch-probe/store-image.md.
+  "$drun" --rm --network "container:$name" "$image" psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d hub \
+    -c "GRANT pg_monitor TO hub;" >/dev/null || return 1
   url || return 1
   echo
 }

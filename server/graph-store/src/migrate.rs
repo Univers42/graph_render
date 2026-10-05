@@ -8,6 +8,7 @@
 use sha2::{Digest, Sha256};
 use tokio_postgres::Client;
 
+use crate::breaks;
 use crate::error::{DbError, StoreError};
 
 /// Every migration, in apply order: `(name, bytes)`.
@@ -56,8 +57,87 @@ pub async fn apply(client: &mut Client) -> Result<u32, StoreError> {
             applied += 1;
         }
     }
+    epoch_breaks(client).await?;
     Ok(applied)
 }
+
+/// The negative controls' trigger-catalog breaks, applied after the DDL and never recorded.
+///
+/// WHY here and not in `0002_epoch.sql`: a break must change what the server *has*, without
+/// changing a file's bytes, or the migration-hash guard would refuse the database and the control
+/// would go red for the wrong reason.
+///
+/// Without the `negctl` feature this is a no-op that the optimizer removes.
+async fn epoch_breaks(client: &mut Client) -> Result<(), StoreError> {
+    if breaks::on("no-trigger") {
+        client.batch_execute(DROP_ALL).await?;
+    }
+    if breaks::on("trigger-enable-origin") {
+        client.batch_execute(ENABLE_ORIGIN_ALL).await?;
+    }
+    if breaks::on("one-trigger-origin") {
+        client.batch_execute(ENABLE_ORIGIN_ONE).await?;
+    }
+    Ok(())
+}
+
+/// Every trigger this slice names, and the tables they sit on.
+pub const TRIGGER_TABLES: [(&str, &str); 6] = [
+    ("workspaces", "id"),
+    ("manifests", "ws"),
+    ("records", "ws"),
+    ("links", "ws"),
+    ("change_headers", "ws"),
+    ("change_ops", "ws"),
+];
+
+/// `DROP TRIGGER` for all 24, in the order the events are created.
+const DROP_ALL: &str = concat!(
+    "ALTER TABLE workspaces DISABLE TRIGGER hub_workspaces_ins, hub_workspaces_upd, hub_workspaces_del, hub_workspaces_trunc;",
+    "DROP TRIGGER hub_workspaces_ins ON workspaces;",
+    "DROP TRIGGER hub_workspaces_upd ON workspaces;",
+    "DROP TRIGGER hub_workspaces_del ON workspaces;",
+    "DROP TRIGGER hub_workspaces_trunc ON workspaces;",
+    "ALTER TABLE manifests DISABLE TRIGGER hub_manifests_ins, hub_manifests_upd, hub_manifests_del, hub_manifests_trunc;",
+    "DROP TRIGGER hub_manifests_ins ON manifests;",
+    "DROP TRIGGER hub_manifests_upd ON manifests;",
+    "DROP TRIGGER hub_manifests_del ON manifests;",
+    "DROP TRIGGER hub_manifests_trunc ON manifests;",
+    "ALTER TABLE records DISABLE TRIGGER hub_records_ins, hub_records_upd, hub_records_del, hub_records_trunc;",
+    "DROP TRIGGER hub_records_ins ON records;",
+    "DROP TRIGGER hub_records_upd ON records;",
+    "DROP TRIGGER hub_records_del ON records;",
+    "DROP TRIGGER hub_records_trunc ON records;",
+    "ALTER TABLE links DISABLE TRIGGER hub_links_ins, hub_links_upd, hub_links_del, hub_links_trunc;",
+    "DROP TRIGGER hub_links_ins ON links;",
+    "DROP TRIGGER hub_links_upd ON links;",
+    "DROP TRIGGER hub_links_del ON links;",
+    "DROP TRIGGER hub_links_trunc ON links;",
+    "ALTER TABLE change_headers DISABLE TRIGGER hub_change_headers_ins, hub_change_headers_upd, hub_change_headers_del, hub_change_headers_trunc;",
+    "DROP TRIGGER hub_change_headers_ins ON change_headers;",
+    "DROP TRIGGER hub_change_headers_upd ON change_headers;",
+    "DROP TRIGGER hub_change_headers_del ON change_headers;",
+    "DROP TRIGGER hub_change_headers_trunc ON change_headers;",
+    "ALTER TABLE change_ops DISABLE TRIGGER hub_change_ops_ins, hub_change_ops_upd, hub_change_ops_del, hub_change_ops_trunc;",
+    "DROP TRIGGER hub_change_ops_ins ON change_ops;",
+    "DROP TRIGGER hub_change_ops_upd ON change_ops;",
+    "DROP TRIGGER hub_change_ops_del ON change_ops;",
+    "DROP TRIGGER hub_change_ops_trunc ON change_ops;"
+);
+
+/// `ENABLE ORIGIN` on all 24: a replica-role write then moves no epoch at all.
+const ENABLE_ORIGIN_ALL: &str = concat!(
+    "ALTER TABLE workspaces ENABLE ORIGIN TRIGGER hub_workspaces_ins, hub_workspaces_upd, hub_workspaces_del, hub_workspaces_trunc;",
+    "ALTER TABLE manifests ENABLE ORIGIN TRIGGER hub_manifests_ins, hub_manifests_upd, hub_manifests_del, hub_manifests_trunc;",
+    "ALTER TABLE records ENABLE ORIGIN TRIGGER hub_records_ins, hub_records_upd, hub_records_del, hub_records_trunc;",
+    "ALTER TABLE links ENABLE ORIGIN TRIGGER hub_links_ins, hub_links_upd, hub_links_del, hub_links_trunc;",
+    "ALTER TABLE change_headers ENABLE ORIGIN TRIGGER hub_change_headers_ins, hub_change_headers_upd, hub_change_headers_del, hub_change_headers_trunc;",
+    "ALTER TABLE change_ops ENABLE ORIGIN TRIGGER hub_change_ops_ins, hub_change_ops_upd, hub_change_ops_del, hub_change_ops_trunc;"
+);
+
+/// `ENABLE ORIGIN` on exactly one, so the catalog assertion and one replica-role write both fail.
+const ENABLE_ORIGIN_ONE: &str =
+    "ALTER TABLE records ENABLE ORIGIN TRIGGER hub_records_ins;";
 
 /// Apply one file. `Ok(true)` when it was applied, `Ok(false)` when it was already recorded with
 /// the same hash.
