@@ -116,9 +116,16 @@ fn absorb(
 /// The link geometry of every edge at a node in `touched`: the new edges, and every old
 /// edge whose bias read a degree that moved. No other edge's inputs changed.
 ///
-/// **Caveat:** the cost is the degree of each touched node, not the batch: one edge added
-/// to a hub of degree `d` recomputes `d` edges. The values are the ones a full
-/// `link::geometry` gives; only the work is degree-proportional.
+/// Each edge is computed **once**, the first time any touched row yields it. The set of edges
+/// is the union of the touched rows either way — what changes is the multiplicity: an edge
+/// whose *both* endpoints moved used to be computed once per endpoint, and `absorb` puts both
+/// endpoints of every edge it adds into `touched`, so the batch's own edges were all computed
+/// twice. `edge_geometry` reads two degrees, two divisions and two clamps, so the second
+/// computation of an edge is a whole call spent on the value the first one wrote.
+///
+/// **Caveat:** the cost is still the degree of each touched node, not the batch: one edge added
+/// to a hub of degree `d` still walks `d` rows, it just writes each of them once. The values are
+/// the ones a full `link::geometry` gives; only the work is degree-proportional.
 fn relink(sim: &mut Sim, touched: &[u32]) {
     let m = sim.graph.lo.len();
     for column in [
@@ -128,18 +135,48 @@ fn relink(sim: &mut Sim, touched: &[u32]) {
     ] {
         column.resize(m, 0.0);
     }
+    let mut written = Written::new(m);
     for &v in touched {
         for &e in sim.graph.rows.row(v) {
-            let (at, (d, s, b)) = (
-                e as usize,
-                edge_geometry(&sim.graph, &sim.params, e as usize),
-            );
+            let at = e as usize;
+            if !written.first(at) {
+                continue;
+            }
+            let (d, s, b) = edge_geometry(&sim.graph, &sim.params, at);
             (
                 sim.link_distance[at],
                 sim.link_strength[at],
                 sim.link_bias[at],
             ) = (d, s, b);
         }
+    }
+}
+
+/// Which simple edges [`relink`] has already computed in this call, one bit each.
+///
+/// A bitset rather than a set of indices because it is written once per edge of the touched
+/// rows and read once, and at a million simple edges it is 128 KB against the tens of megabytes
+/// the rows it filters are spread across. **Caveat:** it is allocated per `grow`, so a batch
+/// that touches nothing still pays its zeroing — `m / 8` bytes, against a `relink` that would
+/// otherwise have written nothing at all.
+struct Written {
+    words: Vec<u64>,
+}
+
+impl Written {
+    fn new(edges: usize) -> Self {
+        Self {
+            words: vec![0; edges.div_ceil(u64::BITS as usize)],
+        }
+    }
+
+    /// Whether `edge` is still to be computed, marking it as claimed if so.
+    fn first(&mut self, edge: usize) -> bool {
+        let (word, at) = (edge / u64::BITS as usize, edge % u64::BITS as usize);
+        let bit = 1 << at;
+        let fresh = self.words[word] & bit == 0;
+        self.words[word] |= bit;
+        fresh
     }
 }
 
