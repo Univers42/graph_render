@@ -74,6 +74,7 @@ impl Ids {
 /// is `Batch::check`'s job in the store, and the hub only relays the store's `HubError`.
 pub fn ids_of(uri: &Uri) -> Result<Ids, HubApiError> {
     let segments = split(uri.path())?;
+    let segments: Vec<&str> = segments.iter().map(String::as_str).collect();
     match segments.as_slice() {
         ["meta"] => Ok(Ids::default()),
         ["workspaces"] => Ok(Ids::default()),
@@ -184,9 +185,6 @@ impl FromRequestParts<Arc<App>> for PathIds {
         parts: &mut Parts,
         _state: &Arc<App>,
     ) -> Result<Self, Self::Rejection> {
-        PathIds(ids_of(&parts.uri)).map_err(|error| match error {
-            HubApiError::NotFound(_) => HubApiError::NotFound("no such route"),
-            other => other,
-        })
+        Ok(PathIds(ids_of(&parts.uri)?))
     }
 }

@@ -69,7 +69,9 @@ async fn start(settings: Settings, log: graph_hub::LogSink) -> Result<(), String
         .map_err(|refused| refused.to_string())?;
     let addr = SocketAddr::new(settings.bind, settings.port);
     let app = App::from_settings(&settings, log)?;
-    serve::serve_forever(addr, &settings.connections, app).await
+    serve::serve_forever(addr, &settings.connections, app)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 fn refuse_config(refused: &ConfigError) -> ExitCode {

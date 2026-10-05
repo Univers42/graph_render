@@ -10,6 +10,7 @@
 
 use graph_contract::hub::check_plugin_id;
 use std::collections::BTreeMap;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crate::breaks;
@@ -72,7 +73,7 @@ impl Grants {
     pub fn load(path: &Path) -> Result<Self, String> {
         use std::io::Read;
         let whole = |reason: &str| format!("grants file: {reason}");
-        let mut file = std::fs::File::open(path).map_err(|_| whole("cannot be opened"))?;
+        let file = std::fs::File::open(path).map_err(|_| whole("cannot be opened"))?;
         let meta = file.metadata().map_err(|_| whole("cannot be read"))?;
         if !meta.is_file() {
             return Err(whole("is not a regular file"));

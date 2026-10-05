@@ -24,14 +24,11 @@ async fn an_unknown_route_is_the_json_404_shape() {
     assert!(!reply.message().is_empty());
 }
 
-/// The hub's own source never names the compute crate's `auth::check` (graph-render-4f's reuse
+/// The hub's own source never names the compute crate's credential check (graph-render-4f's reuse
 /// limit, `docs/decisions/graph-hub.md:120-121`): it carries the `any-key` break and the compute
 /// `App`. A source grep is the only thing that can hold a negative.
 #[test]
 fn the_hub_source_never_names_auth_check() {
     let hits = support::grep_this_crate("auth::check");
-    assert!(
-        hits.is_empty(),
-        "graph-hub must not call auth::check: {hits:?}"
-    );
+    assert!(hits.is_empty(), "graph-hub must not call auth::check: {hits:?}");
 }

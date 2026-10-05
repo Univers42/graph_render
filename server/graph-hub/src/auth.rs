@@ -71,7 +71,7 @@ pub fn credential(pair: &Arc<Pair>, headers: &HeaderMap) -> Result<String, HubAp
 pub fn authorize(
     app: &Arc<App>,
     headers: &HeaderMap,
-    ids: &Ids<'_>,
+    ids: &Ids,
     need: Need<'_>,
 ) -> Result<Credential, HubApiError> {
     let pair = app.keys.current();

@@ -123,7 +123,7 @@ impl Settings {
 /// The checks are the store's connection, so the restore detector has already run on it (§5.3), and
 /// a refusal here is a refusal of the deployment rather than of the query.
 pub async fn check_database(db: &Store) -> Result<(), ConfigError> {
-    let mut client = db
+    let client = db
         .client()
         .await
         .map_err(|_| ConfigError::new("GRAPH_HUB_DB_URL", "cannot be reached"))?;

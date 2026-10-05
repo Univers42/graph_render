@@ -86,6 +86,12 @@ impl Keyring {
     pub fn len(&self) -> usize {
         self.current().0.len()
     }
+
+    /// Always false: `KeySet::load` refuses an empty file, so a loaded pair holds at least one
+    /// key. Named because `len` alone trips `clippy::len_without_is_empty`.
+    pub fn is_empty(&self) -> bool {
+        false
+    }
 }
 
 /// Both files, or the first refusal. `KeySet::load`'s own error names a line number and a reason
