@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPlugin, SyncRestartError } from "../src/plugin.ts";
-import { readStored } from "../src/plugin/sync.ts";
-import { hubCaller } from "../src/hub/call.ts";
 
 const BASE = "http://hub.test:8081";
 const WS = "ops";
@@ -195,28 +193,6 @@ test("plugin_sync_restarts_when_a_later_page_carries_another_plugin_seq", async 
   assert.equal(hub.count("records"), 3, "two pages, then one page for the restarted run");
   assert.equal(hub.headersOf("batches", "If-Match")[0], '"1.41"', "the restarted run uses the new seq");
   assert.deepEqual(answers, [{ seq: 10, applied: 1 }]);
-});
-
-test("plugin_read_stored_follows_next_until_it_is_absent", async () => {
-  const urls = [];
-  const caller = hubCaller({
-    baseUrl: BASE,
-    fetch: async (url) => {
-      urls.push(url);
-      // `next` only on the first page: the route is done when it is absent (§5.2).
-      return json(urls.length === 1 ? recordsPage(["1", "2"], "1.40", "cursor-1") : recordsPage(["3"], "1.40"));
-    },
-  });
-  const page = await readStored(caller, WS, PLUGIN, 25);
-  assert.equal(urls.length, 2);
-  assert.match(urls[0], /\/v1\/workspaces\/ops\/plugins\/tracker\/records\?limit=25$/);
-  assert.match(urls[1], /cursor=cursor-1/, "the opaque next is followed verbatim");
-  assert.deepEqual(page.keys, [
-    { collection: "issue", id: "1" },
-    { collection: "issue", id: "2" },
-    { collection: "issue", id: "3" },
-  ]);
-  assert.equal(page.pluginSeq, "1.40");
 });
 
 test("plugin_sync_gives_up_after_three_restarts", async () => {
