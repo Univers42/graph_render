@@ -10,18 +10,19 @@ use super::{Knob, arms, records};
 
 impl Knob {
     /// Every knob: those that move a parameter or re-draw one layout's model, then
-    /// the twenty-seven per-stage controls — the fifteen of
+    /// the thirty per-stage controls — the fifteen of
     /// [`super::knobs::ANALYSIS_POST_STAGES`], the six of [`super::knobs::IGRAPH_LAYOUT_STAGES`], the
-    /// five of [`super::knobs::THREE_D_LAYOUT_STAGES`] and the one of
-    /// [`super::knobs::OSAGE_LAYOUT_STAGES`] — then the two compute-tier controls, then the live
+    /// seven of [`super::knobs::THREE_D_LAYOUT_STAGES`], the one of
+    /// [`super::knobs::OSAGE_LAYOUT_STAGES`] and the one of
+    /// [`super::knobs::DOT_LAYOUT_STAGES`] — then the two compute-tier controls, then the live
     /// session's own. The list itself is [`arms::ALL`], spelled out there.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
-    /// twenty-seven per-stage arms are spelled out there and held against those four tables
+    /// thirty per-stage arms are spelled out there and held against those five tables
     /// by `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 50] = arms::ALL;
+    pub const ALL: [Self; 51] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

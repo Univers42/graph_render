@@ -2,7 +2,6 @@
 //! so their row is `implemented`, never `gated`.
 
 use super::super::Status;
-use super::layout_row::UNPROVEN_RECORD;
 
 /// The six igraph 2D layouts, held to `harness/oracle-igraph.py`'s stress ratio.
 const IGRAPH_LAYOUTS: [&str; 6] = [
@@ -256,22 +255,30 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // status; `Gated` would claim a byte-agreement this job did not reach, and widening
         // the ceiling until the row passed would be the same claim with a bigger number.
         "layout.force.sfdp" => Some(("oracle-sfdp", Status::Implemented)),
-        // ---- p13-gv3-dot-position: Graphviz's own layered engine. **The Graphviz family
-        // arm that names no oracle, and that is the honest status rather than a gap.**
+        // ---- p13-gv3-dot-diff: Graphviz's own layered engine, now with a differential and a
+        // hashgate control. **Still `Implemented`, and the ceiling is why.**
         //
-        // Every other Graphviz row above names a differential this tree runs. `dot` has none
-        // yet: `crates/graph-cli/src/oracle_python/dot.rs` is named as the next job by
-        // `docs/measurements/p13-gv2-dot.md`'s "The remaining passes", and the hashgate knob
-        // is named with it. So the arm says so in writing rather than letting the row fall
-        // through — which is the whole reason this chain enumerates ids at all.
+        // Both halves of what this row needed are now in the tree. `oracle-dot`
+        // (`crates/graph-cli/src/oracle_python/dot.rs`) runs over the 1000 gate seeds and
+        // records `target/gates/oracle-dot.json`; `GM_MUTATE_DAG_DOT_NODES` (record
+        // `hashgate-control-dag-dot-nodes`, tabulated in `hashgate::knobs::DOT_LAYOUT_STAGES`,
+        // held by `hashgate/tests/knob/dot.rs`) turns the gate red on `layout.dag.dot` and on
+        // no other stage, which is the half `Status::Gated` asks for.
         //
-        // `Implemented`, never `gated`, on `layout.packing.osage`'s stated precedent: the
-        // layout draws, its six closed cases match the oracle's printed coordinates byte for
-        // byte, and what the missing differential withholds is a measured *ceiling*, not the
-        // layout. `unproven` is the record name a row of no consequence carries, and it is
-        // read as "not backed: no unproven record: run the gate" — the truth about a row with
-        // no gate behind it yet.
-        "layout.dag.dot" => Some((UNPROVEN_RECORD, Status::Implemented)),
+        // **The oracle side is what withholds the promotion.** The sweep measures a worst gap
+        // of **1.851e+04** points (seed 587) and a median of **1.781e+03**, with only **2** of
+        // 1000 seeds at the oracle's own printed resolution — so the 1e5 ceiling records a
+        // **disagreement**, not a formatter floor, and `Gated` would claim a byte-agreement
+        // this tree does not have (`docs/measurements/p13-gv2-dot.md`, "Differential").
+        //
+        // The cause is counted there and is not fixed here: the width table returns the 0.75
+        // inch default box for every id of up to three characters where Graphviz is 3 to 16
+        // points wider, and that width is a *constraint length* in the x-coordinate simplex;
+        // the same file measures 692 of 1000 seeds agreeing on the rank, 408 of those on every
+        // rank's order, and only 10 of the 408 printing every node centre exactly. The six
+        // closed cases **do** agree byte for byte in the harness, which is why this is
+        // `Implemented` and not a hole.
+        "layout.dag.dot" => Some(("oracle-dot", Status::Implemented)),
         _ => None,
     }
 }

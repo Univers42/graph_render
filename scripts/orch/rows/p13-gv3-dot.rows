@@ -1,0 +1,68 @@
+# p13-gv3 dot — the merge floor, the two wasm32 builds, the hash gate at 8 seeds, the
+# existing knob controls, and the dot differential's three steps plus two negative controls
+# of its own.
+#
+# Copied from `scripts/orch/rows/p13-gv1-osage.rows` (the merge floor plus wasm32 and hashgate
+# 8, the differential chain in the three-step shape, and the same two perturb controls),
+# with osage -> dot and `GM_MUTATE_PACKING_OSAGE_NODES` -> `GM_MUTATE_DAG_DOT_NODES`.
+#
+# The timed gates — `hashgate --seeds 1000`, `scripts/orch/gate.sh`, `scripts/orch/mutants.sh` —
+# are the orchestrator's and are not rows here: one timed gate at a time (CLAUDE.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (`scripts/orch/gate.sh:2-4`).
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm32-motor|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The negative controls. The knobs list exists once, in
+# `crates/graph-cli/src/hashgate/tests/knob.rs`, and this row set differs from osage's in one
+# respect: `layout.dag.dot` HAS a per-stage control (`hashgate::knobs::DOT_LAYOUT_STAGES`,
+# record `hashgate-control-dag-dot-nodes`), so the row osage could not write exists here and
+# runs. `coverage.rs`'s allow list no longer exempts the dot row as `Gap::NoControl`.
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+negctl-dot-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_DAG_DOT_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The dot differential at the seed count it is measured at
+# (`docs/measurements/p13-gv2-dot.md`, "Differential"): emit the fixtures, run Graphviz's own
+# engine over them in the pinned docker-only oracle image, then check the result against the
+# measured ceiling and record it. The oracle rows are the only ones here that talk to Docker.
+dot-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine dot --seeds 1000
+dot-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-fixtures dot target/gv-dot --differential
+dot-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine dot
+
+# The oracle is deterministic: the same 1000 fixtures through `dot` twice, byte for byte.
+# This is the evidence the ADR's determinism claim rests on, run as a row so it cannot rot.
+dot-oracle-determinism|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-fixtures dot target/gv-dot-cmp-a --differential && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-fixtures dot target/gv-dot-cmp-b --differential && cmp target/gv-dot-cmp-a/graphviz-dot.jsonl target/gv-dot-cmp-b/graphviz-dot.jsonl
+
+# `-Gstart` is inert for this engine, and that is a measurement rather than an assumption:
+# the same 1000 fixtures at start=1, 7 and 99 are byte-identical
+# (`docs/measurements/p13-gv2-dot.md`). All three runs use the plain positional call, so all
+# three write the same record shape and `cmp` is meaningful — comparing a `--differential`
+# output against a positional one differs in the JSON keys alone and would prove nothing.
+dot-oracle-start-inert|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-fixtures dot target/gv-dot-start1 --fixtures=dot.jsonl --start=1 && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-fixtures dot target/gv-dot-start7 --fixtures=dot.jsonl --start=7 && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-fixtures dot target/gv-dot-start99 --fixtures=dot.jsonl --start=99 && cmp target/gv-dot-start1/graphviz-dot.jsonl target/gv-dot-start7/graphviz-dot.jsonl && cmp target/gv-dot-start1/graphviz-dot.jsonl target/gv-dot-start99/graphviz-dot.jsonl
+
+# **Control 1: the oracle's output for this engine is read to the last digit.** Two runs of
+# the *same* 20 fixtures (a and b) are byte-identical; then one node coordinate of one seed
+# in b is moved by 1e-6 points — a millionth of a point, four orders of magnitude below
+# anything the layout computes — and the byte comparison must fail. Without it, "the two
+# runs are identical" could mean "the comparison never looks". Both sides must come from the
+# same fixture set: comparing a 20-seed output against the 1000-seed one would differ in the
+# seed count alone and pass with the perturbation deleted, which is a control that cannot
+# fail.
+dot-oracle-perturb-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine dot --seeds 20 --out target/dot-negctl && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-negctl dot target/gv-dot-negctl-a --differential && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/dot-negctl dot target/gv-dot-negctl-b --differential && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/gv-dot-negctl-b/graphviz-dot.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['points'][0][0] += 1e-6; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && cmp target/gv-dot-negctl-a/graphviz-dot.jsonl target/gv-dot-negctl-b/graphviz-dot.jsonl
+
+# **Control 2: the check cannot pass on nothing.** A directory with no recorded run must be
+# refused rather than read as a pass — the same shape `scripts/orch/rows/p13-gv1.rows:55`
+# uses for the twopi oracle.
+dot-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine dot --dir target/dot-fixtures-absent
+
+# **There is deliberately no `negctl-dot-sizes` row**, where osage has `negctl-osage-sizes`:
+# dot's fixture carries **no `box` column**. osage must pin node sizes, because `arrayRects`
+# sorts boxes Graphviz sizes from the rendered label, which graph-core has no font engine
+# for; `dot` reads the same width table on both arms (`text_width.rs`, and the harness draws
+# the bare graph), so there is one table rather than two and nothing to perturb out of
+# agreement. The perturb control below is the one that carries the weight instead, and the
+# width-table disagreement it would have caught is recorded as a measurement in
+# `docs/measurements/p13-gv2-dot.md` (Blocker 1) rather than hidden in a fixture.

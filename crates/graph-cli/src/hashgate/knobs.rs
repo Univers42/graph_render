@@ -1,14 +1,14 @@
 //! The per-stage negative controls that back a control with a re-drawn model rather than a
 //! real parameter, and the `GM_MUTATE_*` variable each one is set by: the fifteen ANALYSIS
-//! and POST stages, the six igraph layouts, the five natively 3D layouts and the one
-//! Graphviz packing layout.
+//! and POST stages, the six igraph layouts, the seven natively 3D layouts, the one Graphviz
+//! packing layout and the one Graphviz `dot` layout.
 //!
 //! Split out of `knob.rs` by the house's 300-line limit, and because these are one thing
 //! the controls in `knob.rs` are not: they share a single shape. A stage that takes a
 //! parameter backs its control with a real parameter; a stage that takes none — and
-//! every analysis, every POST capability, every igraph layout, every natively 3D layout
-//! and `layout.packing.osage` takes none, being a pure function of the gate's model at
-//! fixed conventions — backs its control by re-drawing **its own** model with
+//! every analysis, every POST capability, every igraph layout, every natively 3D layout,
+//! `layout.packing.osage` and `layout.dag.dot` take none, being a pure function of the gate's
+//! model at fixed conventions — backs its control by re-drawing **its own** model with
 //! [`Setting::stage_nodes`], one more node than the gate's own, for that stage alone.
 //!
 //! Re-drawing is the honest probe for a stage with no parameter to move, and it is what
@@ -188,10 +188,36 @@ pub const OSAGE_LAYOUT_STAGES: [Stage; 1] = [Stage {
     record: "hashgate-control-packing-osage-nodes",
 }];
 
+/// The one Graphviz `dot` layout's per-stage node control, the same shape as the two above
+/// and for the same reason.
+///
+/// **The re-drawn model is the *only* probe available here**, and the port says so itself:
+/// `dot` publishes no `Params` and has no `impl Stage`, recording that the reference's
+/// `rankdir`, `nodesep`, `ranksep`, `ratio`, `nslimit` and `searchsize` are set by neither the
+/// ledger row nor the oracle, so a `Params` here would buy a knob with nothing behind it
+/// (`dot.rs:169-172`). What it *does* read is the whole `Topology`, so its model is its entire
+/// input and one more node moves its ranks, its ordering and its coordinates.
+///
+/// The re-draw is scoped to `stage_nodes`, so `topology`, the other layouts and the transport
+/// stage stay byte-identical and the divergence names this stage.
+///
+/// **This row is what `layout.dag.dot` needs for `Status::Gated`**, by the same argument the
+/// osage row above gives: `verdict::hash_4way` refuses a gated row whose own stage no control
+/// went red on, and the controls that do go red do not reach it — `GM_MUTATE_NODE_COUNT` moves
+/// `topology` and everything shaped by it, and no parameter control names a `dot` input.
+///
+/// **The id is graph-core's own `dot::ID`**, never a spelling here, for the reason the tables
+/// above give.
+pub const DOT_LAYOUT_STAGES: [Stage; 1] = [Stage {
+    id: graph_core::layout::graphviz::dot::ID,
+    env: "GM_MUTATE_DAG_DOT_NODES",
+    record: "hashgate-control-dag-dot-nodes",
+}];
+
 /// Every per-stage control this module tables: the fifteen ANALYSIS and POST rows, then the
-/// six igraph layout rows, then the five 3D layout rows, then the one Graphviz packing row —
-/// one search list, so [`super::knob::stage_of`] resolves all four families through the same
-/// table lookup and none can drift from another's shape.
+/// six igraph layout rows, then the seven 3D layout rows, then the one Graphviz packing row and
+/// the one Graphviz `dot` row — one search list, so [`super::knob::stage_of`] resolves every
+/// family through the same table lookup and none can drift from another's shape.
 pub fn all() -> impl Iterator<Item = Stage> {
     ANALYSIS_POST_STAGES
         .iter()
@@ -199,6 +225,7 @@ pub fn all() -> impl Iterator<Item = Stage> {
         .chain(IGRAPH_LAYOUT_STAGES.iter().copied())
         .chain(THREE_D_LAYOUT_STAGES.iter().copied())
         .chain(OSAGE_LAYOUT_STAGES.iter().copied())
+        .chain(DOT_LAYOUT_STAGES.iter().copied())
 }
 
 /// One ANALYSIS or POST stage's negative control: the stage it perturbs, the variable
@@ -230,7 +257,7 @@ pub fn by_env(env: &str) -> Option<Stage> {
 /// `stage`'s perturbation written into `setting`: `count` nodes added to *its* model.
 ///
 /// Zero is refused by the caller (`knob::value::nodes`), not here: the rule is one rule for
-/// all twenty-seven tabled controls, and a second copy of it here would be a second place for
+/// all thirty tabled controls, and a second copy of it here would be a second place for
 /// it to drift.
 ///
 /// **The stage id is checked against the gate's own stage list** (RG-41): `knobs::apply`

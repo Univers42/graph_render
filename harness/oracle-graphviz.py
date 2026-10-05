@@ -45,12 +45,13 @@ fixture file's own order, so it does not depend on any timing, and the fold is `
 the worsts — an order-free reduction. An engine with neither flag is run exactly as it is
 on develop: one shard, and the same file names.
 
-**Three child modules**, each holding one kind of thing, so no arm of this file is the
+**Five child modules**, each holding one kind of thing, so no arm of this file is the
 place the metric lives: `gv_plain.py` (write one DOT graph, run one engine, read
 `-Tplain`), `gv_closed.py` (the analytically determined cases and the one uniform rescale
 both arms go through), `gv_frames.py` (the closed cases whose answers are already in the
-frame `-Tplain` prints, which is `osage` alone — `circo`'s are in the layout's own frame, so
-`gv_closed.rendered` applies the half-node offset `-Tplain` translates by),
+frame `-Tplain` prints, which is `osage`, `fdp`, `sfdp` and `dot` — `circo`'s are in the
+layout's own frame, so `gv_closed.rendered` applies the half-node offset `-Tplain`
+translates by),
 `gv_sized.py` (the size-pinned DOT writer, for the one engine that sizes nodes from labels)
 and `gv_arms.py` (the three entry points below: record, differential, merge). The split is
 why this file is a driver over the flags and the metric and stays under the house limit.

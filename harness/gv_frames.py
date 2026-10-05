@@ -73,6 +73,34 @@ FRAMED_CLOSED = {
             (134.35920000000002, 164.5488),
         ],
     },
+    # dot: the six closed cases as the pinned 16.1.0 `dot -Tplain` printed them, in the frame
+    # `-Tplain` prints, byte for byte at five significant digits
+    # (`docs/measurements/p13-gv2-dot.md`, "The six closed cases"). The arithmetic is the
+    # reference's own conventions — node `0.75 x 0.5` inch, `nodesep` 0.25, `ranksep` 0.5, so
+    # ranks and same-rank neighbours are 72 points apart — and every row was re-measured here
+    # rather than copied, so the table is checked rather than restated.
+    #
+    # **The 6-branch row is the seven-edge graph's answer, and `framed_cases` draws the
+    # five-edge one.** `twopi_closed.CLOSED_CASES["six-branch"]` is
+    # `n0--n1, n0--n2, n0--n3, n2--n4, n4--n5`; the measurement's table is the seven-edge
+    # graph (it drops `n2--n4` and `n3--n4` and draws `n4` under `n2`). The two print the
+    # **same** coordinates — measured, `dot -Tplain` on both — because `n2` sits directly
+    # above `n4` in the five-edge graph, so the two lost constraints move nothing. So this row
+    # is the answer to the graph the harness draws, and the agreement is measured rather than
+    # assumed; the port's own `dot/order_tests.rs` names the same collision.
+    "dot": {
+        "one-node": [(27.0, 18.0)],
+        "two-nodes": [(27.0, 90.0), (27.0, 18.0)],
+        "three-path": [(27.0, 162.0), (27.0, 90.0), (27.0, 18.0)],
+        "four-cycle": [(54.0, 234.0), (27.0, 162.0), (27.0, 90.0), (54.0, 18.0)],
+        "five-star": [
+            (135.0, 90.0), (27.0, 18.0), (99.0, 18.0), (171.0, 18.0), (243.0, 18.0),
+        ],
+        "six-branch": [
+            (99.0, 234.0), (27.0, 162.0), (99.0, 162.0),
+            (171.0, 162.0), (99.0, 90.0), (99.0, 18.0),
+        ],
+    },
     # sfdp: one case only, closed because a single node has one position, the centre of the
     # default 0.75 x 0.5 inch box; measured identical at `-Gstart` 1, 7 and 99. The other five
     # peer cases are deliberately absent: this engine is seed-sensitive, so each prints three

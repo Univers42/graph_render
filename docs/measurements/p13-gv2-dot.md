@@ -627,3 +627,108 @@ where every label is two characters and every box *is* the `0.75` inch minimum. 
 section above measures why that set is the one: the width table returns the default box for
 every label of up to three characters, so above `n <= 10` the drawing is wrong by a known
 constant rather than by anything algorithmic.
+
+# Differential (2026-10-04)
+
+The graph-cli differential landed: `crates/graph-cli/src/oracle_python/dot.rs`, `ENGINES` 7 -> 8,
+one `by_engine` arm, and `FRAMED_CLOSED["dot"]` in `harness/gv_frames.py`. The fixture line is
+`twopi`'s — the gate model, `source`/`target`, our coordinates under `"dot"` — with **no `box`
+column**, so the harness draws the bare graph and both arms read the same width table. That is
+the point: `dot` sizes a node from its *rendered label* (Blocker 1), and a pinned `box` column
+would have been a second width table rather than a fix.
+
+## The three commands
+
+```sh
+scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine dot --seeds 1000
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+    python3 harness/oracle-graphviz.py target/dot-fixtures dot target/gv-dot --differential
+scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine dot
+# dot shard 0/1: 1000 seeds, worst 1.851e+04 points; closed 6 of 6 exact: True
+#   layout.dag.dot: 1000 cases, worst 1.851e4, ceiling 1e5: ok
+#   closed cases: 6 compared byte for byte: ok
+# PASS
+```
+
+The third command's exit code is **0**. Every number below is `gv_closed.gap` — the harness's
+own metric, imported by the script that produced them, not a re-derivation — run over the
+recorded fixture coordinates and the oracle's recorded `graphviz-dot.jsonl`.
+
+## The distribution, and it is a disagreement
+
+| measurement | over the 1000 gate seeds |
+|---|---|
+| seeds at or under the printed resolution (1e-1 points) | **2** |
+| median gap | **1.781e+03** points |
+| p90 | **1.127e+04** points |
+| worst gap | **1.851e+04** points, seed **587** |
+| smallest gap | **0.0** points, seeds 0 and 600 |
+| seeds carrying a gap above 1e3 | **559** |
+| seeds carrying a gap above 1e4 | **142** |
+
+**Only 2 of 1000 seeds sit at the oracle's own printed resolution, so this arm does not have
+the `layout.twopi` / `layout.packing.osage` answer.** Those two state 1e-1 because `-Tplain`'s
+five significant digits *are* the floor there — at the largest gate drawing one printed digit is
+about 7e-2 points, and the measured gaps never exceeded half of one. Here the median is four
+orders of magnitude above that floor, so the number records a **disagreement**.
+
+**The cause is the order and position disagreements counted above, not the formatter.** Those
+sections measure 692 of 1000 seeds agreeing node for node on the rank, 408 of those agreeing on
+every rank's order, and only **10** of the 408 printing every node centre exactly. This metric
+adds the uniform rescale over the whole bounding box, which is why it sees 2 where that
+sweep sees 10: a single rank or order disagreement moves one node, and the rescale carries it
+onto every other node's coordinate too.
+
+The low tail is the fixture's **small** graphs, not the layout at large: seeds 0 and 600 are the
+same two-node graph at two and four character ids, and the next four are 1, 601, 2 and 602 —
+the same five shapes again. Past ten nodes the width table returns the `0.75` inch default box
+where Graphviz is 3 to 16 points wider, and that width is a *constraint length* in the
+x-coordinate simplex, so the two arms constrain each node to a different length (Blocker 1).
+
+**No layout fix is attempted here.** The width table's escape hatch is one constant pair in
+`text_width.rs`, outside this crate; the 302 rank ties and 284 order disagreements are
+properties of the optimum each implementation reaches, and the "Mincross" section above says
+which of the two the port reaches is not isolated. The row is `Status::Implemented`.
+
+## The six closed cases are exact
+
+`FRAMED_CLOSED["dot"]` holds all six, and the harness reports **6 of 6 exact: True** — every
+row byte for byte against `-Tplain`'s own five significant digits.
+
+**The 6-branch row needed checking before it could be written, and it is the collision the
+"Position" section names.** `twopi_closed.CLOSED_CASES["six-branch"]` is the *five-edge* graph
+`n0--n1, n0--n2, n0--n3, n2--n4, n4--n5`, while the table above is the *seven-edge* one. The
+two were run through `dot -Tplain` and **print the same coordinates** — measured, not assumed —
+because `n2` sits directly above `n4` in the five-edge graph, so dropping `n2--n4` and `n3--n4`
+moves nothing. So the row is the answer to the graph the harness actually draws. All six rows
+were re-measured here rather than copied from the table above, so the new table is checked
+rather than restated.
+
+## The hashgate knob's red run
+
+`GM_MUTATE_DAG_DOT_NODES`, record `hashgate-control-dag-dot-nodes`, tabulated in
+`hashgate::knobs::DOT_LAYOUT_STAGES`, held by `hashgate/tests/knob/dot.rs`. The port publishes
+no `Params` and has no `impl Stage`, so the re-drawn-model probe is the only one available —
+and it is the same shape as the osage control.
+
+```sh
+scripts/orch/gr -e GM_MUTATE_DAG_DOT_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+# exit 1
+```
+
+**Exactly one stage goes red, and it is this engine's own.** Every other stage — `topology`,
+every other layout, every analysis and POST capability, and `transport.wasm.columnar`'s real ABI
+check — reports `4-way equal on 8/8 seeds`:
+
+| stage | honest run | with `GM_MUTATE_DAG_DOT_NODES=1` |
+|---|---|---|
+| `layout.dag.dot` | 4-way equal on 8/8 seeds | **4-way equal on 0/8 seeds** |
+| `layout.dag.sugiyama` | 4-way equal on 8/8 seeds | 4-way equal on 8/8 seeds |
+| `layout.packing.osage` | 4-way equal on 8/8 seeds | 4-way equal on 8/8 seeds |
+| every other stage in the list | 4-way equal on 8/8 seeds | 4-way equal on 8/8 seeds |
+
+The honest run (`--seeds 8`, no control) is **green, exit 0**, and the diverging stage's four
+digests are all distinct from each other across the 8 seeds. `coverage.rs`'s allow list no
+longer exempts `layout.dag.dot` as `Gap::NoControl`; the exemption would now fail
+`the_allow_list_is_sorted_names_real_ids_and_exempts_nothing_that_is_tabled`, which is that
+test doing its job.
