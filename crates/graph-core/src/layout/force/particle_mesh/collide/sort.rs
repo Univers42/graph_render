@@ -161,11 +161,18 @@ impl Grid {
     /// Every bucket's run ascending by node index, which is the contract `build` states.
     /// A run already ascending is left alone, which is the common case when nothing moved
     /// between its nodes.
+    ///
+    /// There are twice as many buckets as slots, so most runs are empty or one long: the
+    /// length is checked here rather than inside [`sort_run`], which would be two million
+    /// calls to learn what one comparison already says.
     fn restore_order(&mut self) {
         let end = self.start.len() - 1;
+        let packed = &mut self.scratch.packed;
         for b in 0..end {
             let run = self.start[b] as usize..self.start[b + 1] as usize;
-            sort_run(&mut self.scratch.packed[run]);
+            if run.len() > 1 {
+                sort_run(&mut packed[run]);
+            }
         }
     }
 
