@@ -1,5 +1,5 @@
 //! [`Topology::extend_columns`]: one `GMX1` batch appended to a live graph
-//! (`docs/decisions/extend-columns.md`) — the append [`Topology::extend`](super::extend)
+//! (`docs/decisions/extend-columns.md`) — the append [`Topology::extend`](crate::Topology::extend)
 //! makes, from rows whose strings are entries of one table instead of owned `String`s. Same
 //! validation, same refusals, same intern order, and afterwards the topology is byte-identical
 //! to the record path over the same rows; `extend_columns_matches_extend` is that claim.
@@ -27,7 +27,7 @@ use indexmap::IndexSet;
 /// Why a `GMX1` batch was refused. The topology is unchanged on every variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BatchRefusal {
-    /// One of the four refusals [`Topology::extend`](super::extend) gives, verbatim.
+    /// One of the four refusals [`Topology::extend`](crate::Topology::extend) gives, verbatim.
     Extend(ExtendError),
     /// Batch node `index`'s kind names no node kind.
     NodeKind {
@@ -187,7 +187,7 @@ impl<'t, T: EntryTable + ?Sized> Plan<'t, T> {
 impl Topology {
     /// Appends one `GMX1` batch: nodes first, then edges in order, exactly as
     /// [`extend`](Topology::extend) appends records. On `Err` `self` is unchanged; an empty
-    /// batch is `Ok` and changes nothing. The same four graph refusals as [`BatchRefusal::Extend`]
+    /// batch is `Ok` and changes nothing. The same four graph refusals as `BatchRefusal::Extend`
     /// and the same capacity check, so a refused batch has claimed no id and no arena slot.
     pub fn extend_columns<T, N, E>(
         &mut self,

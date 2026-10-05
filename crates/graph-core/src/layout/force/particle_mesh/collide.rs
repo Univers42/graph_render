@@ -63,7 +63,7 @@ struct Contact {
 }
 
 impl Grid {
-    /// The bucket count `n` nodes get: a power of two so [`Hash`] masks instead of
+    /// The bucket count `n` nodes get: a power of two so [`Hash`](struct@Hash) masks instead of
     /// dividing, and at least four so a row's three buckets are three distinct ones.
     fn buckets(n: u32) -> usize {
         (2 * n as usize).next_power_of_two().max(4)
@@ -86,11 +86,11 @@ impl Grid {
         }
     }
 
-    /// This grid over `n` nodes, in place. [`build`] refills `start`, `order`, `slot` and
-    /// `at` on every tick, so only their lengths matter — except `order` and `slot`, which
-    /// the tick's charge reads *before* that tick's collide rebuilds them (the charge pass
-    /// comes first in [`tick`](super::tick)), and [`Hash`], which is keyed on the bucket
-    /// count the node count sets.
+    /// This grid over `n` nodes, in place. [`build`](Self::build) refills `start`, `order`,
+    /// `slot` and `at` on every tick, so only their lengths matter — except `order` and
+    /// `slot`, which the tick's charge reads *before* that tick's collide rebuilds them (the
+    /// charge pass comes first in [`tick`](super::tick)), and [`Hash`](struct@Hash), which is
+    /// keyed on the bucket count the node count sets.
     ///
     /// So `order` and `slot` are put back to the identity permutation a fresh grid holds:
     /// a charge read against the last sort's permutation would deposit the new rows into

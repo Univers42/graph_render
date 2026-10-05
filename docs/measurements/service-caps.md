@@ -115,6 +115,7 @@ not order.
 | `layout.forceatlas2.3d` | layout | O(n^2) per iteration | 14000 | 14000 (21712) | 27039.5 | 25.3 | 32768 / 14486.7 | 8192 | 32768 |
 | `layout.random.3d` | layout | O(n) | 1000000 | 1000000 (1549929) | 581.7 | 1399.7 | 4000000 / 1346 | 1000000 | 4000000 |
 | `layout.force.yifan_hu.3d` | layout | O(n log n) x (112 + 48 x levels) for the... | 100000 | 65536 (101565) | 20743.1 | 140.4 | 131072 / 6671.2 | 32768 | 131072 |
+| `layout.dag.dot` | layout | O(r + 2m + 2s) after k pivots on the... | 9200000 | 8192 (12692) | 13310.3 | 38.6 | failed | 8192 | 12692 |
 largest peak at cap: 257.7 MiB (`layout.mds.pivot3d`)
 | `post.route.grid` | post, over `layout.grid` | O(m · cells · log cells) | 5000 | 3225 (4988) | 9447 | 35.3 | 12900 / 34524.9 | 3225 | 4988 |
 | `post.bundle.fdeb` | post, over `layout.grid` | O(m^2) to build the pair list once | 6900 | 4451 (6867) | 558.4 | 30.5 | 17804 / 2488.7 | 4451 | 6900 |
@@ -145,6 +146,7 @@ them ran on the loaded host, so they could rise on a re-run.
 | `layout.forceatlas2.barnes_hut` | n 131072 | 15157 | 38.75 |
 | `layout.force.particle_mesh` | n 524288 at 30025; dense n 262144 is 15424 | 30025 | 28.3 |
 | `layout.force.yifan_hu.3d` | n 65536 | 20743 | 12.44 |
+| `layout.dag.dot` | n 16384; dense n 8192 exit 137 | killed at 40 s | 9.84 |
 | `post.route.grid` | dense, over radial 21945 and over grid 34525 | 34525 | |
 | `post.separate.grid` | n 6451 over `layout.packing.circle` | killed at 40 s | |
 
@@ -153,6 +155,8 @@ them ran on the loaded host, so they could rise on a re-run.
 The five rows `layout.force.yifan_hu.2z`, `layout.force.fruchterman_reingold.3d`, `layout.force.kamada_kawai.3d`, `layout.force.drl.3d` and `layout.forceatlas2.3d` came from one more ladder run (2026-10-04, 34 rungs, load1 11.5 to 30.1 on 20 cores), with the commands above and those five ids, after develop registered them. `layout.force.yifan_hu.2z`, `layout.force.drl.3d` (its n 4096 rung was killed past 40 s) and `layout.forceatlas2.3d` are bound by time; the two others are at their ceiling of 2000.
 
 The two rows `layout.random.3d` and `layout.force.yifan_hu.3d` came from one more ladder run (2026-10-04, 25 rungs, load1 8.48 to 12.90 on 20 cores), with the commands above and those two ids, after develop registered them; `tests/caps.rs` had been red on develop without them. `layout.random.3d` is at its ceiling of 1000000. `layout.force.yifan_hu.3d` is bound by time: n 65536 took 20743 ms, so its cap is the n 32768 rung (11183 ms), with the dense rung at 131072 edges in 6671 ms. The larger dense peak of the two, 2491.6 MiB for `layout.random.3d` at n 1000000, is under the run peak at cap below, so the per-slot budget is unchanged.
+
+The row `layout.dag.dot` came from one more ladder run (2026-10-05, 7 rungs, load1 9.84 on 20 cores), with the commands above and that id, after develop registered it; `tests/caps.rs` had been red on develop without it. It is bound by time: n 16384 was killed past 40 s, so its cap is the n 8192 rung (13308 ms, 38.6 MiB). Its dense rung at n 8192 failed with exit 137, so its cap_m is the sparse rung's 12692 edges.
 
 The `post.separate.grid` kill comes from its input. `layout.packing.circle` runs untimed before the post
 and is slow at 6451 nodes. Over `layout.treemap.squarified` the post reached 6451 nodes in 1.58 s. Its cap
@@ -335,71 +339,72 @@ maximum 1,073,741,824 B, `GRAPH_TIMEOUT_MS` at its 30,000 default. The graph of 
 ladder used, `graph-cli bench --n <cap_n> --seed 1 --emit-scale-fixture`, whose m came out 1.5474 n.
 `reduced:n>1000000` marks a row asked at 1,000,000 nodes because `graph-cli`'s own ceiling
 (`graph_core::registry::MAX_BENCH_NODES`) is below the row's cap_n; `reduced:m>cap_m` would mark a graph
-whose edges are past the cap, and no row hit it. Three runs so far. The first covered the 50 rows before `layout.mds.pivot3d`, load1 5.67 → 17.73. The second covered 55 rows after five rows were added on 2026-10-04 (image `graph-motor:5145db1479a10e68`, load1 9.79 → 10.19). The third, on 2026-10-04 at the tree of `0c1f32eb`, added `layout.random.3d` and `layout.force.yifan_hu.3d` and covered all 57 (image `graph-motor:a4839887f4b88f3f`, load1 5.48 → 1.98, run on its own under the host's timed lock). All 57 answered 200, and the table below is the third run.
+whose edges are past the cap, and no row hit it. Four runs so far. The first covered the 50 rows before `layout.mds.pivot3d`, load1 5.67 → 17.73. The second covered 55 rows after five rows were added on 2026-10-04 (image `graph-motor:5145db1479a10e68`, load1 9.79 → 10.19). The third, on 2026-10-04 at the tree of `0c1f32eb`, added `layout.random.3d` and `layout.force.yifan_hu.3d` and covered all 57 (image `graph-motor:a4839887f4b88f3f`, load1 5.48 → 1.98, run on its own under the host's timed lock). The fourth, on 2026-10-05 at the tree of `e6359099`, added `layout.dag.dot` and covered all 58 (image `graph-motor:28fed23253e99b82`, load1 1.94 → 5.92, run on its own under the host's timed lock). All 58 answered 200, and the table below is the fourth run.
 
 | id | cap_n | cap_m | layout asked | n | status | ms | reduced |
 |---|---:|---:|---|---:|---:|---:|---|
-| `layout.grid` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3217 | reduced:n>1000000 |
-| `layout.tree.tidy` | 1048576 | 4194304 | `layout.tree.tidy` | 1000000 | 200 | 3224 | reduced:n>1000000 |
-| `layout.treemap.squarified` | 1048576 | 4194304 | `layout.treemap.squarified` | 1000000 | 200 | 3089 | reduced:n>1000000 |
-| `layout.circular.radial` | 1048576 | 4194304 | `layout.circular.radial` | 1000000 | 200 | 3033 | reduced:n>1000000 |
-| `layout.packing.circle` | 2048 | 8192 | `layout.packing.circle` | 2048 | 200 | 5979 | - |
+| `layout.grid` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3223 | reduced:n>1000000 |
+| `layout.tree.tidy` | 1048576 | 4194304 | `layout.tree.tidy` | 1000000 | 200 | 3152 | reduced:n>1000000 |
+| `layout.treemap.squarified` | 1048576 | 4194304 | `layout.treemap.squarified` | 1000000 | 200 | 3299 | reduced:n>1000000 |
+| `layout.circular.radial` | 1048576 | 4194304 | `layout.circular.radial` | 1000000 | 200 | 3038 | reduced:n>1000000 |
+| `layout.packing.circle` | 2048 | 8192 | `layout.packing.circle` | 2048 | 200 | 5989 | - |
 | `layout.spectral` | 700 | 2800 | `layout.spectral` | 700 | 200 | 19 | - |
-| `layout.mds.pivot` | 100000 | 400000 | `layout.mds.pivot` | 100000 | 200 | 517 | - |
-| `layout.force.barnes_hut` | 100000 | 154978 | `layout.force.barnes_hut` | 100000 | 200 | 14064 | - |
-| `layout.forceatlas2` | 8192 | 32768 | `layout.forceatlas2` | 8192 | 200 | 6003 | - |
-| `layout.dag.sugiyama` | 200000 | 800000 | `layout.dag.sugiyama` | 200000 | 200 | 950 | - |
-| `layout.random` | 1000000 | 4000000 | `layout.random` | 1000000 | 200 | 3029 | - |
-| `layout.circular.ring` | 1000000 | 4000000 | `layout.circular.ring` | 1000000 | 200 | 3020 | - |
-| `layout.spiral` | 1000000 | 4000000 | `layout.spiral` | 1000000 | 200 | 3041 | - |
-| `layout.bipartite` | 1000000 | 4000000 | `layout.bipartite` | 1000000 | 200 | 3095 | - |
-| `layout.force.yifan_hu` | 65536 | 101565 | `layout.force.yifan_hu` | 65536 | 200 | 12795 | - |
-| `layout.force.fruchterman_reingold` | 2000 | 8000 | `layout.force.fruchterman_reingold` | 2000 | 200 | 1617 | - |
-| `layout.force.kamada_kawai` | 2000 | 8000 | `layout.force.kamada_kawai` | 2000 | 200 | 3932 | - |
-| `layout.force.graphopt` | 2000 | 8000 | `layout.force.graphopt` | 2000 | 200 | 4412 | - |
-| `layout.force.davidson_harel` | 500 | 768 | `layout.force.davidson_harel` | 500 | 200 | 2986 | - |
+| `layout.mds.pivot` | 100000 | 400000 | `layout.mds.pivot` | 100000 | 200 | 513 | - |
+| `layout.force.barnes_hut` | 100000 | 154978 | `layout.force.barnes_hut` | 100000 | 200 | 13899 | - |
+| `layout.forceatlas2` | 8192 | 32768 | `layout.forceatlas2` | 8192 | 200 | 5998 | - |
+| `layout.dag.sugiyama` | 200000 | 800000 | `layout.dag.sugiyama` | 200000 | 200 | 987 | - |
+| `layout.random` | 1000000 | 4000000 | `layout.random` | 1000000 | 200 | 2958 | - |
+| `layout.circular.ring` | 1000000 | 4000000 | `layout.circular.ring` | 1000000 | 200 | 2953 | - |
+| `layout.spiral` | 1000000 | 4000000 | `layout.spiral` | 1000000 | 200 | 2990 | - |
+| `layout.bipartite` | 1000000 | 4000000 | `layout.bipartite` | 1000000 | 200 | 3013 | - |
+| `layout.force.yifan_hu` | 65536 | 101565 | `layout.force.yifan_hu` | 65536 | 200 | 12673 | - |
+| `layout.force.fruchterman_reingold` | 2000 | 8000 | `layout.force.fruchterman_reingold` | 2000 | 200 | 1614 | - |
+| `layout.force.kamada_kawai` | 2000 | 8000 | `layout.force.kamada_kawai` | 2000 | 200 | 3925 | - |
+| `layout.force.graphopt` | 2000 | 8000 | `layout.force.graphopt` | 2000 | 200 | 4408 | - |
+| `layout.force.davidson_harel` | 500 | 768 | `layout.force.davidson_harel` | 500 | 200 | 2987 | - |
 | `layout.force.lgl` | 1000 | 4000 | `layout.force.lgl` | 1000 | 200 | 166 | - |
-| `layout.force.drl` | 5000 | 20000 | `layout.force.drl` | 5000 | 200 | 3190 | - |
-| `layout.twopi` | 1000000 | 4000000 | `layout.twopi` | 1000000 | 200 | 3285 | - |
-| `layout.packing.osage` | 1000000 | 4000000 | `layout.packing.osage` | 1000000 | 200 | 3129 | - |
-| `layout.force.spring` | 8192 | 32768 | `layout.force.spring` | 8192 | 200 | 6381 | - |
-| `layout.circular.hierarchy` | 1048576 | 4194304 | `layout.circular.hierarchy` | 1000000 | 200 | 3232 | reduced:n>1000000 |
-| `layout.circular.circo` | 1000 | 1541 | `layout.circular.circo` | 1000 | 200 | 1092 | - |
-| `layout.treemap.patchwork` | 1000000 | 4000000 | `layout.treemap.patchwork` | 1000000 | 200 | 2998 | - |
-| `layout.force.neato` | 2048 | 8192 | `layout.force.neato` | 2048 | 200 | 6873 | - |
-| `layout.force.fdp` | 1000 | 4000 | `layout.force.fdp` | 1000 | 200 | 3190 | - |
-| `layout.basic3d.sphere` | 1000000 | 4000000 | `layout.basic3d.sphere` | 1000000 | 200 | 3040 | - |
-| `layout.basic3d.helix` | 1000000 | 4000000 | `layout.basic3d.helix` | 1000000 | 200 | 3048 | - |
-| `layout.basic3d.cube` | 1000000 | 4000000 | `layout.basic3d.cube` | 1000000 | 200 | 2988 | - |
-| `layout.hierarchical3d` | 1000000 | 4000000 | `layout.hierarchical3d` | 1000000 | 200 | 3235 | - |
-| `layout.force.spring3d` | 4096 | 16384 | `layout.force.spring3d` | 4096 | 200 | 1666 | - |
-| `layout.force.sfdp` | 16384 | 65536 | `layout.force.sfdp` | 16384 | 200 | 1073 | - |
-| `layout.forceatlas2.barnes_hut` | 65536 | 262144 | `layout.forceatlas2.barnes_hut` | 65536 | 200 | 5043 | - |
-| `layout.bipartite_3d` | 1000000 | 4000000 | `layout.bipartite_3d` | 1000000 | 200 | 3349 | - |
-| `layout.basic3d.spiral` | 1000000 | 4000000 | `layout.basic3d.spiral` | 1000000 | 200 | 3055 | - |
-| `layout.force.particle_mesh` | 262144 | 406717 | `layout.force.particle_mesh` | 262144 | 200 | 7749 | - |
-| `layout.forceatlas2.forcesim` | 2000 | 8000 | `layout.forceatlas2.forcesim` | 2000 | 200 | 498 | - |
-| `layout.spectral3d` | 256 | 1024 | `layout.spectral3d` | 256 | 200 | 50 | - |
-| `layout.mds.pivot3d` | 100000 | 400000 | `layout.mds.pivot3d` | 100000 | 200 | 535 | - |
-| `layout.force.yifan_hu.2z` | 32768 | 131072 | `layout.force.yifan_hu.2z` | 32768 | 200 | 6670 | - |
-| `layout.force.fruchterman_reingold.3d` | 2000 | 8000 | `layout.force.fruchterman_reingold.3d` | 2000 | 200 | 1921 | - |
-| `layout.force.kamada_kawai.3d` | 2000 | 8000 | `layout.force.kamada_kawai.3d` | 2000 | 200 | 4299 | - |
-| `layout.force.drl.3d` | 2048 | 8192 | `layout.force.drl.3d` | 2048 | 200 | 6556 | - |
-| `layout.forceatlas2.3d` | 8192 | 32768 | `layout.forceatlas2.3d` | 8192 | 200 | 8049 | - |
-| `layout.random.3d` | 1000000 | 4000000 | `layout.random.3d` | 1000000 | 200 | 3118 | - |
-| `layout.force.yifan_hu.3d` | 32768 | 131072 | `layout.force.yifan_hu.3d` | 32768 | 200 | 8919 | - |
-| `post.route.grid` | 3225 | 4988 | `layout.grid` | 3225 | 200 | 9024 | - |
+| `layout.force.drl` | 5000 | 20000 | `layout.force.drl` | 5000 | 200 | 3195 | - |
+| `layout.twopi` | 1000000 | 4000000 | `layout.twopi` | 1000000 | 200 | 3199 | - |
+| `layout.packing.osage` | 1000000 | 4000000 | `layout.packing.osage` | 1000000 | 200 | 2919 | - |
+| `layout.force.spring` | 8192 | 32768 | `layout.force.spring` | 8192 | 200 | 6367 | - |
+| `layout.circular.hierarchy` | 1048576 | 4194304 | `layout.circular.hierarchy` | 1000000 | 200 | 3132 | reduced:n>1000000 |
+| `layout.circular.circo` | 1000 | 1541 | `layout.circular.circo` | 1000 | 200 | 1152 | - |
+| `layout.treemap.patchwork` | 1000000 | 4000000 | `layout.treemap.patchwork` | 1000000 | 200 | 2969 | - |
+| `layout.force.neato` | 2048 | 8192 | `layout.force.neato` | 2048 | 200 | 8801 | - |
+| `layout.force.fdp` | 1000 | 4000 | `layout.force.fdp` | 1000 | 200 | 5258 | - |
+| `layout.basic3d.sphere` | 1000000 | 4000000 | `layout.basic3d.sphere` | 1000000 | 200 | 4707 | - |
+| `layout.basic3d.helix` | 1000000 | 4000000 | `layout.basic3d.helix` | 1000000 | 200 | 3935 | - |
+| `layout.basic3d.cube` | 1000000 | 4000000 | `layout.basic3d.cube` | 1000000 | 200 | 3310 | - |
+| `layout.hierarchical3d` | 1000000 | 4000000 | `layout.hierarchical3d` | 1000000 | 200 | 3274 | - |
+| `layout.force.spring3d` | 4096 | 16384 | `layout.force.spring3d` | 4096 | 200 | 1685 | - |
+| `layout.force.sfdp` | 16384 | 65536 | `layout.force.sfdp` | 16384 | 200 | 1072 | - |
+| `layout.forceatlas2.barnes_hut` | 65536 | 262144 | `layout.forceatlas2.barnes_hut` | 65536 | 200 | 5424 | - |
+| `layout.bipartite_3d` | 1000000 | 4000000 | `layout.bipartite_3d` | 1000000 | 200 | 3369 | - |
+| `layout.basic3d.spiral` | 1000000 | 4000000 | `layout.basic3d.spiral` | 1000000 | 200 | 3730 | - |
+| `layout.force.particle_mesh` | 262144 | 406717 | `layout.force.particle_mesh` | 262144 | 200 | 8937 | - |
+| `layout.forceatlas2.forcesim` | 2000 | 8000 | `layout.forceatlas2.forcesim` | 2000 | 200 | 1102 | - |
+| `layout.spectral3d` | 256 | 1024 | `layout.spectral3d` | 256 | 200 | 72 | - |
+| `layout.mds.pivot3d` | 100000 | 400000 | `layout.mds.pivot3d` | 100000 | 200 | 558 | - |
+| `layout.force.yifan_hu.2z` | 32768 | 131072 | `layout.force.yifan_hu.2z` | 32768 | 200 | 6902 | - |
+| `layout.force.fruchterman_reingold.3d` | 2000 | 8000 | `layout.force.fruchterman_reingold.3d` | 2000 | 200 | 1884 | - |
+| `layout.force.kamada_kawai.3d` | 2000 | 8000 | `layout.force.kamada_kawai.3d` | 2000 | 200 | 4446 | - |
+| `layout.force.drl.3d` | 2048 | 8192 | `layout.force.drl.3d` | 2048 | 200 | 6904 | - |
+| `layout.forceatlas2.3d` | 8192 | 32768 | `layout.forceatlas2.3d` | 8192 | 200 | 8340 | - |
+| `layout.random.3d` | 1000000 | 4000000 | `layout.random.3d` | 1000000 | 200 | 3445 | - |
+| `layout.force.yifan_hu.3d` | 32768 | 131072 | `layout.force.yifan_hu.3d` | 32768 | 200 | 8792 | - |
+| `layout.dag.dot` | 8192 | 12692 | `layout.dag.dot` | 8192 | 200 | 13628 | - |
+| `post.route.grid` | 3225 | 4988 | `layout.grid` | 3225 | 200 | 9129 | - |
 | `post.bundle.fdeb` | 4451 | 6900 | `layout.grid` | 4451 | 200 | 369 | - |
-| `post.bundle.mingle` | 1935 | 3000 | `layout.grid` | 1935 | 200 | 389 | - |
-| `post.separate.grid` | 4096 | 10000 | `layout.treemap.squarified` | 4096 | 200 | 1286 | - |
-| `post.style.straight` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3302 | reduced:n>1000000 |
-| `post.style.orthogonal` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3170 | reduced:n>1000000 |
-| `post.style.bezier` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3153 | reduced:n>1000000 |
-| `post.style.quadratic` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3128 | reduced:n>1000000 |
+| `post.bundle.mingle` | 1935 | 3000 | `layout.grid` | 1935 | 200 | 394 | - |
+| `post.separate.grid` | 4096 | 10000 | `layout.treemap.squarified` | 4096 | 200 | 1301 | - |
+| `post.style.straight` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3184 | reduced:n>1000000 |
+| `post.style.orthogonal` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3183 | reduced:n>1000000 |
+| `post.style.bezier` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3217 | reduced:n>1000000 |
+| `post.style.quadratic` | 1048576 | 4194304 | `layout.grid` | 1000000 | 200 | 3266 | reduced:n>1000000 |
 
 No cap was lowered: every row came in under `GRAPH_TIMEOUT_MS`, the slowest being
-`layout.force.barnes_hut` at 14,064 ms, 47% of the mark (19,514 ms for `layout.force.yifan_hu` in the second run, under load1 near 10). The negative control,
-`SERVICE_CAPS_TIME_TIMEOUT_MS=1`, answers 503 on every row of the table — all 57 in the third run (load1 1.98 → 2.14) — so the PASS above is a
+`layout.force.barnes_hut` at 13,899 ms, 46% of the mark, then `layout.dag.dot` at 13,628 ms (19,514 ms for `layout.force.yifan_hu` in the second run, under load1 near 10). The negative control,
+`SERVICE_CAPS_TIME_TIMEOUT_MS=1`, answers 503 on every row of the table — all 58 in the fourth run (load1 5.92 → 5.69) — so the PASS above is a
 reading of the status and of the elapsed time and not of anything else.
 
 ### Caveat of this section
