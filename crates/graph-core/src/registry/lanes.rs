@@ -7,10 +7,10 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 /// Vertices past which the lanes layout has not been measured.
 ///
-/// Ponytail (scale_ceiling): a projection, not a measurement. The native bench in
-/// `docs/measurements/dag-lanes.md` is the only thing that can lower or raise it, and it had
-/// not run when this row shipped. The algorithm itself has no budget and degrades in time
-/// only, so the figure is a speed claim about a host, not a property of the layout.
+/// Ponytail (scale_ceiling): one host's measurement, not a property of the layout. The native
+/// bench in `docs/measurements/dag-lanes.md` drew 1,000,000 vertices in 199.80 ms at load
+/// 2.08, five times inside the 1 s target. The algorithm has no budget and degrades in time
+/// only, so the figure is a speed claim about a host.
 pub const LANES_CEILING: u64 = 1_000_000;
 
 const LANES: Metadata = Metadata {
@@ -47,10 +47,10 @@ edges than a minimum feedback arc set are drawn head to tail, each with note 5, 
 Escape hatch: read note 5 off the snapshot; its presence names the edges that run against \
 the rows. Ponytail (lane choice): lowest-free-lane is greedy; minimal width is not claimed; a \
 wider drawing is cosmetic. Escape hatch: none needed — every edge is still routed, and the \
-width is measured in docs/measurements/dag-lanes.md. Ponytail (scale_ceiling): a projection, \
-not a measurement — the native bench in docs/measurements/dag-lanes.md is the only thing that \
-can lower or raise it, and it had not run when this row shipped; the algorithm itself has no \
-budget and degrades in time only. Escape hatch: re-run the bench and lower the figure to the \
+width is measured in docs/measurements/dag-lanes.md. Ponytail (scale_ceiling): one host's \
+measurement, not a property of the layout — the native bench in docs/measurements/dag-lanes.md \
+drew 1,000,000 vertices in 199.80 ms at load 2.08; the algorithm itself has no budget and \
+degrades in time only. Escape hatch: re-run the bench and lower the figure to the \
 largest measured n under 1 s",
 };
 

@@ -75,8 +75,8 @@ The `stress` column reads 0.55 / 0.54 / 0.53 across the three sizes — flat, so
 not drifting superlinearly at the top of the range.
 
 **`LANES_CEILING` stays at 1 000 000.** The plan lowers it only if 1M exceeds 1 s; it came in
-at 199.80 ms, a factor of five inside the target. `registry/lanes.rs` labels the figure a
-projection and says so in the `Ponytail (scale_ceiling)` clause (condition 5), and
+at 199.80 ms, a factor of five inside the target. `registry/lanes.rs`'s `Ponytail (scale_ceiling)`
+clause names this measurement as its source (condition 5), and
 `docs/measurements/phase09-ceilings.md` carries the row.
 
 > **Caveat: the host is shared, so medians under load are upper bounds.**

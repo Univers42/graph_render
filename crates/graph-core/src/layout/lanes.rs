@@ -22,7 +22,7 @@ pub const ID: &str = "layout.dag.lanes";
 /// exact only while `r < 2^23`, so from here a bend lands on an adjacent vertex row and the
 /// polyline runs along a row instead of between two. `docs/decisions/dag-lanes.md`
 /// condition 3, refusal form (a).
-pub const MAX_ROWS: u32 = 1 << 23;
+pub(crate) const MAX_ROWS: u32 = 1 << 23;
 
 /// The lanes stage.
 #[derive(Debug, Clone, Copy)]
@@ -75,7 +75,7 @@ pub fn run(topology: &Topology, params: &LanesParams) -> Result<Geometry, StageE
 
 /// Whether `n` rows still draw: the half-row bend is exact in `f32` below [`MAX_ROWS`] and
 /// is not at or above it, so a taller graph is refused rather than drawn wrong.
-pub fn rows_fit(n: u32) -> Result<(), StageError> {
+pub(crate) fn rows_fit(n: u32) -> Result<(), StageError> {
     if n < MAX_ROWS {
         return Ok(());
     }

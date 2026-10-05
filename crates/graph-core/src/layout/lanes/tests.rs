@@ -142,6 +142,13 @@ fn distinct_versions_break_a_cycle_and_the_heap_orders_by_version() {
 }
 
 #[test]
+fn equal_versions_fall_back_to_index_order() {
+    let n = [vertex("p", 0.0), vertex("q", 0.0), vertex("r", 0.0)];
+    let (_, y, _, _) = drawn(&n, &[]);
+    assert_eq!(y, [0.0, 1.0, 2.0]);
+}
+
+#[test]
 fn parallel_and_undirected_edges_are_routed_without_notes() {
     let n = [vertex("a", 1.0), vertex("b", 2.0)];
     let e = [
