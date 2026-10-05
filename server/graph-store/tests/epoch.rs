@@ -6,6 +6,40 @@ mod support;
 use graph_store::epoch::{bump_now, head_of};
 use tokio_postgres::Client;
 
+/// The clock's current value.
+///
+/// WHY the clock and not `workspaces.epoch`: the triggers call `hub_next_epoch()`, which advances
+/// `epoch_clock.last`. A workspace row's own `epoch` column moves only on a create or a detector
+/// bump. So "an event moved the epoch" means the clock moved, and "the trigger on `workspaces`
+/// does not fire on its own update" means the row did not move itself.
+async fn clock(client: &mut Client) -> u64 {
+    client
+        .query_one("SELECT last FROM epoch_clock WHERE one", &[])
+        .await
+        .expect("read the epoch clock")
+        .get::<_, i64>(0) as u64
+}
+
+/// Park the clock far enough in the future that `last + 1` always beats the wall clock.
+///
+/// WHY: `hub_next_epoch()` is `greatest(last + 1, wall)`, so while the clock is behind the wall
+/// clock a single draw jumps it to the wall clock and the number of draws is unobservable — the
+/// value moves by however long the test took, not by how many times a trigger fired. Parking it a
+/// thousand seconds ahead makes the `last + 1` term dominate, and every draw then advances `last`
+/// by exactly one, which is what makes "the guard held" countable rather than merely plausible.
+///
+/// Caveat: this makes the clock wrong on purpose for the rest of the test, so only tests that
+/// assert on *differences* may use it. `epoch_is_microseconds` must not.
+async fn pin_clock_ahead(client: &mut Client) {
+    client
+        .batch_execute(
+            "UPDATE epoch_clock SET last = \
+             (extract(epoch FROM clock_timestamp()) * 1000000)::bigint + 1000000000",
+        )
+        .await
+        .expect("park the epoch clock ahead of the wall clock");
+}
+
 /// Insert a workspace the way an operator would: outside the guard, so the trigger fires.
 async fn make_ws(client: &mut Client, id: &str) {
     client
@@ -77,7 +111,7 @@ async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
     let (mut client, _) =
         support::db::fresh_pair("manual_insert_update_delete_truncate_copy_move_the_epoch").await;
     make_ws(&mut client, "ws").await;
-    let mut before = head_of(&mut client, "ws").await.expect("head").expect("a workspace");
+    let mut before = clock(&mut client).await;
 
     // INSERT on manifests.
     client
@@ -88,8 +122,8 @@ async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
         )
         .await
         .expect("insert a manifest");
-    let after = head_of(&mut client, "ws").await.expect("head").expect("a workspace");
-    assert!(after.0 > before.0, "an INSERT moved no epoch");
+    let after = clock(&mut client).await;
+    assert!(after > before, "an INSERT moved no epoch");
     before = after;
 
     // UPDATE on manifests.
@@ -97,37 +131,41 @@ async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
         .execute("UPDATE manifests SET version = 2", &[])
         .await
         .expect("update a manifest");
-    let after = head_of(&mut client, "ws").await.expect("head").expect("a workspace");
-    assert!(after.0 > before.0, "an UPDATE moved no epoch");
+    let after = clock(&mut client).await;
+    assert!(after > before, "an UPDATE moved no epoch");
     before = after;
 
     // DELETE on manifests.
     client.execute("DELETE FROM manifests", &[]).await.expect("delete");
-    let after = head_of(&mut client, "ws").await.expect("head").expect("a workspace");
-    assert!(after.0 > before.0, "a DELETE moved no epoch");
+    let after = clock(&mut client).await;
+    assert!(after > before, "a DELETE moved no epoch");
     before = after;
 
     // COPY records FROM STDIN: one statement, so one epoch however many rows it carries.
-    let mut sink = client
+    // `&[u8]` rather than `&str`: `CopyInSink`'s item must be a `bytes::Buf`, and `bytes` is not
+    // a dependency of this crate, so `&[u8]` is the one `Buf` impl reachable from here. The sink
+    // is pinned because `CopyInSink` is `!Unpin`.
+    let sink: tokio_postgres::CopyInSink<&[u8]> = client
         .copy_in("COPY records FROM STDIN")
         .await
         .expect("open the copy sink");
+    let mut sink = Box::pin(sink);
     futures_util::SinkExt::send(
-        &mut sink,
-        "ws\tp\tp.c\tid1\t1\t7\t{}\t\\x00\t2\nws\tp\tp.c\tid2\t1\t7\t{}\t\\x00\t2\n",
+        &mut sink.as_mut(),
+        &b"ws\tp\tp.c\tid1\t1\t7\t{}\t\\x616263\t2\nws\tp\tp.c\tid2\t1\t7\t{}\t\\x616263\t2\n"[..],
     )
     .await
     .expect("copy two records");
-    futures_util::SinkExt::close(&mut sink)
+    futures_util::SinkExt::close(&mut sink.as_mut())
         .await
         .expect("close the copy sink");
-    let after = head_of(&mut client, "ws").await.expect("head").expect("a workspace");
-    assert!(after.0 > before.0, "a COPY moved no epoch");
+    let after = clock(&mut client).await;
+    assert!(after > before, "a COPY moved no epoch");
 
     // TRUNCATE: every workspace, since a truncated table names none.
     client.execute("TRUNCATE records", &[]).await.expect("truncate");
-    let after = head_of(&mut client, "ws").await.expect("head").expect("a workspace");
-    assert!(after.0 > before.0, "a TRUNCATE moved no epoch");
+    let after = clock(&mut client).await;
+    assert!(after > before, "a TRUNCATE moved no epoch");
 }
 
 /// Under `session_replication_role = replica` every event still moves the epoch.
@@ -139,11 +177,19 @@ async fn replica_role_write_moves_the_epoch_for_every_event() {
     let (mut client, admin) =
         support::db::fresh_pair("replica_role_write_moves_the_epoch_for_every_event").await;
     make_ws(&mut client, "ws").await;
-    let baseline = head_of(&mut client, "ws").await.expect("head").expect("a workspace").0;
 
     // `session_replication_role` is a superuser-only GUC, so this half runs as postgres. The
     // store itself is still exercised as `hub`; only the session setting needs the privilege.
+    //
+    // WHY each statement is checked on its own rather than summed at the end: `one-trigger-origin`
+    // puts exactly ONE trigger on a bare `ENABLE`, so a summed assertion is satisfied by the other
+    // four statements moving the clock. Per-statement is what makes that control bite.
+    //
+    // The `records` INSERT is the statement it bites, which is why `hub_records_ins` is the one
+    // that break switches.
     for sql in [
+        "INSERT INTO records (ws, plugin, qcoll, id, rev, updated_at, text, text_sha256,\
+         text_bytes) VALUES ('ws','p','p.c','rr',1,7,'{}','\\x616263',2)",
         "INSERT INTO manifests (ws, plugin, version, text, text_bytes, decl_bytes) \
          VALUES ('ws','p',1,'{}',2,2)",
         "UPDATE manifests SET version = 2",
@@ -151,14 +197,18 @@ async fn replica_role_write_moves_the_epoch_for_every_event() {
         "TRUNCATE manifests",
     ] {
         admin.batch_execute("SET session_replication_role = replica").await.expect("set role");
-        admin.batch_execute(sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        let before = clock(&mut client).await;
+        admin
+            .batch_execute(sql)
+            .await
+            .unwrap_or_else(|e| panic!("{sql}: {e}"));
         admin.batch_execute("SET session_replication_role = origin").await.expect("reset role");
+        let after = clock(&mut client).await;
+        assert!(
+            after > before,
+            "a replica-role write moved no epoch (baseline {before}, after {after}): {sql}"
+        );
     }
-    let after = head_of(&mut client, "ws").await.expect("head").expect("a workspace").0;
-    assert!(
-        after > baseline,
-        "a replica-role write moved no epoch (baseline {baseline}, after {after})"
-    );
 }
 
 /// Exactly four `hub_%` triggers per trigger table, all `tgenabled = 'A'`, and none on the four
@@ -169,11 +219,11 @@ async fn trigger_catalog_is_exactly_four_per_table_all_always() {
         support::db::fresh_pair("trigger_catalog_is_exactly_four_per_table_all_always").await;
     let rows = client
         .query(
-            "SELECT c.relname, t.tgname, t.tgenabled FROM pg_trigger t \
+            "SELECT c.relname, t.tgname, t.tgenabled::text FROM pg_trigger t \
              JOIN pg_class c ON c.oid = t.tgrelid \
              WHERE c.relname IN ('workspaces','manifests','records','links','change_headers',\
              'change_ops','epoch_clock','hub_meta','idempotency','hub_migrations') \
-             ORDER BY c.relname, t.tgname",
+             AND NOT t.tgisinternal ORDER BY c.relname, t.tgname",
             &[],
         )
         .await
@@ -227,17 +277,22 @@ async fn workspace_delete_and_recreate_draws_a_larger_epoch() {
 #[tokio::test]
 async fn hub_write_paths_move_no_epoch() {
     let (mut client, _) = support::db::fresh_pair("hub_write_paths_move_no_epoch").await;
-    let mut baseline = bump_now(&mut client).await.expect("draw a baseline");
+    pin_clock_ahead(&mut client).await;
+    // Seed inside the guard, so the baseline below is untouched by the setup.
+    hub_tx(&mut client).await;
     client
         .execute(
-            "INSERT INTO workspaces (id, epoch) VALUES ('ws', $1)",
-            &[&(baseline as i64)],
+            "INSERT INTO workspaces (id, epoch) VALUES ('ws', 1)",
+            &[],
         )
         .await
         .expect("seed a workspace");
-    let seed = head_of(&mut client, "ws").await.expect("head").expect("a workspace").0;
+    client.batch_execute("COMMIT").await.expect("commit");
+    let seed = clock(&mut client).await;
 
-    // A workspace create.
+    // A workspace create. It draws ONE epoch of its own, by `hub_next_epoch()` in the VALUES,
+    // because a new workspace must start on a fresh epoch. What it must not do is draw a SECOND
+    // one from the trigger, which is what "the guard is not holding" would look like.
     hub_tx(&mut client).await;
     client
         .execute(
@@ -248,8 +303,16 @@ async fn hub_write_paths_move_no_epoch() {
         .await
         .expect("create a workspace");
     client.batch_execute("COMMIT").await.expect("commit");
+    // Exactly one draw: the `hub_next_epoch()` in the VALUES. A second one, from the trigger
+    // firing under the guard, would advance the parked clock by two.
+    assert_eq!(
+        clock(&mut client).await,
+        seed + 1,
+        "the workspace create drew more than its own epoch, so the trigger fired under the guard"
+    );
 
-    // A manifest PUT.
+    // A manifest PUT: draws no epoch of its own, so the delta must be exactly zero.
+    let before_put = clock(&mut client).await;
     hub_tx(&mut client).await;
     client
         .execute(
@@ -261,14 +324,17 @@ async fn hub_write_paths_move_no_epoch() {
         .await
         .expect("put a manifest");
     client.batch_execute("COMMIT").await.expect("commit");
+    assert_eq!(clock(&mut client).await, before_put, "a manifest PUT moved the epoch");
 
-    // An all-no-op batch: identical text, so the write still happens and still moves nothing.
+    // An all-no-op batch: the row is written and the text is identical, so the only thing that
+    // could move the clock is the trigger. Three statements, one transaction, still zero.
+    let before_batch = clock(&mut client).await;
     hub_tx(&mut client).await;
     for _ in 0..3 {
         client
             .execute(
                 "INSERT INTO records (ws, plugin, qcoll, id, rev, updated_at, text, text_sha256,\
-                 text_bytes) VALUES ('ws','p','p.c','r1',1,7,'{}','\\x00',2) \
+                 text_bytes) VALUES ('ws','p','p.c','r1',1,7,'{}','\\x616263',2) \
                  ON CONFLICT (ws, qcoll, id) DO UPDATE SET text = records.text",
                 &[],
             )
@@ -276,26 +342,32 @@ async fn hub_write_paths_move_no_epoch() {
             .expect("upsert a record");
     }
     client.batch_execute("COMMIT").await.expect("commit");
-
-    baseline = bump_now(&mut client).await.expect("draw an after");
     assert_eq!(
-        baseline, seed,
-        "a hub write path moved the epoch: {baseline} against the seeded {seed}"
+        clock(&mut client).await,
+        before_batch,
+        "an all-no-op batch moved the epoch"
     );
 }
 
-/// The trigger on `workspaces` does not fire on its own update.
+/// The trigger on `workspaces` does not fire on the store's own `head_seq` update, and does fire
+/// on an operator's.
 ///
-/// The store's own writer bumps `head_seq` with `UPDATE workspaces SET head_seq = head_seq + 1`.
-/// If that update drew an epoch, every batch would bump its own workspace's epoch and no ETag
-/// would ever be stable. This runs the statement *outside* the guard, so the only thing that can
-/// keep the epoch still is the depth guard on the trigger's own re-entry.
+/// §5.1 step 5 bumps `seq` with `UPDATE workspaces SET head_seq = head_seq + 1 RETURNING
+/// head_seq`. That statement targets a table with its own trigger, so without the guard every
+/// batch would draw an epoch and no ETag would ever be stable.
+///
+/// Both halves are asserted, because either alone is satisfiable by a trigger that never fires:
+/// under the guard the clock must not move, and outside it the clock must.
 #[tokio::test]
 async fn workspaces_update_does_not_bump_itself() {
     let (mut client, _) =
         support::db::fresh_pair("workspaces_update_does_not_bump_itself").await;
     make_ws(&mut client, "ws").await;
-    let before = bump_now(&mut client).await.expect("draw a baseline");
+    pin_clock_ahead(&mut client).await;
+
+    // The store's own update: inside the guard, silent.
+    let guarded_before = clock(&mut client).await;
+    hub_tx(&mut client).await;
     client
         .execute(
             "UPDATE workspaces SET head_seq = head_seq + 1 WHERE id = 'ws'",
@@ -303,9 +375,26 @@ async fn workspaces_update_does_not_bump_itself() {
         )
         .await
         .expect("bump head_seq");
-    let after = bump_now(&mut client).await.expect("draw an after");
+    client.batch_execute("COMMIT").await.expect("commit");
     assert_eq!(
-        before, after,
-        "updating head_seq drew an epoch itself: {before} then {after}"
+        clock(&mut client).await,
+        guarded_before,
+        "the store's own head_seq update drew an epoch"
+    );
+
+    // The operator's: outside the guard, not silent. This is the reverse check — it is what
+    // proves the first half is the guard and not a dead trigger.
+    let bare_before = clock(&mut client).await;
+    client
+        .execute(
+            "UPDATE workspaces SET head_seq = head_seq + 1 WHERE id = 'ws'",
+            &[],
+        )
+        .await
+        .expect("bump head_seq again");
+    assert_eq!(
+        clock(&mut client).await,
+        bare_before + 1,
+        "an unguarded update of workspaces drew no epoch, so the trigger is not firing at all"
     );
 }

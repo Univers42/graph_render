@@ -70,10 +70,10 @@ pub async fn apply(client: &mut Client) -> Result<u32, StoreError> {
 /// Without the `negctl` feature this is a no-op that the optimizer removes.
 async fn epoch_breaks(client: &mut Client) -> Result<(), StoreError> {
     if breaks::on("no-trigger") {
-        client.batch_execute(DROP_ALL).await?;
+        client.batch_execute(&drop_all()).await?;
     }
     if breaks::on("trigger-enable-origin") {
-        client.batch_execute(ENABLE_ORIGIN_ALL).await?;
+        client.batch_execute(&alters("ENABLE")).await?;
     }
     if breaks::on("one-trigger-origin") {
         client.batch_execute(ENABLE_ORIGIN_ONE).await?;
@@ -91,53 +91,43 @@ pub const TRIGGER_TABLES: [(&str, &str); 6] = [
     ("change_ops", "ws"),
 ];
 
-/// `DROP TRIGGER` for all 24, in the order the events are created.
-const DROP_ALL: &str = concat!(
-    "ALTER TABLE workspaces DISABLE TRIGGER hub_workspaces_ins, hub_workspaces_upd, hub_workspaces_del, hub_workspaces_trunc;",
-    "DROP TRIGGER hub_workspaces_ins ON workspaces;",
-    "DROP TRIGGER hub_workspaces_upd ON workspaces;",
-    "DROP TRIGGER hub_workspaces_del ON workspaces;",
-    "DROP TRIGGER hub_workspaces_trunc ON workspaces;",
-    "ALTER TABLE manifests DISABLE TRIGGER hub_manifests_ins, hub_manifests_upd, hub_manifests_del, hub_manifests_trunc;",
-    "DROP TRIGGER hub_manifests_ins ON manifests;",
-    "DROP TRIGGER hub_manifests_upd ON manifests;",
-    "DROP TRIGGER hub_manifests_del ON manifests;",
-    "DROP TRIGGER hub_manifests_trunc ON manifests;",
-    "ALTER TABLE records DISABLE TRIGGER hub_records_ins, hub_records_upd, hub_records_del, hub_records_trunc;",
-    "DROP TRIGGER hub_records_ins ON records;",
-    "DROP TRIGGER hub_records_upd ON records;",
-    "DROP TRIGGER hub_records_del ON records;",
-    "DROP TRIGGER hub_records_trunc ON records;",
-    "ALTER TABLE links DISABLE TRIGGER hub_links_ins, hub_links_upd, hub_links_del, hub_links_trunc;",
-    "DROP TRIGGER hub_links_ins ON links;",
-    "DROP TRIGGER hub_links_upd ON links;",
-    "DROP TRIGGER hub_links_del ON links;",
-    "DROP TRIGGER hub_links_trunc ON links;",
-    "ALTER TABLE change_headers DISABLE TRIGGER hub_change_headers_ins, hub_change_headers_upd, hub_change_headers_del, hub_change_headers_trunc;",
-    "DROP TRIGGER hub_change_headers_ins ON change_headers;",
-    "DROP TRIGGER hub_change_headers_upd ON change_headers;",
-    "DROP TRIGGER hub_change_headers_del ON change_headers;",
-    "DROP TRIGGER hub_change_headers_trunc ON change_headers;",
-    "ALTER TABLE change_ops DISABLE TRIGGER hub_change_ops_ins, hub_change_ops_upd, hub_change_ops_del, hub_change_ops_trunc;",
-    "DROP TRIGGER hub_change_ops_ins ON change_ops;",
-    "DROP TRIGGER hub_change_ops_upd ON change_ops;",
-    "DROP TRIGGER hub_change_ops_del ON change_ops;",
-    "DROP TRIGGER hub_change_ops_trunc ON change_ops;"
-);
+/// The four event suffixes, in the order the triggers are created.
+const EVENTS: [&str; 4] = ["ins", "upd", "del", "trunc"];
 
-/// `ENABLE ORIGIN` on all 24: a replica-role write then moves no epoch at all.
-const ENABLE_ORIGIN_ALL: &str = concat!(
-    "ALTER TABLE workspaces ENABLE ORIGIN TRIGGER hub_workspaces_ins, hub_workspaces_upd, hub_workspaces_del, hub_workspaces_trunc;",
-    "ALTER TABLE manifests ENABLE ORIGIN TRIGGER hub_manifests_ins, hub_manifests_upd, hub_manifests_del, hub_manifests_trunc;",
-    "ALTER TABLE records ENABLE ORIGIN TRIGGER hub_records_ins, hub_records_upd, hub_records_del, hub_records_trunc;",
-    "ALTER TABLE links ENABLE ORIGIN TRIGGER hub_links_ins, hub_links_upd, hub_links_del, hub_links_trunc;",
-    "ALTER TABLE change_headers ENABLE ORIGIN TRIGGER hub_change_headers_ins, hub_change_headers_upd, hub_change_headers_del, hub_change_headers_trunc;",
-    "ALTER TABLE change_ops ENABLE ORIGIN TRIGGER hub_change_ops_ins, hub_change_ops_upd, hub_change_ops_del, hub_change_ops_trunc;"
-);
+/// One `ALTER TABLE` per trigger, for all 24.
+///
+/// WHY not a comma list: PostgreSQL's `ALTER TABLE ... { ENABLE | DISABLE } TRIGGER` takes exactly
+/// one trigger name. A list is a syntax error (42601), which would make every control red for a
+/// reason that is not the one it is meant to prove.
+fn alters(action: &str) -> String {
+    let mut sql = String::new();
+    for (table, _) in TRIGGER_TABLES {
+        for event in EVENTS {
+            sql.push_str(&format!("ALTER TABLE {table} {action} TRIGGER hub_{table}_{event};"));
+        }
+    }
+    sql
+}
 
-/// `ENABLE ORIGIN` on exactly one, so the catalog assertion and one replica-role write both fail.
-const ENABLE_ORIGIN_ONE: &str =
-    "ALTER TABLE records ENABLE ORIGIN TRIGGER hub_records_ins;";
+/// `DROP TRIGGER` for all 24, each preceded by a disable so an `ENABLE ALWAYS` trigger is not
+/// firing while the set is torn down.
+fn drop_all() -> String {
+    let mut sql = alters("DISABLE");
+    for (table, _) in TRIGGER_TABLES {
+        for event in EVENTS {
+            sql.push_str(&format!("DROP TRIGGER hub_{table}_{event} ON {table};"));
+        }
+    }
+    sql
+}
+
+/// A bare `ENABLE TRIGGER` on exactly one, so the catalog assertion and one replica-role
+/// write both fail.
+///
+/// WHY bare `ENABLE` and not `ENABLE ORIGIN`: `ENABLE ORIGIN TRIGGER` is not a PostgreSQL
+/// grammar production. Origin is the state a trigger is created in, and the bare form is how
+/// you set it, which is also what sets `pg_trigger.tgenabled` to `O` rather than `A`.
+const ENABLE_ORIGIN_ONE: &str = "ALTER TABLE records ENABLE TRIGGER hub_records_ins;";
 
 /// Apply one file. `Ok(true)` when it was applied, `Ok(false)` when it was already recorded with
 /// the same hash.
