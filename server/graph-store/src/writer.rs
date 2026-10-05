@@ -16,6 +16,7 @@ pub mod links;
 pub mod manifest;
 pub mod plan;
 pub mod retry;
+pub mod rows;
 pub mod space;
 pub mod step;
 

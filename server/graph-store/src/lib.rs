@@ -20,7 +20,9 @@ pub mod materialize;
 pub mod migrate;
 pub mod pool;
 pub mod records;
+pub mod retention;
 pub mod store;
+pub mod sweeper;
 pub mod writer;
 
 pub use config::{StoreConfig, check};
