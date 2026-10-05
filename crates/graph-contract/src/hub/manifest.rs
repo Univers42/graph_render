@@ -223,7 +223,7 @@ fn shift_id(path: &str) -> impl Fn(HubError) -> HubError + '_ {
     }
 }
 
-/// A `manifestVersion` past [`MAX_SEQ`] would be rounded by a JSON consumer that reads
+/// A `manifestVersion` past [`MAX_SEQ`](crate::hub::MAX_SEQ) would be rounded by a JSON consumer that reads
 /// it as a double, so the counter a hub compares versions with has to survive the round
 /// trip — the same bound a `seq` and a `rev` obey.
 fn check_seq(version: u32, what: &'static str) -> Result<(), HubError> {
