@@ -1,5 +1,5 @@
 //! The canonical document as pieces, so a store can stream it without building the
-//! [`Ingest`].
+//! [`Ingest`](crate::ingest::Ingest).
 //!
 //! `to_json` is the same concatenation written in one function; splitting it here means
 //! the head, the middle, the tail and the separator count are *named*, so a hub that

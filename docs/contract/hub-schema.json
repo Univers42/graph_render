@@ -273,7 +273,7 @@
     },
     "ManifestWire": {
       "additionalProperties": false,
-      "description": "The manifest, as the wire spells it — see [`Manifest`] for what the reader holds.\n\n`manifestVersion` is the client's publication counter and `version` is this wire\nformat's. Both are in the schema because a client that confuses them refuses its own\nsecond manifest, and the schema is where a client learns they are different facts.",
+      "description": "The manifest, as the wire spells it — see `Manifest` for what the reader holds.\n\n`manifestVersion` is the client's publication counter and `version` is this wire\nformat's. Both are in the schema because a client that confuses them refuses its own\nsecond manifest, and the schema is where a client learns they are different facts.",
       "properties": {
         "collections": {
           "description": "The declared collections.",
