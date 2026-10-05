@@ -109,7 +109,7 @@ pub struct Cursor {
 impl Cursor {
     /// The cursor `text` names, or the refusal. Strict: two halves, a dot, both plain
     /// non-negative integers with no leading zero — so one text has exactly one cursor
-    /// and a round trip through [`Display`] is the identity.
+    /// and a round trip through [`Display`](core::fmt::Display) is the identity.
     pub fn parse(text: &str) -> Result<Cursor, HubError> {
         let bad = || HubError::Cursor {
             text: text.to_owned(),

@@ -1,0 +1,38 @@
+# negctl-checkpoint-timeline over the promotion case: the same row as hub-promotion, with
+# GM_HUB_BREAK=checkpoint-timeline on the ASSERT phase only, so the priming phase recorded
+# the spec's WAL-file timeline key and the detector then compared a different key with it.
+# Raw log: target/gate-hub-store/negctl-checkpoint-timeline.log
+
+postgres://hub:hub@172.17.0.14:5432/hub
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/promotion.rs (server/target/debug/deps/promotion-6beb3c2b6308d5eb)
+
+running 1 test
+test promotion_phase_write ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.05s
+
+postgres://hub:hub@172.17.0.14:5432/hub
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/promotion.rs (server/target/debug/deps/promotion-6beb3c2b6308d5eb)
+
+running 1 test
+test promotion_phase_assert ... FAILED
+
+failures:
+
+---- promotion_phase_assert stdout ----
+
+thread 'promotion_phase_assert' (18) panicked at graph-store/tests/promotion.rs:73:5:
+assertion `left == right` failed: hub_meta.timeline must be the WAL-file timeline key: the break `checkpoint-timeline` reads pg_control_checkpoint(), which lags a promotion and prints the id unpadded, so the key the detector compares with is not the key it stores
+  left: "1"
+ right: "00000002"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    promotion_phase_assert
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p graph-store --test promotion`
