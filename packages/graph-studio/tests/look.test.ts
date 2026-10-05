@@ -106,6 +106,25 @@ test("the legend counts what each colour stands for", () => {
   ]);
 });
 
+test("the legend gives every group its own row, past the ten colours the palette wraps", () => {
+  const names = Array.from({ length: 11 }, (_, i) => `G${i}`);
+  const ids: string[] = [];
+  const members: string[] = [];
+  names.forEach((group, i) => {
+    for (let k = 0; k < (i === 10 ? 3 : 1); k += 1) {
+      ids.push(`${group}-${k}`);
+      members.push(group);
+    }
+  });
+  const meta = metaOf(members.map((group, i) => node(ids[i] ?? "", { group })), ids, { source: Uint32Array.of(), target: Uint32Array.of() });
+  const legend = legendOf(look({ meta, appearance: { ...BASE.appearance, colourBy: "group" } }));
+
+  // G0 wears the colour G10 wears too, but each row counts its own group.
+  assert.equal(legend.length, 11);
+  assert.deepEqual(legend.at(0), { colour: GROUP_PALETTE[0], label: "G0", count: 1 });
+  assert.deepEqual(legend.at(10), { colour: GROUP_PALETTE[0], label: "G10", count: 3 });
+});
+
 test("the display panel reaches the style: thickness, curve, arrows and glow", () => {
   const appearance = { ...DEFAULT_SETTINGS.appearance, linkThickness: 3, edgeStyle: "curve", arrows: true, glow: true, glowStrength: 2 } as const;
   const style = styleInputOf(look({ appearance }));
