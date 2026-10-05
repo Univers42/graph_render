@@ -19,32 +19,38 @@ use super::super::manifest::Manifest;
 use crate::hub::ids::qualify;
 use crate::ingest::{Cardinality, Collection, JsonValue, Role};
 
-/// The collection `name` names in the manifest for `plugin`, or the refusal. A batch
-/// spells its collections unqualified, so this is where the qualification happens — and it
-/// is the only place, so a stored record's collection is qualified exactly once.
+/// The collection `name` names in the manifest for `plugin`, and the id it is stored under,
+/// or the refusal. A batch spells its collections unqualified, so this is where the
+/// qualification happens — and it is the only place, so a stored record's collection is
+/// qualified exactly once.
 pub(super) fn declared<'a>(
     manifest: &'a Manifest,
     plugin: &str,
     name: &str,
     path: &str,
-) -> Result<&'a Collection, HubError> {
+) -> Result<(&'a Collection, String), HubError> {
     let qualified = qualify(plugin, name);
-    manifest
+    let found = manifest
         .collections
         .iter()
         .find(|c| qualify(plugin, &c.id) == qualified)
         .ok_or_else(|| HubError::Invalid {
             path: path.to_owned(),
             what: format!("collection `{qualified}` is not declared by the manifest"),
-        })
+        })?;
+    Ok((found, qualified))
 }
 
 /// The cell `field_id` carries, against the field that declares it. Two refusals, in a
 /// fixed order: the field must exist in this record's own collection, and its value must
 /// fit the role. The field lookup is first because "no such field" is the more useful
 /// answer when both are wrong.
+///
+/// `qualified` is the collection's id as the *store* spells it, which is what a client
+/// named in the refusal: the batch wrote `task`, the stored record holds `tracker.task`,
+/// and only the second one appears in a document.
 pub(super) fn check_cell(
-    plugin: &str,
+    qualified: &str,
     collection: &Collection,
     field_id: &str,
     value: &JsonValue,
@@ -54,10 +60,7 @@ pub(super) fn check_cell(
         .field(field_id)
         .ok_or_else(|| HubError::Invalid {
             path: format!("{path}.values"),
-            what: format!(
-                "collection `{}` declares no field `{field_id}`",
-                qualify(plugin, &collection.id)
-            ),
+            what: format!("collection `{qualified}` declares no field `{field_id}`"),
         })?;
     let at = format!("{path}.values.{field_id}");
     match field.role {

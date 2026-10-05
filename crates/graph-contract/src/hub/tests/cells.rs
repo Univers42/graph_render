@@ -12,43 +12,47 @@ use super::batch::{manifest, one};
 /// reader checks a whole document's declarations, but a hub writes one record at a time,
 /// and a record that could not appear in the document it will be served from must be
 /// refused when it arrives — with nothing stored and nothing said until a read fails.
+///
+/// `(what it is, field id, the cell as JSON, the whole refusal)` — the message in full
+/// because a path is only useful if it is the *whole* path.
+const FORBIDDEN: [(&str, &str, &str, &str); 5] = [
+    (
+        "a tag containing a colon",
+        "labels",
+        r#"["a","b:c"]"#,
+        // A list element's path is index-addressed, which is what makes the refusal
+        // pointable: a client with three tags needs to know *which* one is bad.
+        "upserts[0].values.labels[1]: a tag may not contain `:`",
+    ),
+    (
+        "a bare text tags cell",
+        "labels",
+        r#""b:c""#,
+        "upserts[0].values.labels: expected a list of strings",
+    ),
+    (
+        "a non-numeric weight",
+        "effort",
+        r#""x""#,
+        "upserts[0].values.effort: expected a number",
+    ),
+    (
+        "a title that is a number",
+        "name",
+        "1",
+        "upserts[0].values.name: expected a string",
+    ),
+    (
+        "a parent that is a list of two",
+        "up",
+        r#"["a","b"]"#,
+        "upserts[0].values.up: expected a single reference",
+    ),
+];
+
 #[test]
 fn a_cell_whose_shape_the_role_forbids_is_refused() {
-    let cases = [
-        (
-            "a tag containing a colon",
-            "labels",
-            r#"["a","b:c"]"#,
-            // A list element's path is index-addressed, which is what makes the refusal
-            // pointable: a client with three tags needs to know *which* one is bad.
-            "upserts[0].values.labels[1]: a tag may not contain `:`",
-        ),
-        (
-            "a bare text tags cell",
-            "labels",
-            r#""b:c""#,
-            "upserts[0].values.labels: expected a list of strings",
-        ),
-        (
-            "a non-numeric weight",
-            "effort",
-            r#""x""#,
-            "upserts[0].values.effort: expected a number",
-        ),
-        (
-            "a title that is a number",
-            "name",
-            "1",
-            "upserts[0].values.name: expected a string",
-        ),
-        (
-            "a parent that is a list of two",
-            "up",
-            r#"["a","b"]"#,
-            "upserts[0].values.up: expected a single reference",
-        ),
-    ];
-    for (what, field, cell, expected) in cases {
+    for (what, field, cell, expected) in FORBIDDEN {
         let batch = one(&format!(r#""{field}":{cell}"#));
         assert_eq!(
             batch

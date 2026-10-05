@@ -128,46 +128,24 @@ fn the_change_cap_is_the_body_cap_plus_room_for_every_operation() {
     );
 }
 
-/// **The finding this test exists for.** A five-byte `1e300` in a `scalar` cell writes as a
-/// 301-digit integer, so a batch body *under* `max_body` can produce a change *over*
-/// `max_change`: the cap on the way in and the cap on the way out are not the same
-/// number, and no amount of checking the request prevents it. So the change is refused on
-/// the way out, by `check_change`, as a size — and this is reported to hub-report rather
-/// than fixed here, because the fix (a cap on the expanded form, or a different cell
-/// encoding) is a spec decision, not a code fix.
+/// **The finding this test exists for.** A five-byte `1e308` in a `scalar` cell writes as a
+/// 309-digit integer, so a batch body *under* `max_body` can produce a change *over*
+/// `max_change`: the cap on the way in and the cap on the way out are not the same number,
+/// and no amount of checking the request prevents it. So the change is refused on the way
+/// out, by `check_change`, as a size — and this is reported to hub-report rather than fixed
+/// here, because the fix (a cap on the expanded form, or a different cell encoding) is a spec
+/// decision, not a code fix.
 #[test]
 fn a_body_under_max_body_can_still_produce_a_change_over_max_change() {
     let limits = Limits::DEFAULT;
     let plugin = "p".repeat(63);
-    let ops: Vec<String> = (0..limits.max_batch)
-        .map(|i| {
-            // Ids must be distinct or the batch is refused as a repeat — so the
-            // expansion has to come from the *cell*, not from many cells per record.
-            let id = format!("{:050}", i);
-            format!(r#"{{"collection":"c","id":"{id}","updatedAt":1,"values":{{"s":1e308}}}}"#)
-        })
-        .collect();
-    let body = format!(r#"{{"upserts":[{}],"deletes":[]}}"#, ops.join(","));
+    let (body, records) = body_and_records(&plugin, &limits);
     assert!(
         body.len() as u64 <= limits.max_body,
         "the body must be inside its own cap for this to be a finding: {}",
         body.len()
     );
-    let batch = super::super::batch::read_batch(&body, &limits).expect("the batch reads");
-    let records: Vec<(Record, u64)> = batch
-        .upserts
-        .iter()
-        .map(|u| (u.record(&plugin), 9_007_199_254_740_991))
-        .collect();
-    let change = change_json(
-        &ChangeHead {
-            seq: 1,
-            plugin: &plugin,
-            at: "2026-01-02T03:04:05Z",
-        },
-        &records,
-        &[],
-    );
+    let change = change_json(&ChangeHead { seq: 1, plugin: &plugin, at: "2026-01-02T03:04:05Z" }, &records, &[]);
     assert!(
         change.len() as u64 > max_change(&limits),
         "the finding needs an over-cap change: {} vs {}",
@@ -182,6 +160,29 @@ fn a_body_under_max_body_can_still_produce_a_change_over_max_change() {
         }),
         "the over-cap change is refused as a size, on the way out"
     );
+}
+
+/// A full batch of `max_batch` records, each carrying one `1e308`, and the records the
+/// writer would be handed.
+///
+/// A full batch because the per-operation room in `max_change` is a *fixed* 96 bytes while
+/// the expansion is per operation: a small batch could never exceed it, so the finding needs
+/// the cap and the expansion at the same time. Distinct ids because a repeat is refused.
+fn body_and_records(plugin: &str, limits: &Limits) -> (String, Vec<(Record, u64)>) {
+    let ops: Vec<String> = (0..limits.max_batch)
+        .map(|i| {
+            let id = format!("{i:050}");
+            format!(r#"{{"collection":"c","id":"{id}","updatedAt":1,"values":{{"s":1e308}}}}"#)
+        })
+        .collect();
+    let body = format!(r#"{{"upserts":[{}],"deletes":[]}}"#, ops.join(","));
+    let batch = super::super::batch::read_batch(&body, limits).expect("the batch reads");
+    let records = batch
+        .upserts
+        .iter()
+        .map(|u| (u.record(plugin), 9_007_199_254_740_991))
+        .collect();
+    (body, records)
 }
 
 /// And the other side of the same check: a change inside the cap is accepted, so

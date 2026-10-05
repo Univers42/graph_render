@@ -50,52 +50,53 @@ fn growth_is_only_adding_or_nothing_at_all() {
 
 /// A field or a collection that goes away, or changes what it means, is the one change
 /// growth cannot absorb: the records already stored carry its cells, and a hub that
-/// silently dropped them would answer a read with a document the client cannot round
-/// trip. Every one of them is a 409.
+/// silently dropped them would answer a read with a document the client cannot round trip.
+/// Every one of them is a 409.
+const REMOVALS: [(&str, &str); 3] = [
+    // `up` is the task collection's last field, so removing it is removing the line and
+    // the comma before it.
+    (
+        "a removed field",
+        ",\n        { \"id\": \"up\", \"name\": \"Up\", \"role\": \"parent\", \"link\": null }",
+    ),
+    ("a changed role", r#"role": "parent""#),
+    (
+        // The whole `task` collection, comma and all. `note` is kept because `task.peer`
+        // links to it: removing `note` first would make the *reader* refuse the fixture, and
+        // then the growth rule would never be reached.
+        "a removed collection",
+        ",\n    { \"id\": \"task\"",
+    ),
+];
+
 #[test]
 fn a_removed_or_changed_declaration_is_a_conflict() {
-    let cases = [
-        (
-            "a removed field",
-            // `up` is the task collection's last field, so removing it is removing the
-            // line and the comma before it.
-            TWO.replace(
-                ",\n        { \"id\": \"up\", \"name\": \"Up\", \"role\": \"parent\", \"link\": null }",
-                "",
-            ),
-        ),
-        (
-            "a changed role",
-            TWO.replace(
-                r#"{ "id": "up", "name": "Up", "role": "parent", "link": null }"#,
-                r#"{ "id": "up", "name": "Up", "role": "scalar", "link": null }"#,
-            ),
-        ),
-        (
-            // The whole `task` collection, comma and all. `note` is kept because
-            // `task.peer` links to it: removing `note` first would make the *reader*
-            // refuse the fixture, and then the growth rule would never be reached.
-            "a removed collection",
-            TWO.replace(
-                ",\n    { \"id\": \"task\", \"name\": \"Tasks\", \"titleField\": \"name\",\
-                 \n      \"fields\": [\
-                 \n        { \"id\": \"name\", \"name\": \"Name\", \"role\": \"title\", \"link\": null },\
-                 \n        { \"id\": \"peer\", \"name\": \"Peer\", \"role\": \"link\",\
-                 \n          \"link\": { \"collection\": \"note\", \"cardinality\": \"one\", \"symmetric\": false } },\
-                 \n        { \"id\": \"up\", \"name\": \"Up\", \"role\": \"parent\", \"link\": null }\
-                 \n      ] }",
-                "",
-            ),
-        ),
-    ];
-    for (what, text) in cases {
-        let outcome = growth(&v1(), &at(2, &text));
+    for (what, marker) in REMOVALS {
+        let outcome = growth(&v1(), &at(2, &edited(marker)));
         assert_eq!(
             outcome.as_ref().map(|_| ()).unwrap_err().status(),
             409,
             "{what} must be a conflict, got {outcome:?}"
         );
     }
+}
+
+/// `TWO` with the declaration named by `marker` changed or removed.
+///
+/// `role": "parent"` becomes a `scalar` role — the same member, a different meaning, which
+/// is the case a *reader* would happily accept and growth must refuse. The other two
+/// markers start a span that is cut out whole, from the comma before it through its last
+/// `}`.
+fn edited(marker: &str) -> String {
+    if marker.starts_with("role") {
+        return TWO.replace(r#"role": "parent""#, r#"role": "scalar""#);
+    }
+    let at = TWO
+        .find(marker)
+        .unwrap_or_else(|| panic!("no {marker:?} in the fixture"));
+    let rest = &TWO[at..];
+    let end = rest.find("]}").map_or(rest.len(), |i| i + 1);
+    TWO.replace(&rest[..end], "")
 }
 
 /// A link that starts pointing somewhere else is the sharpest case, and it is worth its

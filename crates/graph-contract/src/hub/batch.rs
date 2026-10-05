@@ -120,9 +120,9 @@ impl Batch {
     ) -> Result<(), HubError> {
         for (i, up) in self.upserts.iter().enumerate() {
             let path = format!("upserts[{i}]");
-            let collection = cells::declared(manifest, plugin, &up.collection, &path)?;
+            let (collection, qualified) = cells::declared(manifest, plugin, &up.collection, &path)?;
             for (field_id, value) in &up.values {
-                cells::check_cell(plugin, collection, field_id, value, &path)?;
+                cells::check_cell(&qualified, collection, field_id, value, &path)?;
             }
             if record_piece(&up.record(plugin)).len() as u64 > limits.max_record_bytes {
                 return Err(HubError::TooLarge {
@@ -132,8 +132,7 @@ impl Batch {
             }
         }
         for (i, delete) in self.deletes.iter().enumerate() {
-            let path = format!("deletes[{i}]");
-            cells::declared(manifest, plugin, &delete.collection, &path)?;
+            cells::declared(manifest, plugin, &delete.collection, &format!("deletes[{i}]"))?;
         }
         Ok(())
     }

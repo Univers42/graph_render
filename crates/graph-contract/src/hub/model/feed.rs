@@ -16,13 +16,17 @@
 //!   change the reader has to skip, and skipping is a rule the reader has to get right.
 
 use super::{Applied, Model, Stored};
+
+/// The records map a staging walk mutates: the model's own key, so a staged key and a
+/// stored one cannot be spelled differently.
+type Records = std::collections::BTreeMap<(String, String), Stored>;
 use crate::ingest::{Record, record_piece};
 
 /// The staged outcome of one batch: the records map it would leave behind, and what it
 /// would report. Both come from the same walk, so they cannot disagree.
 pub(super) struct Staged {
     /// Every record the model would hold afterwards.
-    pub records: std::collections::BTreeMap<(String, String), Stored>,
+    pub records: Records,
     /// What the batch changed.
     pub applied: Applied,
 }
@@ -30,7 +34,7 @@ pub(super) struct Staged {
 impl Staged {
     /// The records, moved out: the model takes this and nothing else, so committing is one
     /// field assignment and the old map is dropped whole.
-    pub(super) fn into_records(self) -> std::collections::BTreeMap<(String, String), Stored> {
+    pub(super) fn into_records(self) -> Records {
         self.records
     }
 }
@@ -43,7 +47,21 @@ pub(super) fn stage(
     batch: &super::super::batch::Batch,
 ) -> Result<Staged, HubError> {
     let mut records = model.records_map().clone();
-    let mut upserted: Vec<(Record, u64)> = Vec::new();
+    let upserted = apply_upserts(&mut records, plugin, batch);
+    let deleted = apply_deletes(&mut records, plugin, batch);
+    Ok(Staged {
+        records,
+        applied: Applied { upserted, deleted },
+    })
+}
+
+/// Every upsert staged into `records`, and the `(record, rev)` pairs to report.
+fn apply_upserts(
+    records: &mut Records,
+    plugin: &str,
+    batch: &super::super::batch::Batch,
+) -> Vec<(Record, u64)> {
+    let mut upserted = Vec::with_capacity(batch.upserts.len());
     for up in &batch.upserts {
         let record = up.record(plugin);
         let key = (record.collection.clone(), record.id.clone());
@@ -66,7 +84,16 @@ pub(super) fn stage(
         );
         upserted.push((record, rev));
     }
-    let mut deleted: Vec<(String, String, u64)> = Vec::new();
+    upserted
+}
+
+/// Every delete staged into `records`, and the `(collection, id, rev)` triples to report.
+fn apply_deletes(
+    records: &mut Records,
+    plugin: &str,
+    batch: &super::super::batch::Batch,
+) -> Vec<(String, String, u64)> {
+    let mut deleted = Vec::with_capacity(batch.deletes.len());
     for remove in &batch.deletes {
         let key = (
             super::super::qualify(plugin, &remove.collection),
@@ -79,10 +106,7 @@ pub(super) fn stage(
             deleted.push((key.0, key.1, stored.rev));
         }
     }
-    Ok(Staged {
-        records,
-        applied: Applied { upserted, deleted },
-    })
+    deleted
 }
 
 /// The `rev` a record written over `previous` gets: one more, or 1 when there was nothing
