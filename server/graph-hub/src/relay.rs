@@ -165,10 +165,6 @@ async fn send(
     let answered = tokio::time::timeout(app.settings.motor_timeout, client.request(sent)).await;
     match answered {
         Ok(Ok(response)) => Ok(response),
-        Ok(Err(error)) => {
-            eprintln!("graph-hub: motor transport {url}: {error:?}");
-            Err(MotorFault::Unavailable)
-        }
         // A refused connection, a reset mid-upload and the timeout itself are one answer here:
         // §5.2's last row is "unreachable, or no answer in GRAPH_HUB_MOTOR_TIMEOUT_MS", and the
         // hub cannot tell those apart without a fact it does not have.

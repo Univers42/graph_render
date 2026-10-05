@@ -23,10 +23,11 @@ pub fn quoted(cursor: &Cursor) -> String {
 /// header may carry several tags, and one match is enough. Every other byte of the tag — a `W/`
 /// prefix, whitespace — is compared literally, which is what makes this an exact compare.
 pub fn matches(headers: &HeaderMap, cursor: &Cursor) -> bool {
-    let Some(values) = headers.get(header::IF_NONE_MATCH).map(HeaderMap::get_all) else {
-        return false;
-    };
     let wanted = quoted(cursor);
+    if headers.get(header::IF_NONE_MATCH).is_none() {
+        return false;
+    }
+    let values = headers.get_all(header::IF_NONE_MATCH);
     values.iter().any(|value| {
         value
             .to_str()

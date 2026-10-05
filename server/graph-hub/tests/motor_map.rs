@@ -313,19 +313,24 @@ const SILENCE_SECS: u64 = 30;
 /// connection.
 #[tokio::test]
 async fn a_pool_wait_past_the_timeout_is_503_before_the_motor_is_called() {
-    let (motor, served, _key) =
-        stub_parts(vec![StubReply::new(200, "", "")], Duration::ZERO).await;
+    let (motor, served, _key) = stub_parts(
+        vec![StubReply::new(200, "", "")],
+        Duration::from_secs(HOLD_SECS),
+    )
+    .await;
     let hub = hub_over(
         &motor,
         &[("GRAPH_HUB_LAYOUTS", "1"), ("GRAPH_HUB_TIMEOUT_MS", "150")],
     )
     .await;
     let holder = hub.spawn(
-        hub.request("POST", "/v1/workspaces/mapped/layout?layout=layout.grid")
+        hub.request("POST", "/v1/workspaces/mapped/layout?layout=layout.graph")
             .body(Body::empty())
             .expect("the relay request"),
     );
-    // The holder has the only `LAYOUTS` permit; the second relay waits on it and runs out.
+    // The holder holds the only `LAYOUTS` permit for as long as the stub holds its answer, which is
+    // the whole reason the stub was given a hold here: a `LAYOUTS` permit travels with the response
+    // body (§6), so an answer already written would have freed it.
     tokio::time::sleep(Duration::from_millis(50)).await;
     let refused = relay(&hub).await;
     assert_eq!(refused.code(), 503, "{}", refused.body());
@@ -343,6 +348,14 @@ async fn a_pool_wait_past_the_timeout_is_503_before_the_motor_is_called() {
         "the refused relay never reached the motor"
     );
 }
+
+/// How long `a_pool_wait_past_the_timeout_is_503_before_the_motor_is_called` holds the holder's answer,
+/// in seconds.
+///
+/// Caveat: a fixture delay and not a bound the hub reads; it only has to outlast the holder's upload
+/// and the 150 ms `GRAPH_HUB_TIMEOUT_MS` this case sets, and both arms are finished long before it is
+/// over.
+const HOLD_SECS: u64 = 3;
 
 /// §5.2's relayed rows keep graph-server's `error` string byte for byte, so a client parses the same
 /// name whichever service answered it.

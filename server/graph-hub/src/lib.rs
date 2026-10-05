@@ -17,6 +17,7 @@ pub mod body;
 pub mod breaks;
 pub mod config;
 pub mod error;
+pub mod etag;
 pub mod gate;
 pub mod grants;
 pub mod health;
@@ -73,7 +74,7 @@ pub fn router(app: Arc<App>) -> Router {
             "/v1/workspaces/{ws}/records/{plugin}/{collection}/{id}",
             get(routes::batches::one),
         )
-        .route("/v1/workspaces/{ws}/graph", get(not_ready))
+        .route("/v1/workspaces/{ws}/graph", get(routes::graph::get))
         .route("/v1/workspaces/{ws}/changes", get(not_ready))
         .route("/v1/workspaces/{ws}/events", get(not_ready))
         .route("/v1/workspaces/{ws}/layout", post(relay::layout))

@@ -67,6 +67,10 @@ async fn lay_out(hub: &Hub, ws: &str) -> Reply {
 }
 
 /// `GET /graph`, the document the relay streamed.
+///
+/// Caveat: this case needs `/graph` to be wired, which is Task 6's router entry. On a branch where
+/// `/graph` still answers 501 the case is **not** skipped and not passed: it fails, because a
+/// roundtrip measured against a document this test did not read proves nothing.
 async fn graph(hub: &Hub, ws: &str) -> Reply {
     hub.get_with(&format!("/v1/workspaces/{ws}/graph")).await
 }
@@ -122,8 +126,8 @@ const MANIFEST_LINKED: &str = r#"{
   "collections": [
     { "id": "memo", "name": "Memos", "titleField": "name", "fields": [
       { "id": "name", "name": "Name", "role": "title", "link": null },
-      { "id": "relates", "name": "Relates", "role": "scalar",
-        "link": { "cardinality": "one", "collection": "task", "symmetric": false } }
+      { "id": "relates", "name": "Relates", "role": "link",
+        "link": { "cardinality": "one", "collection": "task.task", "symmetric": false } }
     ] }
   ]
 }"#;

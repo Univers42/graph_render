@@ -11,6 +11,8 @@
 //! (409, 412, 413, 422) keeps its status and the hub never re-derives the class.
 
 pub mod batches;
+pub mod document;
+pub mod graph;
 pub mod plugins;
 pub mod scan;
 pub mod workspaces;
