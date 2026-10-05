@@ -29,6 +29,8 @@ pub mod fixtures;
 pub mod grep;
 pub mod motor;
 pub mod reply;
+pub mod step;
+pub mod wire;
 pub use grep::grep_this_crate;
 pub use motor::*;
 pub use reply::Reply;

@@ -10,6 +10,7 @@ use crate::config::Connections;
 use axum::Router;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::server::graceful::GracefulShutdown;
 use hyper_util::service::TowerToHyperService;
 use std::io;
 use std::net::SocketAddr;
@@ -78,13 +79,14 @@ async fn accept_until_signal(
     // The readiness line comes after the signal handlers: logged first, a `SIGHUP` sent on it met
     // the default action and killed the process (graph-server's `serve.rs:55-56`, same bug).
     app.log(&serde_json::json!({ "event": "listening", "addr": bound }));
+    let graceful = GracefulShutdown::new();
     let accept = Acceptor::new(crate::router(Arc::clone(&app)), *limits);
     loop {
         tokio::select! {
             _ = terminate.recv() => break,
             _ = interrupt.recv() => break,
             (accepted, slot) = accept.next(&listener) => match accepted {
-                Ok(stream) => accept.spawn(stream, slot, &app),
+                Ok(stream) => accept.spawn(stream, slot, &graceful, &app),
                 Err(error) => {
                     app.log(&serde_json::json!({ "event": "accept", "error": error.to_string() }));
                     tokio::time::sleep(ACCEPT_BACKOFF).await;
@@ -93,8 +95,20 @@ async fn accept_until_signal(
         }
     }
     drop(listener);
-    app.log(&serde_json::json!({ "event": "stopped" }));
+    drain(graceful, app.settings.timeout, &app).await;
     Ok(())
+}
+
+/// Lets in-flight requests finish for up to `budget` (`GRAPH_HUB_TIMEOUT_MS`), then logs `stopped`
+/// with whether they all did, as `server/graph-server/src/serve.rs:61-75` drains the motor.
+///
+/// Caveat: a `/changes` stream never finishes on its own, so one open subscriber holds the drain
+/// for the whole budget; `hub-run.sh stop` waits 40 s for that reason.
+async fn drain(graceful: GracefulShutdown, budget: Duration, app: &App) {
+    let drained = tokio::time::timeout(budget, graceful.shutdown())
+        .await
+        .is_ok();
+    app.log(&serde_json::json!({ "event": "stopped", "drained": drained }));
 }
 
 /// Accepts connections under the connection cap and serves each on its own task.
@@ -124,14 +138,20 @@ impl Acceptor {
         (listener.accept().await.map(|(stream, _)| stream), slot)
     }
 
-    fn spawn(&self, stream: TcpStream, slot: OwnedSemaphorePermit, app: &Arc<App>) {
+    fn spawn(
+        &self,
+        stream: TcpStream,
+        slot: OwnedSemaphorePermit,
+        graceful: &GracefulShutdown,
+        app: &Arc<App>,
+    ) {
         let mut builder = http1::Builder::new();
         builder
             .timer(TokioTimer::new())
             .header_read_timeout(Some(self.limits.header_timeout))
             .max_buf_size(self.limits.max_header_bytes);
         let service = TowerToHyperService::new(self.router.clone());
-        let connection = builder.serve_connection(TokioIo::new(stream), service);
+        let connection = graceful.watch(builder.serve_connection(TokioIo::new(stream), service));
         let app = Arc::clone(app);
         tokio::spawn(async move {
             let _slot = slot;
