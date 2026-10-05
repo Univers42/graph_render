@@ -83,9 +83,7 @@ fn shape_refusals() -> [(&'static str, String, &'static str); 4] {
 }
 
 /// The refusals that come from the manifest naming something **twice**, or naming a
-/// collection it does not declare. A table of its own only for the 40-line limit; the
-/// assertion is the same as `shape_refusals`'s.
-fn naming_refusals() -> [(&'static str, String, &'static str); 3] {
+fn duplicate_refusals() -> [(&'static str, String, &'static str); 2] {
     [
         (
             "duplicate collection id",
@@ -103,20 +101,29 @@ fn naming_refusals() -> [(&'static str, String, &'static str); 3] {
             ),
             "collections[1].fields[2].id: duplicate field id `name`",
         ),
-        (
-            "a link to a collection the manifest does not declare",
-            TWO.replace(r#""collection": "note""#, r#""collection": "gone""#),
-            "collections[1].fields[1].link.collection: link target `tracker.gone` is not \
-             declared by this manifest",
-        ),
     ]
+}
+
+/// The one refusal that is neither a shape nor a duplicate: a link naming a collection the
+/// manifest does not declare.
+fn dangling_refusal() -> (&'static str, String, &'static str) {
+    (
+        "a link to a collection the manifest does not declare",
+        TWO.replace(r#""collection": "note""#, r#""collection": "gone""#),
+        "collections[1].fields[1].link.collection: link target `tracker.gone` is not \
+         declared by this manifest",
+    )
 }
 
 /// Every refusal names *where*: the path, the coordinate or the version. One table per kind
 /// so a reader can learn what a refusal looks like without running the suite.
 #[test]
 fn a_manifest_that_breaks_the_contract_is_refused_naming_the_path() {
-    for (what, text, message) in shape_refusals().into_iter().chain(naming_refusals()) {
+    let all = shape_refusals()
+        .into_iter()
+        .chain(duplicate_refusals())
+        .chain([dangling_refusal()]);
+    for (what, text, message) in all {
         assert_eq!(
             read_manifest(&text, "tracker").unwrap_err().to_string(),
             message,
