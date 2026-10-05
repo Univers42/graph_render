@@ -43,9 +43,35 @@ fn admin_url_for(database: &str) -> String {
     url_for(database).replacen("postgres://hub:hub@", "postgres://postgres:hub@", 1)
 }
 
+/// The URL the tests should use RIGHT NOW.
+///
+/// WHY this is not [`url`]: every container-level case (promotion, PITR, volume snapshot,
+/// kill/restart) replaces the container, and a replacement gets a NEW bridge IP. A test that read
+/// `GM_HUB_PG_URL` once would keep dialling the address of a container that no longer exists, and
+/// every read-back would come back empty — which is exactly the "the table I wrote is not there"
+/// shape that made the PITR probe look broken when the verbs were fine.
+///
+/// `scripts/orch/hub-pg.sh url` rewrites `target/hub-pg-url` on every start, and `scripts/orch/gr`
+/// mounts the repository read-write at `/w`, so a test can follow the server across a restore.
+/// The environment variable is the fallback for a run with no `hub-pg.sh` involved.
+pub fn url_now() -> String {
+    let path = "target/hub-pg-url";
+    match std::fs::read_to_string(path) {
+        Ok(text) if !text.trim().is_empty() => text.trim().to_string(),
+        _ => url(),
+    }
+}
+
 /// One connected client on the shared database, for reads that must not disturb anything.
 pub async fn open() -> tokio_postgres::Client {
     connect(&url()).await
+}
+
+/// One connected client on the shared database, dialling the CURRENT address.
+///
+/// This is what a container-level case must use for every read after a restore.
+pub async fn reopen() -> tokio_postgres::Client {
+    connect(&url_now()).await
 }
 
 /// Connect to `target`, spawning the connection task.
@@ -79,8 +105,14 @@ pub async fn fresh(name: &str) -> tokio_postgres::Client {
 }
 
 /// A client on a database that belongs to this test alone, migrated to the current code, plus a
-/// superuser connection to the *same* database for the cases that need one.
-pub async fn fresh_pair(name: &str) -> (tokio_postgres::Client, tokio_postgres::Client) {
+/// superuser connection to the *same* database for the cases that need one, plus that database's
+/// URL.
+///
+/// WHY the URL is handed back: a case that needs CONCURRENT connections (four writers, eight
+/// openers) must open every one of them against this test's database. Reaching for
+/// [`open`] instead quietly dials the shared `hub` database, where the table it just created does
+/// not exist — and the failure reads as a broken schema rather than a wrong address.
+pub async fn fresh_pair(name: &str) -> (tokio_postgres::Client, tokio_postgres::Client, String) {
     let database = database_name(name);
     let mut admin = open().await;
     drop_database(&mut admin, &database).await;
@@ -91,12 +123,18 @@ pub async fn fresh_pair(name: &str) -> (tokio_postgres::Client, tokio_postgres::
         ))
         .await
         .unwrap_or_else(|e| panic!("create {database}: {e}"));
-    let mut hub = connect(&url_for(&database)).await;
+    let target = url_for(&database);
+    let mut hub = connect(&target).await;
     graph_store::migrate::apply(&mut hub)
         .await
         .unwrap_or_else(|e| panic!("migrate {database}: {e}"));
     let admin = connect(&admin_url_for(&database)).await;
-    (hub, admin)
+    (hub, admin, target)
+}
+
+/// Another connection to `target`, for a case that needs more than one.
+pub async fn more(target: &str) -> tokio_postgres::Client {
+    connect(target).await
 }
 
 /// Drop `database`, terminating anything still attached to it.

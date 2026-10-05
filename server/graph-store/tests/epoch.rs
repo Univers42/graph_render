@@ -63,7 +63,7 @@ async fn hub_tx(client: &mut Client) {
 /// An epoch is microseconds: above 1.7e15 and below 2^53, on a live database.
 #[tokio::test]
 async fn epoch_is_microseconds() {
-    let (mut client, _) = support::db::fresh_pair("epoch_is_microseconds").await;
+    let (mut client, _, _) = support::db::fresh_pair("epoch_is_microseconds").await;
     let epoch = bump_now(&mut client).await.expect("draw an epoch");
     assert!(
         epoch > 1_700_000_000_000_000,
@@ -82,7 +82,7 @@ async fn epoch_is_microseconds() {
 /// separates two hubs drawing in the same millisecond.
 #[tokio::test]
 async fn epoch_run_ahead_is_microseconds() {
-    let (mut client, _) = support::db::fresh_pair("epoch_run_ahead_is_microseconds").await;
+    let (mut client, _, _) = support::db::fresh_pair("epoch_run_ahead_is_microseconds").await;
     client.batch_execute("BEGIN").await.expect("begin");
     let wall: i128 = client
         .query_one(
@@ -108,7 +108,7 @@ async fn epoch_run_ahead_is_microseconds() {
 /// One statement per event, per trigger table, each moving the epoch; `COPY` included.
 #[tokio::test]
 async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
-    let (mut client, _) =
+    let (mut client, _, _) =
         support::db::fresh_pair("manual_insert_update_delete_truncate_copy_move_the_epoch").await;
     make_ws(&mut client, "ws").await;
     let mut before = clock(&mut client).await;
@@ -180,7 +180,7 @@ async fn manual_insert_update_delete_truncate_copy_move_the_epoch() {
 /// under the replica role, and a standby's writes would then move no epoch at all.
 #[tokio::test]
 async fn replica_role_write_moves_the_epoch_for_every_event() {
-    let (mut client, admin) =
+    let (mut client, admin, _) =
         support::db::fresh_pair("replica_role_write_moves_the_epoch_for_every_event").await;
     make_ws(&mut client, "ws").await;
 
@@ -227,7 +227,7 @@ async fn replica_role_write_moves_the_epoch_for_every_event() {
 /// tables that are not workspace state.
 #[tokio::test]
 async fn trigger_catalog_is_exactly_four_per_table_all_always() {
-    let (client, _) =
+    let (client, _, _) =
         support::db::fresh_pair("trigger_catalog_is_exactly_four_per_table_all_always").await;
     let rows = client
         .query(
@@ -271,7 +271,7 @@ async fn trigger_catalog_is_exactly_four_per_table_all_always() {
 /// Deleting a workspace and recreating it draws an epoch strictly above the old one.
 #[tokio::test]
 async fn workspace_delete_and_recreate_draws_a_larger_epoch() {
-    let (mut client, _) =
+    let (mut client, _, _) =
         support::db::fresh_pair("workspace_delete_and_recreate_draws_a_larger_epoch").await;
     make_ws(&mut client, "ws").await;
     let first = head_of(&mut client, "ws")
@@ -299,7 +299,7 @@ async fn workspace_delete_and_recreate_draws_a_larger_epoch() {
 /// under test is the guard inside the trigger — the same guard whatever wrote the statement.
 #[tokio::test]
 async fn hub_write_paths_move_no_epoch() {
-    let (mut client, _) = support::db::fresh_pair("hub_write_paths_move_no_epoch").await;
+    let (mut client, _, _) = support::db::fresh_pair("hub_write_paths_move_no_epoch").await;
     pin_clock_ahead(&mut client).await;
     // Seed inside the guard, so the baseline below is untouched by the setup.
     hub_tx(&mut client).await;
@@ -384,7 +384,8 @@ async fn hub_write_paths_move_no_epoch() {
 /// under the guard the clock must not move, and outside it the clock must.
 #[tokio::test]
 async fn workspaces_update_does_not_bump_itself() {
-    let (mut client, _) = support::db::fresh_pair("workspaces_update_does_not_bump_itself").await;
+    let (mut client, _, _) =
+        support::db::fresh_pair("workspaces_update_does_not_bump_itself").await;
     make_ws(&mut client, "ws").await;
     pin_clock_ahead(&mut client).await;
 
