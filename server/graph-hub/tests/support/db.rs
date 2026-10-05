@@ -141,6 +141,28 @@ async fn create(name: &str, options: &str) -> String {
     format!("{head}/{database}")
 }
 
+/// Apply the store's migrations to the database `url` names, and insert one workspace row.
+///
+/// The hub never writes SQL, so a test that needs a workspace to *exist* writes the row itself, the
+/// way `server/graph-store/tests` do. This is the subject of
+/// `refusal_bytes_are_identical_with_and_without_the_workspace`: authorization must answer 403
+/// without ever asking whether the workspace is there, and the only way to show that is to have it
+/// there in one arm and not in the other.
+pub async fn with_workspace(url: &str, ws: &str) {
+    let store = store_on(url).await;
+    let mut client = store.client().await.expect("a connection for the migration");
+    graph_store::migrate::apply(&mut client)
+        .await
+        .expect("the store's migrations");
+    client
+        .batch_execute(&format!(
+            "INSERT INTO workspaces (id, epoch, head_seq) VALUES ('{ws}', 1, 0) \
+             ON CONFLICT (id) DO NOTHING"
+        ))
+        .await
+        .unwrap_or_else(|error| panic!("insert the workspace {ws}: {error}"));
+}
+
 /// The name a test called `name` gets: letters, digits and `_` only, plus a per-process counter so
 /// two tests in one binary cannot collide and a reused pid cannot collide with an earlier run.
 fn database_name(name: &str) -> String {
