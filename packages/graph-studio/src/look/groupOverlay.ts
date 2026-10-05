@@ -8,9 +8,10 @@
  */
 import { parseQuery } from "../console/parse.ts";
 import { rowOf, matchesQuery } from "../console/queryMatch.ts";
-import type { GraphMeta } from "../source/meta.ts";
+import { UNGROUPED, type GraphMeta } from "../source/meta.ts";
 import type { Group } from "../state/settings.ts";
-import { GROUP_PALETTE, MUTED } from "./palette.ts";
+import { MUTED } from "./palette.ts";
+import { categoricalOf } from "./categorical.ts";
 import type { Colouring } from "./colourBy.ts";
 
 interface Parsed {
@@ -43,11 +44,12 @@ function slotsOf(parsed: readonly Parsed[], meta: GraphMeta): Int32Array {
   return slots;
 }
 
-/** The document's own group column, used when no user group matches anything. */
+/**
+ * The document's own group column, used when no user group matches anything. One slot per
+ * distinct group name, in node order: past ten the colours repeat but the legend rows do not.
+ */
 export function documentGroups(meta: GraphMeta): Colouring {
-  const colours = new Uint16Array(meta.nodeCount);
-  for (let i = 0; i < colours.length; i += 1) colours[i] = (meta.group[i] ?? 0) % GROUP_PALETTE.length;
-  return { colours, palette: GROUP_PALETTE, names: (slot) => meta.groups[slot] ?? `#${slot}` };
+  return categoricalOf(Array.from(meta.group, (index) => meta.groups[index] ?? ""), { empty: UNGROUPED, overflow: "(other groups)" });
 }
 
 /** `by === "group"` with user groups: they win completely; unmatched nodes are MUTED. */

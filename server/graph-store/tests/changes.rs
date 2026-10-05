@@ -21,7 +21,7 @@ use graph_store::error::StoreError;
 use tokio_postgres::Client;
 
 pub use support::fixture::batch_of;
-pub use support::workspace::{batch_write, ready};
+pub use support::workspace::{as_writer, batch_write, epoch_of, ready, write_tasks};
 
 /// The reader's seam is a file every page read in this binary checks, so the case that arms it
 /// takes this for writing and every other page read takes it for reading.
@@ -48,31 +48,6 @@ pub async fn read(store: &Store, request: &ChangesReq) -> Result<ChangePage, Sto
     graph_store::changes::page(store, request).await
 }
 
-/// One batch per id in `ids`, each upserting task `id`: seqs 2, 3, … after the registration.
-pub async fn write_tasks(store: &Store, ids: &[&str]) {
-    for id in ids {
-        let cells = format!(r#""name":"Task {id}""#);
-        let outcome = store
-            .apply_batch(&batch_write(
-                "ws",
-                "tracker",
-                batch_of(&[("task", id, 1, &cells)], &[]),
-            ))
-            .await;
-        assert!(outcome.is_ok(), "batch {id} applies: {outcome:?}");
-    }
-}
-
-/// The workspace's epoch.
-pub async fn epoch_of(client: &Client) -> u64 {
-    let epoch: i64 = client
-        .query_one("SELECT epoch FROM workspaces WHERE id = 'ws'", &[])
-        .await
-        .expect("read the epoch")
-        .get(0);
-    epoch as u64
-}
-
 /// Each stored header's `(seq, bytes)`, in seq order.
 pub async fn header_bytes(client: &Client) -> Vec<(u64, u64)> {
     client
@@ -85,16 +60,6 @@ pub async fn header_bytes(client: &Client) -> Vec<(u64, u64)> {
         .iter()
         .map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64))
         .collect()
-}
-
-/// Run `sql` as the writer, so the epoch trigger does not count it as a foreign edit.
-pub async fn as_writer(client: &Client, sql: &str) {
-    client
-        .batch_execute(&format!(
-            "BEGIN; SELECT set_config('hub.writer', '1', true); {sql}; COMMIT"
-        ))
-        .await
-        .unwrap_or_else(|e| panic!("run as the writer: {sql}: {e}"));
 }
 
 /// Drop changes `1..=seq` from the log, the way retention does.
