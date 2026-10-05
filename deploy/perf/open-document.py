@@ -56,37 +56,13 @@ import smokecdp
 # The profiling, the frame watch and the row printer are open.py's, imported by name so the builtin
 # `open` stays the builtin: one implementation of the sampling arithmetic for both probes.
 from open import FIRST_FRAME, WATCH_FRAMES, report, start
+# The four snippets this probe evaluates; they live beside each other in their own module so this
+# one stays inside the house's line limit. `deploy/perf/open_document_js.py`.
+from open_document_js import CAUGHT, HEAP, OPEN_DOCUMENT, SETTLED
 
 ROWS = 20
 LAYOUT = "layout.dag.sugiyama"
 POLLS = 4000
-
-# The studio's own action, with the file control's own params. The shared driver
-# (deploy/perf/drivers/hook.js) has no document opener, so the dispatch the dock's file control makes
-# is spelled out here rather than added to a file both probes share. `__gmOpen` is the promise the
-# poll below watches; `__gmSettled` is what it leaves behind, including on a refusal or a throw.
-OPEN_DOCUMENT = """(async (name, url) => {
-  window.__gmSettled = null;
-  const started = performance.now();
-  const answer = await fetch(url);
-  if (!answer.ok) throw new Error(`the document server refused ${url}: ${answer.status}`);
-  const text = await answer.text();
-  const studio = document.querySelector('graph-studio')?.studio ?? null;
-  if (studio === null) throw new Error('open-document: no <graph-studio> with a studio on the page');
-  const entry = await studio.dispatch('source.document', { name, text });
-  const done = { ms: Math.round(performance.now() - started), message: entry.ok
-    ? entry.message : `REFUSED ${entry.command}: ${entry.message}` };
-  window.__gmSettled = done;
-})"""
-CAUGHT = """(error) => {
-  window.__gmSettled = { error: String(error?.message ?? error) };
-}"""
-SETTLED = "(window.__gmSettled === null ? 'running' : JSON.stringify(window.__gmSettled))"
-HEAP = """(() => {
-  const memory = performance.memory;
-  return memory === undefined ? null : Math.round(memory.usedJSHeapSize / 1048576);
-})()"""
-
 
 class Documents(SimpleHTTPRequestHandler):
     """The listed documents and nothing else, cross-origin: the studio is served by another port.
