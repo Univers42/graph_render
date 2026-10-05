@@ -28,6 +28,8 @@ host's driver stack; a set that works here is not a property of the flag. The co
 canary that a device exists and dispatches — it measures no throughput, so `compute ok` says
 nothing about what a force tick would cost.
 """
+import contextlib
+import shutil
 import sys
 import tempfile
 import time
@@ -142,14 +144,14 @@ def candidates(arm):
         swift = [unsafe, "--use-webgpu-adapter=swiftshader"]
         return [
             ("swiftshader webgpu + vulkan", with_gl(swift + ["--enable-features=Vulkan"])),
+            ("swiftshader through ANGLE too", with_gl(
+                swift + ["--use-angle=swiftshader"],
+                gl=["--enable-unsafe-swiftshader", "--use-angle=swiftshader"])),
             ("swiftshader + VulkanFromANGLE + dawn", with_gl(
                 swift + ["--enable-features=Vulkan,VulkanFromANGLE", dawn])),
             ("swiftshader webgpu, --disable-gpu dropped", with_gl(
                 swift + ["--enable-features=Vulkan", "--enable-unsafe-swiftshader"],
                 gl=["--enable-unsafe-swiftshader"])),
-            ("swiftshader through ANGLE too", with_gl(
-                swift + ["--use-angle=swiftshader"],
-                gl=["--enable-unsafe-swiftshader", "--use-angle=swiftshader"])),
         ]
     return [
         ("unsafe webgpu + vulkan", with_gl([unsafe, "--enable-features=Vulkan"])),
@@ -157,8 +159,38 @@ def candidates(arm):
             [unsafe, "--enable-features=Vulkan,VulkanFromANGLE"])),
         ("unsafe webgpu + vulkan + dawn", with_gl([unsafe, "--enable-features=Vulkan", dawn])),
         ("unsafe webgpu + vulkan + dawn + no vulkan gl fallback", with_gl(
-            [unsafe, "--enable-features=Vulkan", dawn, "--disable-vulkan-fallback-to-gl-for-testing"])),
+            [unsafe, "--enable-features=Vulkan", dawn,
+             "--disable-vulkan-fallback-to-gl-for-testing"])),
     ]
+
+
+@contextlib.contextmanager
+def profile_dir():
+    """A fresh Chromium profile directory for one launch, removed on the way out.
+
+    Chromium writes into the profile as it shuts down, so its removal can lose that race and raise
+    `Directory not empty` — which would turn a probe that answered into exit 2, a harness failure
+    the harness did not have. Nothing here is worth keeping, so the removal is best-effort: the
+    directory is left under /tmp for the session rather than turned into a false refusal.
+    """
+    path = tempfile.mkdtemp()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+@contextlib.contextmanager
+def browser_on(flags):
+    """Chromium on `flags` with the CDP page open on the probe's port, closed on the way out."""
+    with profile_dir() as profile:
+        browser = nav.launch_browser(profile, extra=flags)
+        try:
+            yield cdp.Page(nav.DEBUG_PORT)
+        finally:
+            browser.terminate()
+            browser.wait(timeout=10)
+            time.sleep(1)
 
 
 def attempt(flags, url):
@@ -166,16 +198,9 @@ def attempt(flags, url):
 
     A fresh browser per set, because the flags are the launch's own and Chromium reads them once.
     """
-    with tempfile.TemporaryDirectory() as profile:
-        browser = nav.launch_browser(profile, extra=flags)
-        try:
-            page = cdp.Page(nav.DEBUG_PORT)
-            page.navigate(url)
-            return page.evaluate(ASK_JS)
-        finally:
-            browser.terminate()
-            browser.wait(timeout=10)
-            time.sleep(1)
+    with browser_on(flags) as page:
+        page.navigate(url)
+        return page.evaluate(ASK_JS)
 
 
 def first_adapter(sets, url):
@@ -200,17 +225,12 @@ def first_adapter(sets, url):
 def run_compute(label, sets, url):
     """Reopen the browser on the set that gave the adapter, and run the compute pass there."""
     flags = next(flags for name, flags in sets if name == label)
-    with tempfile.TemporaryDirectory() as profile:
-        browser = nav.launch_browser(profile, extra=flags)
+    with browser_on(flags) as page:
+        page.navigate(url)
         try:
-            page = cdp.Page(nav.DEBUG_PORT)
-            page.navigate(url)
             return page.evaluate(COMPUTE_JS, timeout=300)
         except cdp.CdpError as failure:
             return {"ok": False, "why": str(failure)}
-        finally:
-            browser.terminate()
-            browser.wait(timeout=10)
 
 
 def refusal(arm, report):
