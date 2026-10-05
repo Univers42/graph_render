@@ -408,7 +408,7 @@ exists; otherwise add `"./hub"` now and `"./plugin"` in Task 8. Run the test fil
   `interface SyncKey { readonly collection: string; readonly id: string }`;
   `function chunkOps(ops: readonly SyncOp[], maxBatch: number): readonly SyncOp[][]`;
   `function batchOf(ops: readonly SyncOp[]): BatchWire`;
-  `function opKey(op: SyncKey): string` (`"<collection> <id>"`, so byte order and set
+  `function opKey(op: SyncKey): string` (`"<collection>\0<id>"`, so byte order and set
   membership are one string).
 
 - [ ] **Step 1: Failing tests.** A record marked `deleted: true` whose id **is** stored becomes a
