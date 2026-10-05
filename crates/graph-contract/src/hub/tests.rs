@@ -13,11 +13,15 @@ mod rng;
 mod scalars;
 mod support;
 mod wire;
+
+#[cfg(test)]
+mod dbg {
+    use super::super::Limits;
+    use super::super::model::Model;
+    use super::fixtures::{manifest, upsert};
+
     #[test]
     fn dbg_model() {
-        use super::fixtures::{manifest, upsert};
-        use super::super::model::Model;
-        use super::super::Limits;
         let mut model = Model::new("ws").unwrap();
         model.register("tracker", manifest("tracker")).unwrap();
         model

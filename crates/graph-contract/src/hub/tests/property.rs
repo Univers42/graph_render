@@ -100,9 +100,9 @@ fn run_step(model: &mut Model, rng: &mut SplitMix64, seed: u64, step: usize) {
 /// and both `tags` and `blocks` stay out of it: pruning a list is covered by the example
 /// tests in `materialize.rs`, and the property test's job is the *invariants*, which hold
 /// whether or not anything was pruned.
-fn random_cells(rng: &mut SplitMix64) -> String {
+fn random_cells(rng: &mut SplitMix64, collection: &str) -> String {
     let mut cells: Vec<String> = Vec::new();
-    for field in ["name", "state", "note"] {
+    for field in scalar_fields(collection) {
         if rng.below(3) == 0 {
             continue;
         }
@@ -113,5 +113,21 @@ fn random_cells(rng: &mut SplitMix64) -> String {
         };
         cells.push(format!(r#""{field}":{value}"#));
     }
+    if cells.is_empty() {
+        // Every field was skipped; an empty `values` is legal and keeps the draw useful.
+        return String::new();
+    }
     cells.join(",")
+}
+
+/// The fields of `collection` that take a string or a number and nothing else. Only these
+/// are drawn, because a *reference* field needs the other record to exist: emitting one at
+/// random would make most steps fail the cell check for a reason the property test is not
+/// about. Pruning a reference is covered by the example tests in `materialize.rs`; here the
+/// invariants must hold whether or not anything was pruned.
+fn scalar_fields(collection: &str) -> &'static [&'static str] {
+    match collection {
+        "task" => &["name", "state", "note"],
+        _ => &["name"],
+    }
 }

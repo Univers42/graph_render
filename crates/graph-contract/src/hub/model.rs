@@ -30,7 +30,7 @@
 use super::breaks;
 use super::manifest::{Growth, Manifest, growth};
 use super::prune::prune_record;
-use super::{HubError, Limits, MAX_PLUGINS, check_workspace_id};
+use super::{HubError, Limits, MAX_PLUGINS, check_workspace_id, qualify};
 use crate::ingest::{
     Collection, Ingest, Record, collection_piece, doc_tail, frame_bytes, record_piece,
 };
@@ -178,19 +178,32 @@ impl Model {
         out
     }
 
-    /// The document's byte length, counted and not measured: `frame` plus every piece, or
-    /// `to_json().len()` — the two must agree, which is why this is not just the latter.
+    /// The document's byte length **before** any pruning, and so an exact upper bound of
+    /// `to_json().len()` (spec §6).
+    ///
+    /// Counted from the *stored* record texts rather than from re-pruned ones, and that is
+    /// the whole point of the function: a store can answer "how big is this document" from
+    /// what it holds, without building the pieces and without knowing which references
+    /// dangle. So it is exact when nothing is pruned and an over-estimate when something
+    /// is — never an under-estimate, which is the direction that would size a buffer too
+    /// small.
     pub fn doc_bytes(&self) -> u64 {
+        let collections = self.collections();
+        // The *kept* collection count, not the plugin count: `frame_bytes` counts the
+        // separators between collections, and one plugin may contribute three of them.
         let frame = frame_bytes(
             &self.workspace,
-            self.plugins.len() as u64,
+            collections.len() as u64,
             self.records.len() as u64,
         );
-        frame + self.pieces().iter().map(String::len).sum::<usize>() as u64
+        let collections: u64 = collections.iter().map(|c| collection_piece(c).len() as u64).sum();
+        let records: u64 = self.records.values().map(|s| s.text.len() as u64).sum();
+        frame + collections + records
     }
 
-    /// Every piece of the document, in order: the collections', then each record's. `doc_bytes`
-    /// sums these; `to_json` concatenates them, so the bound and the bytes cannot disagree.
+    /// Every piece of the document as it is *written*, in order: the collections', then
+    /// each record's. `to_json` concatenates these; `doc_bytes` deliberately does not sum
+    /// them, because it counts the stored texts so it stays an upper bound.
     pub fn pieces(&self) -> Vec<String> {
         let collections: &[Collection] = &self.collections();
         let mut out: Vec<String> = collections.iter().map(collection_piece).collect();
@@ -218,11 +231,18 @@ impl Model {
         self.records.get(&(collection.to_owned(), id.to_owned()))
     }
 
-    /// The kept declaration of every collection, by qualified id.
+    /// The kept declaration of every collection, **by qualified id**.
     ///
-    /// Sorted by qualified id, so `"a-b.c"` comes before `"a.x"`: `-` is `0x2D` and `.` is
-    /// `0x2E`, and the *qualified string* is what is compared — not the plugin and
-    /// collection separately, which would order by plugin first and silently disagree.
+    /// Qualified, and this is load-bearing twice over. A record's `collection` is
+    /// `plugin.coll` — the batch reader refuses a qualified one precisely so the store
+    /// qualifies it exactly once — so a declaration left bare would name a collection no
+    /// record is in: every lookup would miss, every dangling check would pass, and every
+    /// pruning decision would be made against nothing. It is also what lets two plugins
+    /// both declare a collection called `task` in one document at all.
+    ///
+    /// Sorted by that qualified id, so `"a-b.c"` comes before `"a.x"`: `-` is `0x2D` and
+    /// `.` is `0x2E`, and the *qualified string* is what is compared — not the plugin and
+    /// the collection separately, which would order by plugin first and silently disagree.
     pub fn collections(&self) -> Vec<Collection> {
         let mut out: Vec<Collection> = self
             .plugins
@@ -230,9 +250,13 @@ impl Model {
             .flat_map(|(plugin, manifest)| {
                 manifest.collections.iter().map(move |c| (plugin.as_str(), c))
             })
-            .map(|(plugin, c)| super::prune::kept_collection(c, &|target| {
-                self.registered(plugin, target)
-            }))
+            .map(|(plugin, c)| {
+                let mut kept = super::prune::kept_collection(c, &|target| {
+                    self.registered(plugin, target)
+                });
+                kept.id = qualify(plugin, &c.id);
+                kept
+            })
             .collect();
         out.sort_by(|a, b| a.id.cmp(&b.id));
         out

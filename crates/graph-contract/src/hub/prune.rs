@@ -73,7 +73,7 @@ pub fn prune_record(
             dropped_any = true;
             return false;
         };
-        match prune_cell(field, value, exists) {
+        match prune_cell(field, &r.collection, value, exists) {
             Kept::Kept => true,
             Kept::Dropped => {
                 dropped_any = true;
@@ -107,41 +107,55 @@ enum Kept {
 
 /// One cell against the field that declares it, with `exists` resolving references.
 ///
-/// A reference is a bare record id in a **single** collection — the one the field's own
-/// declaration names — except for a `parent`, which the motor reads as "this record's
-/// parent in the record's own collection". Both are `(field's collection, id)`; neither is
-/// `(the linking record's collection, id)`, and getting that backwards would prune every
-/// self-referential hierarchy edge in a document.
-fn prune_cell(field: &Field, value: &JsonValue, exists: &dyn Fn(&str, &str) -> bool) -> Kept {
+/// The two reference roles resolve against **different** collections, and that is the
+/// whole reason both are named here:
+///
+/// - a `link` names a collection in its own `link` member, so a bare target means this
+///   plugin's collection (qualified on the way in);
+/// - a `parent` has **no** `link` member at all — the ingest reader refuses one — because
+///   a parent is by definition a record in the *same* collection. So its target is the
+///   record's own collection, which the caller supplies.
+///
+/// Getting the second wrong would prune every parent edge in a document, silently: the
+/// cell is dropped, the document still reads, and the hierarchy is simply gone.
+fn prune_cell(
+    field: &Field,
+    own: &str,
+    value: &JsonValue,
+    exists: &dyn Fn(&str, &str) -> bool,
+) -> Kept {
     match field.role {
         Role::Tags | Role::Scalar | Role::Title | Role::Label | Role::Group | Role::Weight => {
             Kept::Kept
         }
         Role::Parent => match value {
             JsonValue::Null => Kept::Kept,
-            JsonValue::Text(id) => resolves(field, id, exists),
+            JsonValue::Text(id) => resolves(own, id, exists),
             _ => Kept::Dropped,
         },
-        Role::Link => match value {
-            JsonValue::Null => Kept::Kept,
-            JsonValue::Text(id) => resolves(field, id, exists),
-            JsonValue::List(items) => prune_list(field, items, exists),
-            _ => Kept::Dropped,
-        },
+        Role::Link => {
+            let target = field.link.as_ref().map_or("", |link| link.collection.as_str());
+            match value {
+                JsonValue::Null => Kept::Kept,
+                JsonValue::Text(id) => resolves(target, id, exists),
+                JsonValue::List(items) => prune_list(target, items, exists),
+                _ => Kept::Dropped,
+            }
+        }
     }
 }
 
 /// A list of references, keeping the ones that resolve. An *empty* list is `Kept` — the
 /// client said there are none — and a list whose every element dangled is `Emptied`, which
 /// drops the key.
-fn prune_list(field: &Field, items: &[JsonValue], exists: &dyn Fn(&str, &str) -> bool) -> Kept {
+fn prune_list(target: &str, items: &[JsonValue], exists: &dyn Fn(&str, &str) -> bool) -> Kept {
     if items.is_empty() {
         return Kept::Kept;
     }
     let mut kept: Vec<JsonValue> = Vec::with_capacity(items.len());
     for item in items {
         match item {
-            JsonValue::Text(id) if resolves(field, id, exists) == Kept::Kept => {
+            JsonValue::Text(id) if resolves(target, id, exists) == Kept::Kept => {
                 kept.push(item.clone());
             }
             JsonValue::Null => kept.push(item.clone()),
@@ -157,13 +171,12 @@ fn prune_list(field: &Field, items: &[JsonValue], exists: &dyn Fn(&str, &str) ->
     Kept::Dropped
 }
 
-/// Whether the reference `id` resolves. `keep-dangling` turns this off, which is what
-/// makes `negctl-keep-dangling` go red: with it on, a dangling reference is written and the
-/// document carries a cell naming a record that is not there.
-fn resolves(field: &Field, id: &str, exists: &dyn Fn(&str, &str) -> bool) -> Kept {
+/// Whether the reference `id` resolves in `target`. `keep-dangling` turns this off, which
+/// is what makes `negctl-keep-dangling` go red: with it on, a dangling reference is written
+/// and the document carries a cell naming a record that is not there.
+fn resolves(target: &str, id: &str, exists: &dyn Fn(&str, &str) -> bool) -> Kept {
     if breaks::on("keep-dangling") {
         return Kept::Kept;
     }
-    let target = field.link.as_ref().map_or("", |link| link.collection.as_str());
     if exists(target, id) { Kept::Kept } else { Kept::Dropped }
 }

@@ -124,19 +124,23 @@ fn tags(value: &JsonValue, at: &str) -> Result<(), HubError> {
 /// round — the cardinality is declared, so reading one as the other would hide a schema
 /// mistake behind a value that happens to have one element.
 fn references(value: &JsonValue, cardinality: Cardinality, at: &str) -> Result<(), HubError> {
-    let JsonValue::Null = value else {
-        let JsonValue::List(items) = value else {
-            return Err(shape(at, "expected a list of references"));
-        };
-        if cardinality == Cardinality::One {
-            return single(value, at);
-        }
-        return items
-            .iter()
-            .enumerate()
-            .try_for_each(|(i, item)| single(item, &format!("{at}[{i}]")));
+    if matches!(value, JsonValue::Null) {
+        return Ok(());
+    }
+    // The cardinality is checked **first**, because it decides which shape is even
+    // possible: a `one` link is a single reference (bare, or a one-element list) and a
+    // `many` link is a list. Reading a `many` as a single would hide a schema mistake
+    // behind a value that happens to have one element.
+    if cardinality == Cardinality::One {
+        return single(value, at);
+    }
+    let JsonValue::List(items) = value else {
+        return Err(shape(at, "expected a list of references"));
     };
-    Ok(())
+    items
+        .iter()
+        .enumerate()
+        .try_for_each(|(i, item)| single(item, &format!("{at}[{i}]")))
 }
 
 /// One reference: a string, or a list of exactly one — which is how a client writes a
