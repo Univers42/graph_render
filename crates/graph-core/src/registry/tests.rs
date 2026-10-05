@@ -114,10 +114,13 @@ fn lanes_declares_point_nodes_polyline_edges_and_its_two_spacings() {
     // The three things a reader of this row needs and the plan's first draft left out
     // (`docs/decisions/dag-lanes.md` conditions 5, 6 and 7).
     assert!(lanes.meta.ponytail.contains("Ponytail (scale_ceiling)"), "{}", lanes.meta.ponytail);
+    // Every clause carries one, whatever their number is: the house rule requires all three
+    // parts, and a clause added later without one is the failure this pins.
+    let clauses = lanes.meta.ponytail.matches("Ponytail (").count();
     assert_eq!(
         lanes.meta.ponytail.matches("Escape hatch:").count(),
-        3,
-        "all three clauses carry one: {}",
+        clauses,
+        "{clauses} clauses, each needs one: {}",
         lanes.meta.ponytail
     );
     assert!(
