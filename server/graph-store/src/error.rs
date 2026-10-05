@@ -79,6 +79,30 @@ pub enum StoreError {
         /// Seconds to put in `Retry-After`.
         retry_after: u64,
     },
+    /// A workspace or a plugin the writer was asked about is not there (spec §5.2's 404).
+    NotFound {
+        /// What was missing, named the way a client would say it.
+        what: String,
+    },
+    /// An `If-Match` that is not the plugin's current `<epoch>.<plugin_seq>` (spec §5.1's 412).
+    ///
+    /// A distinct variant from [`StoreError::Hub`] because the answer is a different status:
+    /// `HubError::Conflict` is 409 and this is 412, and the hub maps a code to one status, so the
+    /// two cannot be told apart downstream.
+    PreconditionFailed {
+        /// What the client sent and what the plugin held, so the message names both.
+        what: String,
+    },
+    /// A unique violation the writer reached through a path of its own — the idempotency key.
+    ///
+    /// `from_db` maps a bare `23505` to `HubError::Conflict` (409), which is the right class for a
+    /// conflict a client can fix. The idempotency key is different: §5.1's one retry exists for it,
+    /// and the retry then finds the stored response. Carrying it as its own kind is what lets
+    /// [`crate::writer::retry`] decide without matching on an error's message text.
+    Duplicate {
+        /// What collided.
+        what: String,
+    },
     /// The cursor is below what is kept, or from another epoch: 410 on `/changes`, `event: resync`
     /// on the stream. A value, because the caller resyncs from `/graph` rather than failing.
     Gone,
@@ -95,6 +119,9 @@ impl StoreError {
             StoreError::NoDatabase => "no-database",
             StoreError::Serialization { .. } => "serialization",
             StoreError::Busy { .. } => "busy",
+            StoreError::NotFound { .. } => "not-found",
+            StoreError::PreconditionFailed { .. } => "precondition-failed",
+            StoreError::Duplicate { .. } => "duplicate",
             StoreError::Gone => "gone",
             StoreError::Eof => "eof",
         }
@@ -119,6 +146,9 @@ impl fmt::Display for StoreError {
                 write!(f, "serialization failure, retried: {retried}")
             }
             StoreError::Busy { retry_after } => write!(f, "busy, retry after {retry_after}s"),
+            StoreError::NotFound { what } => write!(f, "{what} is not there"),
+            StoreError::PreconditionFailed { what } => write!(f, "{what}"),
+            StoreError::Duplicate { what } => write!(f, "{what} already exists"),
             StoreError::Gone => write!(f, "cursor is gone"),
             StoreError::Eof => write!(f, "end of document"),
         }

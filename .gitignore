@@ -33,3 +33,6 @@ verify/dist/
 __pycache__/
 /tmp/
 /scratch/
+
+# graph-store tests write phase state under the crate dir (GM_HUB_STEP_DIR default)
+server/*/target/

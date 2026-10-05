@@ -1,25 +1,79 @@
+$ scripts/orch/hub-pg.sh sql "SHOW fsync"
  fsync 
 -------
  on
 (1 row)
 
+
+$ scripts/orch/hub-pg.sh sql "SHOW synchronous_commit"
  synchronous_commit 
 --------------------
  on
 (1 row)
 
+
+$ scripts/orch/hub-pg.sh sql "SHOW full_page_writes"
  full_page_writes 
 ------------------
  on
 (1 row)
 
+
+$ scripts/orch/hub-pg.sh sql "SHOW server_encoding"
  server_encoding 
 -----------------
  UTF8
 (1 row)
 
- datcollate 
-------------
- C
+
+$ scripts/orch/hub-pg.sh sql "SHOW lc_collate"
+ERROR:  unrecognized configuration parameter "lc_collate"
+
+$ scripts/orch/hub-pg.sh sql "SHOW archive_mode"
+ archive_mode 
+--------------
+ on
+(1 row)
+
+
+$ scripts/orch/hub-pg.sh sql "SHOW archive_command"
+              archive_command               
+--------------------------------------------
+ test ! -f /archive/%f && cp %p /archive/%f
+(1 row)
+
+
+$ scripts/orch/hub-pg.sh sql "SHOW wal_level"
+ wal_level 
+-----------
+ replica
+(1 row)
+
+
+$ scripts/orch/hub-pg.sh sql "SHOW hot_standby"
+ hot_standby 
+-------------
+ on
+(1 row)
+
+
+$ scripts/orch/hub-pg.sh sql "SHOW max_wal_senders"
+ max_wal_senders 
+-----------------
+ 10
+(1 row)
+
+
+$ scripts/orch/hub-pg.sh sql "SELECT datname, datcollate, datctype, pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()"
+ datname | datcollate | datctype | pg_encoding_to_char 
+---------+------------+----------+---------------------
+ hub     | C          | C        | UTF8
+(1 row)
+
+
+$ scripts/orch/hub-pg.sh sql "SELECT string_agg(name || '=' || setting, ' ' ORDER BY name) FROM pg_settings WHERE name IN ('fsync','full_page_writes','synchronous_commit')"
+                     string_agg                     
+----------------------------------------------------
+ fsync=on full_page_writes=on synchronous_commit=on
 (1 row)
 

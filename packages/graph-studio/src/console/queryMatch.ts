@@ -3,10 +3,11 @@
  * line means; this says what it means here, and it is the only place that says it.
  *
  * The rules, in full, because every one of them is a decision the user can feel: `text`
- * is a case-insensitive substring of the label; `id`, `kind`, `db` and `path` are
- * case-insensitive equality; `tag` is case-insensitive membership, with the leading `#`
- * a user naturally types stripped; `degree` is the one numeric field. `not` negates,
- * `and` is all, `or` is any, and `all` is always true.
+ * is a case-insensitive substring of the label; `id`, `kind`, `db`, `path` and `group`
+ * are case-insensitive equality; `tag` is case-insensitive membership, with the leading
+ * `#` a user naturally types stripped; `degree` is numeric, like `version`, and both are
+ * read as 0 where the document carries none. `not` negates, `and` is all, `or` is any,
+ * and `all` is always true.
  */
 import type { Query, QueryField } from "./parse.ts";
 import type { GraphMeta } from "../source/meta.ts";
@@ -20,6 +21,9 @@ export interface QueryRow {
   readonly db: string;
   readonly path: string;
   readonly degree: number;
+  /** The name in `meta.groups` this node's group index names; "" where the graph names none. */
+  readonly group: string;
+  readonly version: number;
 }
 
 /** The `field` arm of the grammar, narrowed to the one shape it can be. */
@@ -27,7 +31,14 @@ type FieldQuery = Extract<Query, { readonly kind: "field" }>;
 
 const NO_TAGS: readonly string[] = [];
 
-/** Total by construction: a node index outside the columns reads as nothing, not a throw. */
+/**
+ * Caveat: past `MAX_GROUPS` distinct names every further name reads as `(other groups)`, so
+ * `group:` cannot tell those apart and answers the same for each of them. It errs towards
+ * matching a node under a name the user did not write. The escape hatch is a `tag:` or `id:`
+ * query, which reads the node itself rather than the group it was bucketed into.
+ *
+ * Total by construction: a node index outside the columns reads as nothing, not a throw.
+ */
 export function rowOf(meta: GraphMeta, node: number): QueryRow {
   return {
     id: meta.ids[node] ?? "",
@@ -37,6 +48,8 @@ export function rowOf(meta: GraphMeta, node: number): QueryRow {
     db: meta.dbs[node] ?? "",
     path: meta.paths[node] ?? "",
     degree: meta.degree[node] ?? 0,
+    group: meta.groups[meta.group[node] ?? 0] ?? "",
+    version: meta.versions[node] ?? 0,
   };
 }
 
@@ -49,13 +62,13 @@ function hasTag(tags: readonly string[], wanted: string): boolean {
   return tags.some((tag) => same(tag, bare));
 }
 
-function compares(degree: number, op: string, value: string): boolean {
+function compares(given: number, op: string, value: string): boolean {
   const at = Number(value);
-  if (op === ">") return degree > at;
-  if (op === "<") return degree < at;
-  if (op === ">=") return degree >= at;
-  if (op === "<=") return degree <= at;
-  return degree === at;
+  if (op === ">") return given > at;
+  if (op === "<") return given < at;
+  if (op === ">=") return given >= at;
+  if (op === "<=") return given <= at;
+  return given === at;
 }
 
 // Ponytail: an operator that is neither `=` nor empty is read as equality. Failing
@@ -66,12 +79,14 @@ function compares(degree: number, op: string, value: string): boolean {
 function matchesField(query: FieldQuery, row: QueryRow): boolean {
   const field: QueryField = query.field;
   if (field === "degree") return compares(row.degree, query.op, query.value);
+  if (field === "version") return compares(row.version, query.op, query.value);
   if (field === "tag") return hasTag(row.tags, query.value);
   switch (field) {
     case "id": return same(row.id, query.value);
     case "kind": return same(row.kind, query.value);
     case "db": return same(row.db, query.value);
     case "path": return same(row.path, query.value);
+    case "group": return same(row.group, query.value);
   }
 }
 

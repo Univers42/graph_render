@@ -1,0 +1,17 @@
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
+force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
+negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
+negctl-drop-delta|0|scripts/orch/gr -e GM_MUTATE_DROP_DELTA=1 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
+scigraphs-conformance|0|scripts/scigraphs-conformance.sh
+negctl-scigraphs-conformance|0|scripts/scigraphs-conformance.sh --break; test $? -eq 1
+roundtrip-100|0|scripts/orch/gr cargo run -q -p graph-cli -- roundtrip --seeds 100
+capabilities|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
+codegen|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
+negctl-dag-lanes-nodes|0|scripts/orch/gr -e GM_MUTATE_DAG_LANES_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+no-source-names|0|test -e crates/graph-core/src/layout/lanes.rs && test -z "$(git grep -n -i -E '\bgit\b|commit|repositor|activitywatch' -- crates/graph-core/src/layout/lanes.rs crates/graph-core/src/layout/lanes crates/graph-core/src/registry/lanes.rs crates/graph-cli/src/snapshot_cmd/hand_oracles/lanes.rs)"

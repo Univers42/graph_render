@@ -103,6 +103,7 @@ function metaOf(nodeCount: number): GraphMeta {
     labels: Array.from({ length: nodeCount }, (_, at) => `n${at}`),
     kinds: Array.from({ length: nodeCount }, (): NodeKind => "record"),
     groups: [], group: new Uint16Array(nodeCount), weight: new Float32Array(nodeCount),
+    versions: new Float64Array(nodeCount),
     degree: new Uint32Array(nodeCount), maxDegree: 0,
     tags: Array.from({ length: nodeCount }, () => []), dbs: [], paths: [],
   };

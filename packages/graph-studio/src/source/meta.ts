@@ -18,6 +18,8 @@ export interface GraphMeta {
   /** Index into `groups` per node. */
   readonly group: Uint16Array;
   readonly weight: Float32Array;
+  /** Each node's `version` (a source's `updatedAt`); 0 when the document carries none. */
+  readonly versions: Float64Array;
   /** Links per node: a self-loop counts once, a parallel edge each time. */
   readonly degree: Uint32Array;
   readonly maxDegree: number;
@@ -91,11 +93,13 @@ export function metaOf(nodes: readonly IngestNode[], order: readonly string[], e
   const slots = new Map<string, number>();
   const group = new Uint16Array(ordered.length);
   const weight = new Float32Array(ordered.length);
+  const versions = new Float64Array(ordered.length);
   for (let i = 0; i < ordered.length; i += 1) {
     const node = ordered[i];
     if (node === undefined) continue;
     group[i] = groupIndex(groups, slots, node.group ?? UNGROUPED);
     weight[i] = node.weight;
+    versions[i] = node.version;
   }
   const degree = degreesOf(ordered.length, ends);
   return {
@@ -103,7 +107,7 @@ export function metaOf(nodes: readonly IngestNode[], order: readonly string[], e
     ids: order,
     labels: ordered.map((node) => node.label),
     kinds: ordered.map((node) => node.kind),
-    groups, group, weight, degree,
+    groups, group, weight, versions, degree,
     maxDegree: degree.reduce((max, value) => Math.max(max, value), 0),
     tags: ordered.map((node) => node.tags ?? NO_TAGS),
     dbs: ordered.map((node) => node.database_id ?? ""),

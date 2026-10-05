@@ -5,8 +5,11 @@
 //! These are the cases that live entirely inside one database. The container-level ones — a
 //! promotion, a point-in-time recovery, a volume snapshot, a `kill -9` — are NOT here: `scripts/orch/gr`
 //! has no `docker` and no route to the Docker socket, so a test process cannot run a `hub-pg.sh`
-//! verb. Those need a driver outside this container, which is a gate-row concern; see the return
-//! block.
+//! verb. They live in their own test binaries instead, one per case, split into `#[ignore]`
+//! phases that their gate rows sequence: `tests/promotion.rs`, `tests/pitr.rs`,
+//! `tests/snapshot.rs` and `tests/crash_copy.rs`, driven by rows `hub-promotion`, `hub-pitr`,
+//! `hub-snapshot` and `hub-crash-copy`. What the phases share is `tests/support/case.rs` and one
+//! file per case under `$GM_HUB_STEP_DIR`.
 #![cfg(feature = "db-tests")]
 
 mod support;

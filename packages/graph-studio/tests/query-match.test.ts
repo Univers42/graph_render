@@ -1,18 +1,15 @@
 // What a parsed query means over one node, and what a filter document means as the two
 // masks the painter already reads. Every field, every operator, every boolean shape and
 // every `hiddenOf` branch is pinned here, on a graph built by hand so that each node
-// differs from its neighbour on exactly one thing. The last section runs the same code
-// over the fixture that carries what the sources do not.
+// differs from its neighbour on exactly one thing. The fixture that carries what the
+// sources do not is read in `./query-fixture.test.ts`.
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { parseQuery } from "../src/console/parse.ts";
 import type { Query, QueryField } from "../src/console/parse.ts";
 import { matchesQuery, rowOf, type QueryRow } from "../src/console/queryMatch.ts";
 import { hiddenOf, highlightOf } from "../src/look/visibleOf.ts";
-import { normaliseIngest, type IngestEdge, type IngestNode } from "../src/source/ingest.ts";
-import { UNGROUPED, metaOf, type Ends, type GraphMeta } from "../src/source/meta.ts";
+import { UNGROUPED, type GraphMeta } from "../src/source/meta.ts";
 import type { Filter } from "../src/state/settings.ts";
 
 // Every filter member, filled: the mask is a function of the whole document, so a test
@@ -41,6 +38,8 @@ const META: GraphMeta = {
   weight: Float32Array.of(1, 0.5, 0.25, 0, 0.5, 0.25),
   degree: Uint32Array.of(3, 1, 2, 0, 0, 0),
   maxDegree: 3,
+  // Unix seconds a source's `updatedAt` carries; one node carries none, and reads as 0.
+  versions: Float64Array.of(1700000000, 1600000000, 1700000000, 0, 1500000000, 1800000000),
   tags: [["one", "two"], ["two"], [], ["three"], [], ["ONE"]],
   dbs: ["db-1", "db-1", "db-2", "", "db-3", "db-1"],
   paths: ["src/a.md", "src/b.md", "", "src/d.md", "", "src/f.md"],
@@ -55,10 +54,19 @@ function mask(bits: Uint8Array | null): readonly number[] {
 }
 
 test("a row is total: every column is there, empty when the graph carries nothing", () => {
-  const full: QueryRow = { id: "a", label: "Alpha hub", kind: "record", tags: ["one", "two"], db: "db-1", path: "src/a.md", degree: 3 };
+  const full: QueryRow = {
+    id: "a", label: "Alpha hub", kind: "record", tags: ["one", "two"], db: "db-1", path: "src/a.md",
+    degree: 3, group: "Core", version: 1700000000,
+  };
   assert.deepEqual(rowOf(META, 0), full);
-  assert.deepEqual(rowOf(META, 2), { id: "c", label: "Gamma tag", kind: "tag", tags: [], db: "db-2", path: "", degree: 2 });
-  assert.deepEqual(rowOf(META, 4), { id: "e", label: "Epsilon rec", kind: "record", tags: [], db: "db-3", path: "", degree: 0 });
+  assert.deepEqual(rowOf(META, 2), {
+    id: "c", label: "Gamma tag", kind: "tag", tags: [], db: "db-2", path: "",
+    degree: 2, group: "Tags", version: 1700000000,
+  });
+  assert.deepEqual(rowOf(META, 4), {
+    id: "e", label: "Epsilon rec", kind: "record", tags: [], db: "db-3", path: "",
+    degree: 0, group: UNGROUPED, version: 1500000000,
+  });
 });
 
 test("the empty query matches every node, and free text is a case-insensitive substring", () => {
@@ -88,6 +96,33 @@ test("a tag is membership, case-insensitive, with a leading `#` the user may typ
   assert.deepEqual(every(field("tag", "=", "#")), ALL.map(() => false));
 });
 
+test("group is the group's own name, case-insensitive, and the ungrouped node has one too", () => {
+  assert.deepEqual(every(field("group", "", "Core")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", "", "core")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", "=", "CORE")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", ">", "Core")), [true, true, false, true, false, true]);
+  assert.deepEqual(every(field("group", "", "Tags")), [false, false, true, false, false, false]);
+  assert.deepEqual(every(field("group", "", UNGROUPED)), [false, false, false, false, true, false]);
+  assert.deepEqual(every(field("group", "", "nothing here")), ALL.map(() => false));
+});
+
+test("version compares numbers, like degree, and a node with none reads as 0", () => {
+  assert.deepEqual(every(field("version", ">=", "1700000000")), [true, false, true, false, false, true]);
+  assert.deepEqual(every(field("version", "<", "1700000000")), [false, true, false, true, true, false]);
+  assert.deepEqual(every(field("version", ">", "1500000000")), [true, true, true, false, false, true]);
+  assert.deepEqual(every(field("version", "=", "0")), [false, false, false, true, false, false]);
+  assert.deepEqual(every(field("version", "<=", "1500000000")), [false, false, false, true, true, false]);
+  assert.deepEqual(every(field("version", ">", "1.5")), [true, true, true, false, true, true]);
+});
+
+test("group and version combine with not and and", () => {
+  const query: Query = { kind: "and", of: [
+    { kind: "not", of: field("group", "", "ana") },
+    field("version", ">", "1700000000"),
+  ] };
+  assert.deepEqual(every(query), [false, false, false, false, false, true]);
+});
+
 test("degree compares numbers: `>` `<` `>=` `<=` and `=`", () => {
   assert.deepEqual(every(field("degree", ">", "1")), [true, false, true, false, false, false]);
   assert.deepEqual(every(field("degree", "<", "1")), [false, false, false, true, true, true]);
@@ -110,6 +145,7 @@ test("a degree value that is not a number matches no node at all", () => {
 // more than the user expected. Escape hatch: the parser may refuse it instead.
 test("an operator that is neither empty nor `=` falls back to equality", () => {
   assert.deepEqual(every(field("kind", ">", "tag")), [false, false, true, false, false, false]);
+  assert.deepEqual(every(field("group", ">", "Tags")), [false, false, true, false, false, false]);
   assert.deepEqual(every(field("id", "!=", "a")), [true, false, false, false, false, false]);
   assert.deepEqual(every(field("tag", "has", "two")), [true, true, false, false, false, false]);
 });
@@ -208,91 +244,3 @@ test("both masks are one byte per node", () => {
   assert.equal(hidden[0], 0);
   assert.equal(lit[1], 1);
 });
-
-// The fixture: what the wasm contract cannot carry. Read as a file, because a
-// generated document would only pin the generator.
-const FIXTURE = new URL("fixtures/keys.json", import.meta.url);
-
-async function fixtureMeta(): Promise<GraphMeta> {
-  const { doc } = normaliseIngest(await readFile(FIXTURE, "utf8"), "fixtures/keys.json");
-  return metaOf(doc.nodes, doc.nodes.map((node) => node.id), endsOf(doc.nodes, doc.edges));
-}
-
-function found(meta: GraphMeta, text: string): readonly string[] {
-  const query = parseQuery(text);
-  return Array.from({ length: meta.nodeCount }, (_, i) => i)
-    .filter((i) => matchesQuery(query, rowOf(meta, i)))
-    .map((i) => meta.ids[i] ?? "");
-}
-
-test("the fixture normalises, and its comment is said to be dropped", async () => {
-  const { doc, notes } = normaliseIngest(await readFile(FIXTURE, "utf8"), "fixtures/keys.json");
-  assert.equal(doc.nodes.length, 12);
-  assert.equal(doc.edges.length, 10);
-  assert.ok(notes.includes("dropped annotation `_comment`"));
-});
-
-test("the fixture's three columns are exactly these, in the document's order", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual(meta.tags, [
-    ["index"], ["atlas", "index"], ["atlas"], ["draft", "atlas"], ["draft"], [], ["colour"],
-    ["colour"], ["atlas", "colour"], ["draft"], [], [],
-  ]);
-  assert.deepEqual(meta.dbs, [
-    "db-core", "db-core", "db-core", "db-notes", "db-notes", "db-notes",
-    "db-tags", "db-tags", "db-stamp", "", "db-core", "",
-  ]);
-  assert.deepEqual(meta.paths, [
-    "vault/index.json", "vault/atlas.json", "", "notes/loop.md", "notes/two.md", "notes/orphan.md",
-    "", "", "drafts/stamp.json", "drafts/one.json", "", "notes/lonely.md",
-  ]);
-});
-
-test("the fixture has the four shapes every filter needs", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual([...meta.degree], [3, 3, 3, 3, 2, 0, 2, 2, 2, 0, 0, 0]);
-  assert.equal(meta.degree.filter((degree) => degree === 0).length, 4);
-  assert.deepEqual([...new Set(meta.kinds)].sort(), ["database", "note", "record", "tag"]);
-  assert.equal(new Set(meta.dbs).size, 5);
-  assert.equal(meta.tags.filter((tags) => tags.length === 2).length, 3);
-  assert.equal(meta.tags.filter((tags) => tags.length === 0).length, 3);
-  assert.equal(meta.paths.filter((path) => path === "").length, 4);
-  assert.equal(meta.labels.filter((label) => label.includes(" ")).length, 10);
-});
-
-test("queries parsed from text find what the fixture was built to find", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual(found(meta, "tag:#atlas"), ["n-atlas", "n-bridge", "n-note-loop", "n-stamp"]);
-  assert.deepEqual(found(meta, "db:db-notes"), ["n-note-loop", "n-note-two", "n-note-orphan"]);
-  assert.deepEqual(found(meta, "path:notes/loop.md"), ["n-note-loop"]);
-  assert.deepEqual(found(meta, "kind:tag"), ["t-red", "t-blue"]);
-  assert.deepEqual(found(meta, "degree:>2"), ["n-vault", "n-atlas", "n-bridge", "n-note-loop"]);
-  assert.deepEqual(found(meta, "atlas"), ["n-atlas"]);
-});
-
-// A label with a space needs a quoted value; what the parser makes of the quotes is the
-// parser's business, and what the quoted text then means is pinned here.
-test("a quoted value is just text, spaces and all", async () => {
-  const meta = await fixtureMeta();
-  assert.deepEqual(found(meta, '"Vault index"'), ["n-vault"]);
-  const quoted: Query = { kind: "text", text: "Vault index" };
-  assert.deepEqual(meta.ids.filter((_, i) => matchesQuery(quoted, rowOf(meta, i))), ["n-vault"]);
-});
-
-test("the fixture's orphans are exactly the four the filter hides", async () => {
-  const meta = await fixtureMeta();
-  const hidden = mask(hiddenOf(meta, filter({ orphans: true })));
-  assert.deepEqual(meta.ids.filter((_, i) => hidden[i] === 1), ["n-note-orphan", "n-draft-only", "n-vault-mirror", "n-note-lonely"]);
-  assert.deepEqual(mask(hiddenOf(meta, filter({ query: "tag:#colour" }))), [1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1]);
-  assert.deepEqual(mask(highlightOf(meta, filter({ text: "vault" }))), [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
-});
-
-/** The snapshot a build produces for this document: node index order, so the columns are
- *  read against known indices rather than a permutation nobody here can predict. */
-function endsOf(nodes: readonly IngestNode[], edges: readonly IngestEdge[]): Ends {
-  const slot = new Map(nodes.map((node, i) => [node.id, i]));
-  return {
-    source: Uint32Array.from(edges, (edge) => slot.get(edge.source) ?? 0),
-    target: Uint32Array.from(edges, (edge) => slot.get(edge.target) ?? 0),
-  };
-}
