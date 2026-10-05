@@ -72,7 +72,7 @@ the recommended default, recorded here. Each is open to the verdict.
 | H12 | **Materialization drops what cannot resolve.** `/graph` and `/layout` leave out link and parent cells naming an absent record; a cell left with no target is removed. A link field naming an unregistered collection is left out of its collection's declaration, **and its cells are left out of every record**. The stored record keeps all of it, so the edge appears once the target arrives. | The reader refuses a dangling reference (`check_link_cells`, `crates/graph-contract/src/ingest/validate/cells.rs:28`) and a cell for an undeclared field (`check_references`, `validate.rs:200`), and independent plugins cannot order their pushes. Writes therefore never depend on another plugin's state, and a key learns nothing about other plugins from a refusal. | Refusing dangling writes and keeping tombstones: pushes would have to be ordered across plugins, and a 422 would reveal whether another plugin's record exists. |
 | H13 | Tags are workspace-wide. The hub tag `tag:<value>` joins records from every plugin that uses the value; a tag value containing `:` is refused at write time, as the motor's derivation refuses it (`check_tag`, `crates/graph-core/src/ingest/build/builder.rs:255`). | This is the point of one graph per workspace: a `prod` tag from a hosts plugin and from a tickets plugin meet on one node. A plugin that wants private tags prefixes its values. | Tags per plugin, which needs a change to the motor's derivation. |
 | H14 | **Materialization streams.** graph-contract's canonical writer is split into the pieces `to_json` is made of (document head, one collection, one record, document tail), and `to_json` becomes their concatenation, so it stays the single producer. The store keeps each record's qualified canonical text and writes the document from an ordered scan, a page at a time (§5.3). | A whole-document writer needs the document in memory: at the measured ingest peak of 18.25× the body (`server/graph-server/src/config/slots.rs:22`), a 64 MiB workspace is about 1.2 GB, over the 1 GiB container (D1). | Holding the document and paying the 18.25× term; a second writer in the hub (two producers of canonical bytes). |
-| H15 | Each workspace has an **epoch**, drawn at creation from `hub_next_epoch()`: one row, `epoch_clock.last`, set to `greatest(last + 1, clock_timestamp() in ms)`. Per-event statement triggers and a `TRUNCATE` trigger, all `ENABLE ALWAYS`, draw a new epoch for every workspace a statement outside the hub's own write paths touched. A restore detector at start bumps every epoch when the database is not the one the hub last ran on (§5.3). ETags, event ids, cursors and `Graph-Seq` all read `<epoch>.<seq>`. | Deleting and recreating a workspace by hand, editing its rows in SQL (§9), or restoring a backup would otherwise reuse or invalidate seqs silently (D3, N1). A new epoch tells every client to resync. The clock floor keeps epochs growing after a restore rewinds `epoch_clock`. Each case is measured in `docs/measurements/hub-pg-epoch-probe.md`. | Forbidding SQL edits: §9 leaves them to operators, so they will happen. A global `SEQUENCE`: a point-in-time recovery rewinds it, so epochs repeat (N1). |
+| H15 | Each workspace has an **epoch**, drawn at creation from `hub_next_epoch()`: one row, `epoch_clock.last`, set to `greatest(last + 1, clock_timestamp() in µs)`. Per-event statement triggers and a `TRUNCATE` trigger, all `ENABLE ALWAYS`, on every table with a workspace column, draw a new epoch for every workspace a statement outside the hub's own write paths touched. A restore detector on every new pool connection bumps every epoch when the database is not the one the hub last saw, or its WAL position is behind the hub's high-water (§5.3). ETags, event ids, cursors and `Graph-Seq` all read `<epoch>.<seq>`. | Deleting and recreating a workspace by hand, editing its rows in SQL (§9), or restoring a backup would otherwise reuse or invalidate seqs silently (D3, N1). A new epoch tells every client to resync. The clock floor keeps epochs growing after a restore rewinds `epoch_clock`. Measured in `docs/measurements/hub-pg-epoch-probe.md`: the trigger cases, `/changes` isolation, and `pg_restore`'s order and new database oid (`out.txt`, `out2.txt`); the keys and WAL position after a promotion, a volume snapshot, a base backup and a point-in-time recovery (`out3.txt`). The cases no key catches are in §5.3's Caveat. | Forbidding SQL edits: §9 leaves them to operators, so they will happen. A global `SEQUENCE`: a point-in-time recovery rewinds it, so epochs repeat (N1). |
 
 ## 3. Architecture
 
@@ -143,11 +143,12 @@ TLS, stay stop-and-ask items (`server-and-write-path.md:32-33`, `docs/deploy/ser
   200 that takes no seq.
 - A manifest that changes takes a seq and logs a change of kind `manifest`, so subscribers learn
   of new collections in order with the records that use them.
-- The manifest PUT keeps the batch's lock order (§5.1 step 1, N9): it takes the workspace row
-  `FOR UPDATE` and `SET LOCAL hub.writer = '1'` (H15) first. Under that lock it checks the
-  64-plugin cap, updates `doc_bytes` and refuses (413, rollback) past `GRAPH_HUB_MAX_DOC_BYTES`,
-  and only then takes a seq.
-- Creating a workspace is `INSERT ... ON CONFLICT (id) DO NOTHING` under `hub.writer`, with
+- The manifest PUT keeps the batch's lock order (§5.1 step 1, N9) and runs the writer transaction:
+  `BEGIN`, `set_config('hub.writer', '1', true)` (H15), then the workspace row `FOR UPDATE`. Under
+  that lock it checks the 64-plugin cap, updates `doc_bytes` and refuses (413, rollback) past
+  `GRAPH_HUB_MAX_DOC_BYTES`, and only then takes a seq.
+- Creating a workspace takes a `WRITERS` permit (§6) and runs one explicit transaction: `BEGIN`,
+  `set_config('hub.writer', '1', true)`, then `INSERT ... ON CONFLICT (id) DO NOTHING` with
   `epoch = hub_next_epoch()` and `doc_bytes` set to the head and tail lengths (§6). It answers 201
   when the row was inserted, 200 when it existed, and takes no seq.
 - Caps, each a 413: at most 64 collections per plugin, 256 fields per collection, 256 KiB of
@@ -197,7 +198,8 @@ Batch rules:
   `applied: 0` when every operation was a no-op.
 
 The writer transaction, `READ COMMITTED`, in this order:
-1. `SELECT ... FROM workspaces WHERE id = $1 FOR UPDATE`; `SET LOCAL hub.writer = '1'` (H15).
+1. `BEGIN`; `SELECT set_config('hub.writer', '1', true)` (H15; a `SET LOCAL` outside an explicit
+   transaction only warns and sets nothing); `SELECT ... FROM workspaces WHERE id = $1 FOR UPDATE`.
 2. Look up the idempotency row; a hit returns its stored response.
 3. Check `If-Match` against `plugin_seq`.
 4. Apply: compare the SHA-256 of each upsert's canonical text with the stored `text_sha256`,
@@ -207,14 +209,19 @@ The writer transaction, `READ COMMITTED`, in this order:
    and refuse (413, rollback) past `GRAPH_HUB_MAX_PLUGIN_BYTES` or `GRAPH_HUB_MAX_DOC_BYTES`.
 5. When anything applied: bump `head_seq`, insert the change, set `plugin_seq`.
 6. Prune the change log past `GRAPH_HUB_RETAIN` and `GRAPH_HUB_RETAIN_BYTES`.
-7. Insert the idempotency row with the response, then commit. Only then is the response sent and
-   the watch updated.
+7. Insert the idempotency row with the response, then commit.
+8. On the same connection, read `pg_current_wal_lsn()` and raise the restore detector's high-water
+   to it (§5.3). Only then is the response sent and the watch updated. With `synchronous_commit` on,
+   the commit record is flushed before this read, so the high-water covers the commit.
 
 An all-no-op batch still takes step 1's lock and stores its idempotency row. A unique violation
 on the idempotency key (not expected under step 1's lock; defensive) rolls back and retries once,
-which then finds the stored response in step 2. A sweeper deletes idempotency rows older than
-24 h every 10 minutes, a bounded batch at a time. It runs under `SET LOCAL hub.writer = '1'`
-(H15), so it never moves an epoch.
+which then finds the stored response in step 2. A deadlock (`40P01`) or a serialization failure
+(`40001`) also rolls back and retries once; a second one answers 503 with `Retry-After: 1`. The
+deadlock comes from manual SQL: an `UPDATE records` locks rows, then its trigger locks the
+workspace row, the reverse of step 1's order (§5.3). A sweeper deletes idempotency rows older than
+24 h every 10 minutes, a bounded batch at a time, each batch one explicit transaction that opens
+with `set_config('hub.writer', '1', true)` (H15), so it never moves an epoch.
 
 **A change** is stored as a header row `(ws, seq, plugin, at, kind, bytes, ops)` plus one row per
 operation `(ws, seq, ord, op, qcoll, id, rev, text)`. As `/changes` returns it:
@@ -346,7 +353,7 @@ otherwise.
   seq order, summed until `GRAPH_HUB_CHANGES_BYTES`, then the operations of those seqs in
   `(seq, ord)` order. At least one change is returned, which the start check (§6) bounds.
 - The single snapshot is what keeps a concurrent prune from removing operations between the two
-  reads: under `READ COMMITTED` the probe read `headers|10` then `ops|2` across a prune, under
+  reads: under `READ COMMITTED` the probe read `rc headers|5` then `rc ops|2` across a prune, under
   `REPEATABLE READ` `headers|10` then `ops|10` (`docs/measurements/hub-pg-epoch-probe.md`).
 - A header whose operation count differs from its stored `ops` is never sent: the page fails
   with 500 and the hub logs it. Row `hub-changes-snapshot` proves it.
@@ -356,9 +363,9 @@ otherwise.
   `<epoch>.<head_seq>`.
 - The protocol, per subscriber:
   1. Subscribe to the workspace's `watch` first.
-  2. Page through change **headers** after the cursor, in seq order, and send each as
-     `event: change`, `id: <epoch>.<seq>`, `data: {"seq":..,"plugin":..,"at":..}`. The cursor
-     advances.
+  2. Page through change **headers** after the cursor, in seq order, at most
+     `GRAPH_HUB_SSE_PAGE` headers per read, and send each as `event: change`,
+     `id: <epoch>.<seq>`, `data: {"seq":..,"plugin":..,"at":..}`. The cursor advances.
   3. When caught up, wait on the `watch`, then go back to step 2.
 - No change can be missed: the `watch` only says that the head moved, and the database is read
   from the cursor. Writers commit in seq order under the row lock (H6), so a seq is never
@@ -368,7 +375,11 @@ otherwise.
 - A comment heartbeat goes out every 15 s, and re-reads the epoch: an epoch changed by a manual
   edit sends `resync` even when no hub write followed it.
 - `GRAPH_HUB_TIMEOUT_MS` bounds the time to the first byte. Once the stream's headers are sent,
-  only the heartbeat's failed write ends it.
+  a 503 can no longer be answered: a page read or a heartbeat that waits past
+  `GRAPH_HUB_TIMEOUT_MS` for a pool connection ends the stream with `event: busy` and closes. The
+  cursor is still valid, so the SDK reconnects with `Last-Event-ID` after a backoff (1 s, doubling
+  to 30 s) instead of resyncing: a resync would read the whole `/graph` from a pool that is already
+  short. Otherwise only the heartbeat's failed write ends the stream.
 
 **Epoch triggers.** The facts below are measured in `docs/measurements/hub-pg-epoch-probe.md`.
 - `hub_next_epoch()` runs `UPDATE epoch_clock SET last = greatest(last + 1,

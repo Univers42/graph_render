@@ -1,0 +1,18 @@
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+0 primary 7693046474762506256 ckpt_tli=1 wal_tli=00000001 oid=16385 lsn=0/195D048 below_high=false
+== volume snapshot taken cold
+== base backup, then the standby
+target=0/550DB00 high=0/6000000 archived=000000010000000000000005
+1 primary after writes 7693046474762506256 ckpt_tli=1 wal_tli=00000001 oid=16385 lsn=0/6000000 below_high=false
+== promotion of a caught-up standby
+promoted|t
+2 promoted, at once 7693046474762506256 ckpt_tli=1 wal_tli=00000002 oid=16385 lsn=0/6000060 below_high=false
+2 promoted, after CHECKPOINT 7693046474762506256 ckpt_tli=2 wal_tli=00000002 oid=16385 lsn=0/6000200 below_high=false
+== volume snapshot restored on the primary's path
+3 volume snapshot 7693046474762506256 ckpt_tli=1 wal_tli=00000001 oid=16385 lsn=0/20000A0 below_high=true
+== base backup started without recovery.signal
+4 base backup, no signal 7693046474762506256 ckpt_tli=1 wal_tli=00000001 oid=16385 lsn=0/40000A0 below_high=true
+== point-in-time recovery to target, then promote
+5 PITR, at once 7693046474762506256 ckpt_tli=3 wal_tli=00000003 oid=16385 lsn=0/550DC80 below_high=true
+5 PITR, after CHECKPOINT 7693046474762506256 ckpt_tli=3 wal_tli=00000003 oid=16385 lsn=0/550DD50 below_high=true
