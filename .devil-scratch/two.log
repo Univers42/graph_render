@@ -1,0 +1,4 @@
+n=2 exhaustive done (16 graphs)
+n=3 exhaustive done (4112 graphs)
+n=4 exhaustive done (16781328 graphs)
+single-reservation invariant: HOLDS over 16781328 graphs

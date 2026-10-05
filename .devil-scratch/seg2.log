@@ -1,0 +1,4 @@
+--- exhaustive n<=3, all states x 5 spacings ---
+exhaustive n<=3: 20560 renders, bad=0
+--- 150k random n<=8 ---
+random bad: 0
