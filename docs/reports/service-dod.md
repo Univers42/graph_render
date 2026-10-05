@@ -89,11 +89,12 @@ already the `fmt` row), `cargo-doc`, `svc-doc` and `negctl-cargo-doc` before `# 
 `roundtrip-1000` 2911 s, `capabilities-check` `85 rows, 0 problems`, `svc-test` 75 s. The
 `phase09-bench.md` rewrite was timing noise again and was not committed. Caveat: `osage-check-negctl`
 and `dot-check-negctl` go non-zero with exit 2, `could not run: …-manifest.json: No such file`: they
-prove a missing fixture directory is refused, not that a wrong layout fails the check.
-`dot-oracle-perturb-negctl` (exit 1) is the dot check's real negative control. Osage's two,
-`osage-oracle-perturb-negctl` and `negctl-osage-sizes` (`p13-gv1-osage.rows:62,85`), are not in
-`develop-full.rows`, so the full gate has no control on the osage differential that a wrong layout would turn red
-(`negctl-osage-nodes` controls the hash gate, not the differential).
+prove a missing fixture directory is refused, not that a wrong layout fails the check. Osage's two
+real controls were not in `develop-full.rows`; `5d0973ad` added them after `osage-check-1000`:
+`osage-oracle-perturb-negctl` (exit 1 at the `cmp`) and `negctl-osage-sizes`, which used to stop at
+the harness's manifest refusal and now fails at the check (worst 5.800e1 against the 1e-1 ceiling,
+exit 1). Neither has run inside a full gate yet. Dot keeps only the exit-2 control: its 1e5
+ceiling records a measured disagreement, so no sub-ceiling perturbation can turn the check red.
 
 The first run, on `178cef49` (2026-10-04), was **110 rows, 102 PASS, 8 FAIL**
 (`summary-full-gate-178cef49.txt`). Each red row below passed on `77b68d9b`:
