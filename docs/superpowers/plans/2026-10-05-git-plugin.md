@@ -537,13 +537,13 @@ before and after the commit.)
 
 - [ ] **Step 9: Open a real history end to end**
 
-Run: `examples/plugins/git/run.sh ~/goinfre/gitviz/contributor-stats.git`
+Run: `examples/plugins/git/run.sh /tmp/gitviz/contributor-stats.git`
 Expected:
 - it prints `target/git-plugin/contributor-stats/contributor-stats.studio.json`;
 - stderr shows 488 commits;
 - `jq '.nodes|length'` on the file prints 488.
 
-If the job cannot read `~/goinfre/gitviz` (permission layer), run it on this worktree instead
+If the job cannot read `/tmp/gitviz` (permission layer), run it on this worktree instead
 (`examples/plugins/git/run.sh . graph_render`) and say so.
 
 - [ ] **Step 10: Commit**, as in Task 1.
@@ -623,10 +623,10 @@ Run:
 ```sh
 mkdir -p target/git-plugin/logs
 for r in contributor-stats activitywatch aw-server-rust git; do
-  examples/plugins/git/git-log.sh ~/goinfre/gitviz/$r.git > target/git-plugin/logs/$r.log
+  examples/plugins/git/git-log.sh /tmp/gitviz/$r.git > target/git-plugin/logs/$r.log
 done
 examples/plugins/git/git-log.sh . > target/git-plugin/logs/graph_render.log
-/usr/bin/time -f '%e s' examples/plugins/git/git-log.sh ~/goinfre/gitviz/git.git > /dev/null   # three times; median
+/usr/bin/time -f '%e s' examples/plugins/git/git-log.sh /tmp/gitviz/git.git > /dev/null   # three times; median
 CARGO_BUILD_JOBS=3 scripts/orch/gr cargo build -q -p graph-wasm --release --target wasm32-unknown-unknown
 flock ~/goinfre/orch/bench.lock scripts/orch/node-slim.sh node --experimental-strip-types \
   examples/plugins/git/bench.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm \
@@ -634,7 +634,7 @@ flock ~/goinfre/orch/bench.lock scripts/orch/node-slim.sh node --experimental-st
 ```
 
 Respect the bench preconditions in Global Constraints before the `flock` line. Then time one
-`run.sh` end to end on git/git (`/usr/bin/time -f '%e s' examples/plugins/git/run.sh ~/goinfre/gitviz/git.git`)
+`run.sh` end to end on git/git (`/usr/bin/time -f '%e s' examples/plugins/git/run.sh /tmp/gitviz/git.git`)
 three times, after a first run that builds graph-cli.
 
 - [ ] **Step 3: Write `docs/measurements/git-plugin.md`.** Include:
