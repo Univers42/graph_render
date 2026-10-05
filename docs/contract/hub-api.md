@@ -131,18 +131,14 @@ The hub has **its own** key set, separate from graph-server's, and it never stor
 
 ## Limits and scheduling
 
-The 31 names in `src/config/env.rs` `NAMES` are §6's twenty-six plus the five unbounded ones, and
+The 32 names in `src/config/env.rs` `NAMES` are the five unbounded ones, §6's twenty-six and one more, and
 `tests/start/settings.rs` `every_hub_env_name_is_read` asserts the count and that a nonsense value is
 refused by name. An empty value counts as unset; a non-UTF-8, malformed or out-of-range value refuses
-the start (exit 2) naming the variable and never its value. The start line prints each of those 31
+the start (exit 2) naming the variable and never its value. The start line prints each of those 32
 `set` or `unset`.
 
-**One gap, stated because the code has it.** `GRAPH_HUB_TIMEOUT_MS` is read
-(`src/config/env.rs:187`) and is in the table below, but it is **not** in `NAMES`, so it is the one
-`GRAPH_HUB_*` variable the start line does not report and the one `every_hub_env_name_is_read` cannot
-notice. It is still refused on a malformed or out-of-range value, by name. Adding it to `NAMES` is
-Task 2's owner to decide (it changes `settings.rs:157`'s hardcoded 31); this document records the
-gap rather than closing it.
+`GRAPH_HUB_TIMEOUT_MS` is the last of the 32: §6 names it inside the `GRAPH_HUB_DB_POOL` row rather
+than in a row of its own, and `every_hub_env_name_is_read` pins the count.
 
 | Variable | Default | Range | What it does | Over the limit |
 |---|---|---|---|---|
