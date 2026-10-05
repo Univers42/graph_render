@@ -29,10 +29,15 @@ pub struct Subscribers {
 }
 
 impl Subscribers {
-    /// Counters for `caps`.
+    /// Counters for `caps`, with each cap through [`crate::config::capped`] so the `no-cap` break
+    /// takes the 429 with the rest.
     pub fn new(caps: Caps) -> Self {
+        let count = |value: usize| crate::config::capped(value as u64) as usize;
         Subscribers {
-            caps,
+            caps: Caps {
+                max: count(caps.max),
+                per_key: count(caps.per_key),
+            },
             counts: Arc::new(RwLock::new(Counts::none())),
         }
     }

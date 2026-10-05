@@ -122,7 +122,10 @@ impl KeyGate {
 
     /// This key's semaphore, made if there is none.
     fn slot_for(&self, key: &str) -> Arc<Semaphore> {
-        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(existing) = entries.get(key).and_then(Weak::upgrade) {
             return existing;
         }
@@ -136,7 +139,10 @@ impl KeyGate {
     /// Pruning happens here rather than on every `admit`, so a write-only path never pays for it and
     /// a hub that writes under many key names prunes when the map is next read.
     fn live(&self) -> BTreeMap<String, Weak<Semaphore>> {
-        let mut entries = self.entries.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         entries.retain(|_, weak| weak.strong_count() > 0);
         entries.clone()
     }
@@ -171,5 +177,6 @@ pub(crate) fn read_counts(lock: &RwLock<Counts>) -> std::sync::RwLockReadGuard<'
 
 /// A write lock over the counts, poisoning-tolerant for the same reason.
 pub(crate) fn write_counts(lock: &RwLock<Counts>) -> std::sync::RwLockWriteGuard<'_, Counts> {
-    lock.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

@@ -13,9 +13,11 @@
 
 pub mod app;
 pub mod auth;
+pub mod body;
 pub mod breaks;
 pub mod config;
 pub mod error;
+pub mod gate;
 pub mod grants;
 pub mod health;
 pub mod hooks;

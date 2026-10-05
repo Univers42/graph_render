@@ -53,6 +53,25 @@ pub async fn serve_forever(
     app: Arc<App>,
 ) -> io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
+    accept_until_signal(listener, limits, app).await
+}
+
+/// [`serve_forever`] on a listener the caller bound, so a test can learn the port before the loop
+/// starts and no connection is refused between the bind and the first `accept`.
+pub async fn serve_on(
+    listener: TcpListener,
+    limits: &Connections,
+    app: Arc<App>,
+) -> io::Result<()> {
+    accept_until_signal(listener, limits, app).await
+}
+
+/// The accept loop itself, from a bound listener to `SIGTERM` or `SIGINT`.
+async fn accept_until_signal(
+    listener: TcpListener,
+    limits: &Connections,
+    app: Arc<App>,
+) -> io::Result<()> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let bound = listener.local_addr()?.to_string();

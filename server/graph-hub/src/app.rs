@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use crate::config::Settings;
+use crate::gate::GateSet;
 use crate::hooks::Hooks;
 use crate::keys::Keyring;
 
@@ -19,6 +20,8 @@ pub struct App {
     pub settings: Settings,
     /// The credential pair: the key set and the grants, swapped together on `SIGHUP`.
     pub keys: Keyring,
+    /// The four semaphores and the two subscriber counters, built from the settings once.
+    pub gates: GateSet,
     /// The test seams; empty unless the `test-hooks` feature is on.
     pub hooks: Hooks,
 }
@@ -30,10 +33,12 @@ impl App {
     /// credentials, and `KeySet::load`'s own error names a line number and a reason only.
     pub fn from_settings(settings: &Settings, log: LogSink) -> Result<Arc<App>, String> {
         let keys = Keyring::load(&settings.keys_file, &settings.grants_file)?;
+        let gates = GateSet::new(settings.gates, settings.subscribers);
         Ok(Arc::new(Self {
             log,
             settings: settings.clone(),
             keys,
+            gates,
             hooks: Hooks::new(),
         }))
     }

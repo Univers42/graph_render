@@ -173,6 +173,7 @@ impl IntoResponse for HubApiError {
                 }
             }
             Self::Motor(fault) => fault.message().to_owned(),
+            Self::Internal(why) => why.clone(),
             Self::NotImplemented => String::from(
                 "this route is registered and authorized, and its handler lands in a later task",
             ),

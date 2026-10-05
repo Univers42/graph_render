@@ -16,6 +16,7 @@ mod env;
 pub use check::check_database;
 pub use env::{ConfigError, Env, Lookup, NAMES};
 
+use crate::breaks;
 use graph_store::StoreConfig;
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -190,6 +191,33 @@ pub struct Settings {
     pub timeout: Duration,
 }
 
+/// The `no-cap` break's answer for one number: `u64::MAX`, so every cap in the hub disappears at
+/// once and the 413, the 429, the 408 and both 503s go with it.
+///
+/// Why one function rather than a check per reader: row `negctl-no-cap` has to turn *every* limit
+/// red, and a reader that forgot the check would leave one cap standing while the control claims all
+/// of them went. The check is therefore in the one place every number passes through.
+///
+/// Caveat: `u64::MAX` is a fiction rather than a number the hub could use — a body that large cannot
+/// be read into a container that exists — which is exactly what the control needs and exactly what no
+/// shipped build can reach.
+pub fn capped(value: u64) -> u64 {
+    if breaks::on("no-cap") {
+        u64::MAX
+    } else {
+        value
+    }
+}
+
+/// [`capped`] for a duration: long enough that no test's budget is out of it.
+pub fn capped_millis(value: Duration) -> Duration {
+    if breaks::on("no-cap") {
+        Duration::from_millis(u64::MAX / 2)
+    } else {
+        value
+    }
+}
+
 /// `GRAPH_HUB_PORT` alone, for `healthcheck`: the image has no `curl`, so the binary probes its own
 /// `/healthz` (`server/graph-server/src/config.rs:120-122` does the same).
 pub fn port(lookup: Lookup<'_>) -> Result<u16, ConfigError> {
@@ -237,80 +265,4 @@ impl Settings {
         let version = env!("CARGO_PKG_VERSION");
         serde_json::json!({ "event": "start", "version": version, "env": env }).to_string()
     }
-}
-
-/// The byte caps and every duration, in §6's order. Each default is a literal.
-fn read_limits(env: &Env<'_>) -> Result<Limits, ConfigError> {
-    Ok(Limits {
-        max_body: env.bytes("GRAPH_HUB_MAX_BODY", 4 << 20)?,
-        max_batch: env.number("GRAPH_HUB_MAX_BATCH", 10_000, 1..=1_000_000)?,
-        max_record_bytes: env.bytes("GRAPH_HUB_MAX_RECORD_BYTES", 1 << 20)?,
-        max_plugin_bytes: env.bytes("GRAPH_HUB_MAX_PLUGIN_BYTES", 16 << 20)?,
-        max_doc_bytes: env.bytes("GRAPH_HUB_MAX_DOC_BYTES", 64 << 20)?,
-        retain: env.number("GRAPH_HUB_RETAIN", 100_000, 1..=1_000_000_000)?,
-        retain_bytes: env.bytes("GRAPH_HUB_RETAIN_BYTES", 512 << 20)?,
-        changes_bytes: env.bytes("GRAPH_HUB_CHANGES_BYTES", 8 << 20)?,
-        body_timeout: env.millis("GRAPH_HUB_BODY_TIMEOUT_MS", 10_000)?,
-        stream_deadline: env.millis("GRAPH_HUB_STREAM_DEADLINE_MS", 120_000)?,
-        motor_timeout: env.millis("GRAPH_HUB_MOTOR_TIMEOUT_MS", 45_000)?,
-        timeout: env.millis("GRAPH_HUB_TIMEOUT_MS", 30_000)?,
-        sse_page: env.number("GRAPH_HUB_SSE_PAGE", 256, 1..=65_536)?,
-        fetch_rows: env.number("GRAPH_HUB_FETCH_ROWS", 32, 1..=65_536)?,
-        last_seen: env.number("GRAPH_HUB_LAST_SEEN", 65_536, 1..=16_777_216)?,
-    })
-}
-
-/// The connection limits, in §6's order.
-fn read_connections(env: &Env<'_>) -> Result<Connections, ConfigError> {
-    Ok(Connections {
-        max_connections: env.count("GRAPH_HUB_MAX_CONNECTIONS", 256, 65_536)?,
-        header_timeout: env.millis("GRAPH_HUB_HEADER_TIMEOUT_MS", 5_000)?,
-        // hyper refuses a read buffer under 8 KiB.
-        max_header_bytes: env.number("GRAPH_HUB_MAX_HEADER_BYTES", 16_384, 8_192..=1 << 20)?,
-    })
-}
-
-/// The four semaphore sizes, in §6's order.
-fn read_gates(env: &Env<'_>) -> Result<Gates, ConfigError> {
-    Ok(Gates {
-        writers: env.count("GRAPH_HUB_WRITERS", 2, 1024)?,
-        readers: env.count("GRAPH_HUB_READS", 2, 1024)?,
-        layouts: env.count("GRAPH_HUB_LAYOUTS", 1, 1024)?,
-        writers_per_key: env.count("GRAPH_HUB_WRITERS_PER_KEY", 1, 1024)?,
-    })
-}
-
-/// The two subscriber caps, in §6's order.
-fn read_subscribers(env: &Env<'_>) -> Result<Subscribers, ConfigError> {
-    Ok(Subscribers {
-        max: env.count("GRAPH_HUB_MAX_SUBSCRIBERS", 64, 65_536)?,
-        per_key: env.count("GRAPH_HUB_MAX_SUBSCRIBERS_PER_KEY", 8, 65_536)?,
-    })
-}
-
-/// The store's own configuration, built from the reads already made plus the three variables only
-/// the store names. The three it shares (`max_body`, `max_batch`, `max_record_bytes`) come from
-/// [`Limits`], so a spec change that moves one moves both.
-fn read_store(env: &Env<'_>, limits: Limits) -> Result<StoreConfig, ConfigError> {
-    let mut store = StoreConfig::defaults();
-    store.pool = env.number("GRAPH_HUB_DB_POOL", 8, 1..=1024)?;
-    store.max_body = limits.max_body;
-    store.max_batch = limits.max_batch;
-    store.max_record_bytes = limits.max_record_bytes;
-    store.max_plugin_bytes = limits.max_plugin_bytes;
-    store.max_doc_bytes = limits.max_doc_bytes;
-    store.retain = limits.retain;
-    store.retain_bytes = limits.retain_bytes;
-    store.changes_bytes = limits.changes_bytes;
-    store.fetch_rows = limits.fetch_rows;
-    store.last_seen = limits.last_seen;
-    store.timeout_ms = limits.timeout.as_millis() as u64;
-    store.stream_deadline_ms = limits.stream_deadline.as_millis() as u64;
-    Ok(store)
-}
-
-/// A variable's value as a path. An unset or empty value is an empty path, which the start check
-/// refuses by name (Decision 7).
-fn path(env: &Env<'_>, name: &'static str) -> Result<PathBuf, ConfigError> {
-    Ok(env.text(name)?.map_or_else(PathBuf::new, PathBuf::from))
 }

@@ -18,10 +18,9 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use crate::config::Gates;
-use crate::gate::permit::Gate;
 use crate::gate::subscribers::Subscribers;
 
-pub use permit::{KeyGate, NO_CAP_PERMITS};
+pub use permit::{Gate, KeyGate, NO_CAP_PERMITS};
 
 /// The four gates and the two subscriber counters, as live objects.
 #[derive(Debug, Clone)]
