@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
 
 pub mod db;
+pub mod fixtures;
 pub mod grep;
 pub mod motor;
 pub mod reply;
