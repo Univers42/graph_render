@@ -22,12 +22,15 @@ pub const SNAPSHOT_SCHEMA: &str = "docs/contract/snapshot-schema.json";
 /// Where the ingest contract's schema is committed, relative to the workspace root.
 pub const INGEST_SCHEMA: &str = "docs/contract/ingest-schema.json";
 
+/// Where the hub wire's schema is committed, relative to the workspace root.
+pub const HUB_SCHEMA: &str = "docs/contract/hub-schema.json";
+
 /// Every generated file: its path from the workspace root and its exact contents.
 /// Committed, so a change to the contract types shows up as a diff in review.
 ///
 /// The order is a contract of its own: `graph-cli`'s test reads `outputs()[1]`, so a new
-/// output is **appended** and never inserted.
-pub fn outputs() -> [(String, String); 6] {
+/// output is **appended** and never inserted. The hub's two are last for that reason.
+pub fn outputs() -> [(String, String); 8] {
     [
         (
             format!("{GENERATED_DIR}/snapshot-header.schema.json"),
@@ -50,7 +53,18 @@ pub fn outputs() -> [(String, String); 6] {
             format!("{GENERATED_DIR}/layout-params.d.ts"),
             params_typescript(),
         ),
+        (
+            HUB_SCHEMA.to_owned(),
+            format!("{:#}\n", crate::hub::schema::schema()),
+        ),
+        (format!("{GENERATED_DIR}/hub.d.ts"), hub_typescript()),
     ]
+}
+
+/// TypeScript declarations for the hub wire, derived from [`crate::hub::schema::schema`]
+/// by the same writer as every other `.d.ts` in the crate.
+pub fn hub_typescript() -> String {
+    typescript::of(&crate::hub::schema::schema())
 }
 
 /// The JSON Schema (draft 2020-12) of one layout's published parameters: the schema

@@ -34,6 +34,8 @@ mod ids;
 pub mod manifest;
 pub mod model;
 pub mod prune;
+#[cfg(feature = "codegen")]
+pub mod schema;
 mod strict;
 
 #[cfg(test)]

@@ -9,9 +9,9 @@
 
 pub mod binary;
 pub mod canonical_json;
-pub mod geometry;
 #[cfg(feature = "codegen")]
 pub mod codegen;
+pub mod geometry;
 pub mod hub;
 pub mod ingest;
 pub mod ingest_columns;

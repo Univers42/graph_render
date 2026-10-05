@@ -2,9 +2,6 @@
 //! (`codegen.rs` is the writer, this is what holds it to the files it has already written —
 //! the only way a *generated* artefact stays honest).
 
-use super::typescript::ts_type;
-use super::*;
-
 #[test]
 fn schema_pins_every_wire_integer_to_uint32() {
     let schema = json_schema();
@@ -31,12 +28,8 @@ fn schema_never_lists_a_reserved_kind_as_producible() {
 #[test]
 fn typescript_is_declarations_only() {
     let ts = typescript();
-    assert!(
-        ts.contains("export type EdgeGeometryKind = \"Line\" | \"Polyline\" | \"Curve\";")
-    );
-    assert!(
-        ts.contains("export type NodeGeometryKind = \"Point\" | \"Circle\" | \"Box\";")
-    );
+    assert!(ts.contains("export type EdgeGeometryKind = \"Line\" | \"Polyline\" | \"Curve\";"));
+    assert!(ts.contains("export type NodeGeometryKind = \"Point\" | \"Circle\" | \"Box\";"));
     assert!(ts.contains(
         "  /** Number of nodes, and the length of every node column. */\n  node_count: number;"
     ));
@@ -66,6 +59,8 @@ fn the_committed_files_are_what_codegen_generates() {
 }
 #[test]
 fn ts_type_maps_every_json_schema_type_it_knows() {
+    use super::typescript::ts_type;
+
     use serde_json::json;
     let cases = [
         (json!({"type": "integer"}), "number"),
