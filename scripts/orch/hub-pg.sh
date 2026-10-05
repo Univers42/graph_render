@@ -125,8 +125,19 @@ start() {
 stop() { docker stop "$name" >/dev/null 2>&1; return 0; }
 kill9() { docker kill "$name" >/dev/null 2>&1; return 0; }
 reset() {
+  # WHY the removals are NOT silenced: `docker volume rm` fails while anything still holds the
+  # volume, and a swallowed failure means the next `start` silently reuses the OLD volume. That is
+  # not a nuisance: a volume left on timeline 2 by an earlier promotion makes every later PITR
+  # look for a `00000002.history` that does not exist, recovery never reaches its consistent
+  # point, and the server refuses to start — which reads as "PITR is broken" rather than
+  # "the reset did not happen".
   docker rm -f "$name" >/dev/null 2>&1
-  docker volume rm -f "$data_vol" "$archive_vol" "$snap_vol" >/dev/null 2>&1
+  local vol rc=0
+  for vol in "$data_vol" "$archive_vol" "$snap_vol"; do
+    docker volume rm -f "$vol" >/dev/null 2>&1 || rc=1
+  done
+  [ "$rc" -eq 0 ] || { echo "hub-pg: reset: a volume is still in use; not pretending it was removed" >&2; return 1; }
+  rm -f target/hub-pg-url
   return 0
 }
 
@@ -167,7 +178,6 @@ restore_data() {
 recovery_settings() {
   printf '%s\n' \
     "restore_command = 'cp /archive/%f %p'" \
-    "recovery_target_timeline = 'latest'" \
     "hot_standby = on"
 }
 
@@ -181,7 +191,16 @@ start_recovery() {
     # condition is false, which is this block's exit status, so the `|| return 1` below fired and
     # `replica` returned before it had replaced the container — leaving the ORIGINAL primary
     # running and the test dialling a server that was never a standby.
-    if [ -n "$target" ]; then printf "recovery_target_time = '%s'\n" "$target"; fi
+    # WHY `current` and not `latest`: `latest` makes recovery look for a HIGHER timeline's
+    # history file. After a promotion on this cluster that file does not exist, the lookup fails,
+    # and recovery never reaches its consistent point. A PITR on the cluster that wrote the
+    # archive wants `current`.
+    if [ -n "$target" ]; then
+      printf "recovery_target_timeline = 'current'\n"
+      printf "recovery_target_time = '%s'\n" "$target"
+    else
+      printf "recovery_target_timeline = 'latest'\n"
+    fi
   } >target/hub-recovery.conf || return 1
   docker rm -f "$name" >/dev/null 2>&1
   image || return 1
