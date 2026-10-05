@@ -102,26 +102,17 @@ pub async fn stub_counting(answers: Vec<StubReply>) -> (Motor, Arc<AtomicU64>) {
     (motor, served)
 }
 
-/// [`stub`] that holds each answer for `hold` after the request body is drained, so a test can look
-/// at the hub while the motor still has the request and has not answered.
-///
-/// This is the fixture seam `the_snapshot_closes_before_the_motor_answer_is_awaited` needs: the real
-/// motor's own `before_run` hook is behind graph-server's `test-hooks` feature, and the hub's
-/// dev-dependency on graph-server does not forward it (Decision 1 of the plan). A delay here is
-/// observable from the outside and needs no feature on either crate.
-///
-/// Caveat: a wall-clock sleep on the stub's own task, so it holds the connection rather than the
-/// accept loop and a second request is still served; it is a fixture delay and never a bound the hub
-/// reads.
-pub async fn stub_after(answers: Vec<StubReply>, hold: Duration) -> (Motor, String) {
-    let (motor, _, key) = stub_parts(answers, hold).await;
-    (motor, key)
-}
-
 /// The stub itself, plus its served counter and the key a hub under test presents to it.
 ///
-/// [`stub`], [`stub_counting`] and [`stub_after`] are this one function with three shapes taken off
-/// it, so a fixture that needs the counter and a hold has one way to ask for both.
+/// [`stub`] and [`stub_counting`] are this one function with shapes taken off it, so a fixture that
+/// needs the counter and a hold has one way to ask for both. `hold` delays each answer after the
+/// request body is drained, so a case can look at the hub while the motor has the request and has
+/// not answered: the real motor's `before_run` hook is behind graph-server's `test-hooks` feature,
+/// which the hub's dev-dependency does not forward (Decision 1 of the plan).
+///
+/// Caveat: the hold is a wall-clock sleep on the stub's own task, so it holds the connection rather
+/// than the accept loop and a second request is still served; it is a fixture delay and never a
+/// bound the hub reads.
 pub async fn stub_parts(
     answers: Vec<StubReply>,
     hold: Duration,
@@ -150,12 +141,15 @@ struct Served {
 }
 
 /// The next scripted answer, once the request body has been drained and the hold has passed.
+///
+/// The answer is taken, and the served counter moved, **before** the hold, so a case that reads the
+/// counter knows the upload has ended and the answer is being awaited.
 async fn scripted(State(served): State<Served>, body: Body) -> Response {
     discard(body).await;
+    let reply = served.script.lock().expect("the stub's script lock").take();
     if !served.hold.is_zero() {
         tokio::time::sleep(served.hold).await;
     }
-    let reply = served.script.lock().expect("the stub's script lock").take();
     reply.into_reply()
 }
 
