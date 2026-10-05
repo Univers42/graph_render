@@ -38,8 +38,9 @@ pub enum HubApiError {
     Unauthorized(&'static str),
     /// 403: a key with no grant covering this workspace and plugin. Never reveals existence.
     Forbidden(&'static str),
-    /// 404: reached only after authorization said yes.
-    NotFound(&'static str),
+    /// 404: reached only after authorization said yes. The store's own `what` when the store
+    /// is what said no, so the message names what was not found.
+    NotFound(String),
     /// 406: relayed from the motor; the message is graph-server's own.
     NotAcceptable(String),
     /// 408: the request body did not arrive within `GRAPH_HUB_BODY_TIMEOUT_MS`.
@@ -223,7 +224,7 @@ fn reason(error: &HubApiError) -> &str {
         HubApiError::BadRequest(why) => why,
         HubApiError::Unauthorized(_) => "missing or unknown API key",
         HubApiError::Forbidden(_) => "the key has no grant for this workspace and plugin",
-        HubApiError::NotFound(_) => "no such route",
+        HubApiError::NotFound(why) => why,
         HubApiError::BodyTimeout => "the body did not arrive within GRAPH_HUB_BODY_TIMEOUT_MS",
         _ => "",
     }

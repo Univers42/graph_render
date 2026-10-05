@@ -100,7 +100,7 @@ pub fn ids_of(uri: &Uri) -> Result<Ids, HubApiError> {
             ids.record = Some(record_id(id)?);
             Ok(ids)
         }
-        _ => Err(HubApiError::NotFound("no such route")),
+        _ => Err(HubApiError::NotFound(String::from("no such route"))),
     }
 }
 
@@ -122,7 +122,7 @@ fn split(path: &str) -> Result<Vec<String>, HubApiError> {
     let rest = path
         .strip_prefix("/v1/")
         .or_else(|| path.strip_prefix("/v1"))
-        .ok_or(HubApiError::NotFound("no such route"))?;
+        .ok_or_else(|| HubApiError::NotFound(String::from("no such route")))?;
     rest.split('/')
         .map(percent_decode_str)
         .map(|decoded| decoded.decode_utf8().map(|text| text.into_owned()))

@@ -11,9 +11,6 @@
 //! (409, 412, 413, 422) keeps its status and the hub never re-derives the class.
 
 pub mod batches;
-pub mod changes;
-pub mod graph;
-pub mod meta;
 pub mod plugins;
 pub mod scan;
 pub mod workspaces;
@@ -60,7 +57,7 @@ pub fn write_fault(error: &StoreError) -> HubApiError {
         StoreError::Gone => HubApiError::Gone(String::from("the cursor is outside what is kept")),
         // `Eof` and `Db` are hub defects: neither is a thing a caller can fix, and both are logged
         // whole by the handler that got them.
-        StoreError::Db(_) | StoreError::Eof => HubApiError::Internal(error.code()),
+        StoreError::Db(_) | StoreError::Eof => HubApiError::Internal(error.code().to_owned()),
     }
 }
 

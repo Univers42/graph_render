@@ -27,6 +27,8 @@ pub struct App {
     pub gates: GateSet,
     /// The test seams; empty unless the `test-hooks` feature is on.
     pub hooks: Hooks,
+    /// One watch sender per workspace, where a write says the stream moved.
+    pub watch: crate::watch::Watch,
     /// The store every handler reads and writes through, opened once and shared.
     ///
     /// Caveat: this is a `OnceCell` and not a plain field because [`App::from_settings`] is
@@ -50,6 +52,7 @@ impl App {
             keys,
             gates,
             hooks: Hooks::new(),
+            watch: crate::watch::Watch::new(),
             store: tokio::sync::OnceCell::new(),
         }))
     }
@@ -75,8 +78,10 @@ impl App {
     ///
     /// `Err` is the store back, which happens only when a second call raced the first; the caller
     /// treats it as a hub defect because `main` calls this once.
-    pub fn set_store(&self, store: Store) -> Result<(), Store> {
-        self.store.set(store)
+    pub fn set_store(&self, store: Store) -> Result<(), String> {
+        self.store
+            .set(store)
+            .map_err(|_| String::from("the store was already set"))
     }
 
     /// Writes one JSON log line.

@@ -23,7 +23,9 @@ pub mod health;
 pub mod hooks;
 pub mod keys;
 pub mod observe;
+pub mod routes;
 pub mod serve;
+pub mod watch;
 
 use axum::Router;
 use axum::routing::{get, post, put};
@@ -48,21 +50,27 @@ pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/meta", get(not_ready))
-        .route("/v1/workspaces", get(not_ready).post(not_ready))
-        .route("/v1/workspaces/{ws}", put(not_ready))
-        .route("/v1/workspaces/{ws}/plugins", get(not_ready))
-        .route("/v1/workspaces/{ws}/plugins/{plugin}", put(not_ready))
+        .route(
+            "/v1/workspaces",
+            get(routes::workspaces::list).post(not_ready),
+        )
+        .route("/v1/workspaces/{ws}", put(routes::workspaces::put))
+        .route("/v1/workspaces/{ws}/plugins", get(routes::plugins::list))
+        .route(
+            "/v1/workspaces/{ws}/plugins/{plugin}",
+            put(routes::plugins::put),
+        )
         .route(
             "/v1/workspaces/{ws}/plugins/{plugin}/batches",
-            post(not_ready),
+            post(routes::batches::post),
         )
         .route(
             "/v1/workspaces/{ws}/plugins/{plugin}/records",
-            get(not_ready),
+            get(routes::batches::page),
         )
         .route(
             "/v1/workspaces/{ws}/records/{plugin}/{collection}/{id}",
-            get(not_ready),
+            get(routes::batches::one),
         )
         .route("/v1/workspaces/{ws}/graph", get(not_ready))
         .route("/v1/workspaces/{ws}/changes", get(not_ready))
@@ -88,7 +96,7 @@ async fn healthz() -> &'static str {
 }
 
 async fn not_found() -> HubApiError {
-    HubApiError::NotFound("no such route")
+    HubApiError::NotFound(String::from("no such route"))
 }
 
 /// A route of §5.2's table whose handler its own task has not written yet.

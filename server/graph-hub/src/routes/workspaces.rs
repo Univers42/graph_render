@@ -29,7 +29,7 @@ pub async fn put(
     Extension(credential): Extension<Credential>,
     Path(ws): Path<String>,
 ) -> Result<axum::response::Response, HubApiError> {
-    let permit = crate::gate::admit(&app, &app.gates.writers).await?;
+    let _permit = crate::gate::admit(&app, &app.gates.writers).await?;
     let _key = crate::gate::admit_key(&app, &credential.key).await?;
     crate::hooks::pause_after_admit(&app.hooks, "put-workspaces").await;
     let store = app.store().await?;
