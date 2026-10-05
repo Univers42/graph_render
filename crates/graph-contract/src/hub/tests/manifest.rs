@@ -31,8 +31,9 @@ fn a_two_collection_manifest_reads_sorted_with_its_link_targets_qualified() {
 /// on the *first* dot, so a target that could be split two ways is a mistake.
 #[test]
 fn a_link_target_is_qualified_once_and_only_once() {
-    let one = read_manifest(TWO.replace("\"collection\": \"note\"", "\"collection\": \"other.c\""), "tracker")
-        .expect("a qualified target reads");
+    let one =
+        read_manifest(&TWO.replace("\"collection\": \"note\"", "\"collection\": \"other.c\""), "other")
+            .expect("a qualified target reads");
     assert_eq!(
         one.collections[1].fields[1].link.as_ref().map(|l| l.collection.clone()),
         Some("other.c".to_owned()),

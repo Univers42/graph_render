@@ -29,12 +29,14 @@
 mod breaks;
 mod error;
 mod ids;
+pub mod manifest;
 mod strict;
 
 #[cfg(test)]
 mod tests;
 
 pub use error::HubError;
+pub use manifest::{Growth, Manifest, growth, manifest_json, read_manifest};
 pub use ids::{
     Cursor, MAX_SEQ, check_collection_id, check_plugin_id, check_record_id, check_workspace_id,
     qualify,
