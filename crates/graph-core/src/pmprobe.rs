@@ -32,16 +32,25 @@ impl Drop for Span {
     }
 }
 
+/// Zeroes both tables, so a run's numbers cover only what ran after it: the warm ticks
+/// before `graph-cli tick`'s timed ones are not ticks of the measured steady state.
+pub fn reset() {
+    for i in 0..4 {
+        NS[i].store(0, Ordering::Relaxed);
+        CALLS[i].store(0, Ordering::Relaxed);
+    }
+}
+
 pub fn rows(ticks: u64) -> Vec<String> {
     (0..4)
         .map(|i| {
             let ns = NS[i].load(Ordering::Relaxed) as f64;
-            let calls = CALLS[i].load(Ordering::Relaxed).max(1);
+            let calls = CALLS[i].load(Ordering::Relaxed);
             format!(
-                "| {} | {} | {:.3} |",
+                "| {} | {:.2} | {:.3} |",
                 NAMES[i],
-                calls / ticks.max(1),
-                ns / 1e6 / (ticks.max(1) as f64)
+                f64::from(calls as u32) / ticks as f64,
+                ns / 1e6 / (ticks as f64)
             )
         })
         .collect()

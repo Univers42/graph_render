@@ -180,6 +180,7 @@ pub fn measure(plan: &Plan) -> Result<String, String> {
 /// `plan.ticks` single ticks' wall times; with `--passes`, the pass table on standard error.
 fn time_ticks(plan: &Plan, session: &mut Stepper) -> Vec<f64> {
     let timed = passes::Timed::default();
+    graph_core::pmprobe::reset();
     let samples: Vec<f64> = (0..plan.ticks)
         .map(|_| {
             let tick = Instant::now();
