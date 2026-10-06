@@ -19,7 +19,7 @@ rather than swallowing it.
 
 INFO_KEYS = ("vendor", "architecture", "device", "description")
 LIMIT_KEYS = ("maxStorageBufferBindingSize", "maxBufferSize", "maxComputeWorkgroupStorageSize",
-              "maxComputeInvocationsPerWorkGroup", "maxComputeWorkgroupsPerDimension")
+              "maxComputeInvocationsPerWorkgroup", "maxComputeWorkgroupsPerDimension")
 
 PAGE = """<!doctype html><meta charset="utf-8"><title>gpu-mesh</title>
 <script type="module">
