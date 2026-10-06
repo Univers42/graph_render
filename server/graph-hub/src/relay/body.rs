@@ -24,6 +24,7 @@ use http_body_util::BodyStream;
 use tokio::sync::OwnedSemaphorePermit;
 
 use crate::breaks;
+use crate::relay::upload::Upload;
 
 /// What one upload counted. A test reads this instead of RSS, so the claim "no whole document is
 /// ever in memory" is a number the relay itself produced.
@@ -37,6 +38,10 @@ pub struct Counts {
     pub held: u64,
     /// Records `drop-record` skipped: 0 in a shipped build, 1 with the break on.
     pub dropped: u64,
+    /// Every chunk's bytes added up: the document's own length as this walk wrote it.
+    pub bytes: u64,
+    /// Records yielded, `head` and `tail` not counted.
+    pub records: u64,
 }
 
 /// The counters one [`document`] walk accumulates. Cheap enough to hold in a shipped relay: four
@@ -47,6 +52,8 @@ pub struct Probe {
     largest: AtomicU64,
     held: AtomicU64,
     dropped: AtomicU64,
+    bytes: AtomicU64,
+    records: AtomicU64,
 }
 
 impl Probe {
@@ -57,6 +64,8 @@ impl Probe {
             largest: self.largest.load(Ordering::Relaxed),
             held: self.held.load(Ordering::Relaxed),
             dropped: self.dropped.load(Ordering::Relaxed),
+            bytes: self.bytes.load(Ordering::Relaxed),
+            records: self.records.load(Ordering::Relaxed),
         }
     }
 
@@ -67,6 +76,12 @@ impl Probe {
         let size = bytes.len() as u64;
         self.largest.fetch_max(size, Ordering::Relaxed);
         self.held.fetch_max(size, Ordering::Relaxed);
+        self.bytes.fetch_add(size, Ordering::Relaxed);
+    }
+
+    /// One record yielded.
+    fn recorded(&self) {
+        self.records.fetch_add(1, Ordering::Relaxed);
     }
 
     /// One record skipped by `drop-record`.
@@ -88,13 +103,14 @@ enum Stage {
     Done,
 }
 
-/// What the walk holds: the document, where it is, the probe, and whether `drop-record` still owes
-/// a record.
+/// What the walk holds: the document, where it is, the probe, the upload's own accounting, and
+/// whether `drop-record` still owes a record.
 struct Walk {
     document: Option<Document>,
     stage: Stage,
     deadline: tokio::time::Instant,
     probe: Option<Arc<Probe>>,
+    upload: Upload,
     armed: bool,
 }
 
@@ -104,6 +120,7 @@ impl Walk {
     /// `None` that ends the records moves one stage, so a walk turns at most one extra time per
     /// document plus one for the dropped record.
     async fn piece(&mut self) -> Option<Bytes> {
+        self.upload.begin();
         loop {
             let piece = match self.stage {
                 Stage::Head => {
@@ -116,7 +133,9 @@ impl Walk {
                 },
                 Stage::Tail => {
                     self.stage = Stage::Done;
-                    self.tail()?
+                    let piece = self.tail()?;
+                    self.upload.finish();
+                    piece
                 }
                 Stage::Done => return None,
             };
@@ -132,8 +151,8 @@ impl Walk {
         Some(text)
     }
 
-    /// One `next()`, with `drop-record` in it and the switch to [`Stage::Tail`] on the `None` that
-    /// ends the records.
+    /// One `next()`, with `drop-record` and `throttle-upload` in it and the switch to
+    /// [`Stage::Tail`] on the `None` that ends the records.
     async fn record(&mut self) -> Option<Bytes> {
         let document = self.document.as_mut()?;
         let read = tokio::time::timeout_at(self.deadline, document.next()).await;
@@ -148,8 +167,18 @@ impl Walk {
                     }
                     return None;
                 }
+                // The 2 ms per record of row `negctl-throttle-upload`: it makes a full-cap upload
+                // miss graph-server's 10 s body timeout, which is the only way to show the
+                // measurement of Decision 4 can fail.
+                if breaks::on("throttle-upload") {
+                    tokio::time::sleep(THROTTLE).await;
+                }
                 let piece = Bytes::from(text);
                 self.count(&piece);
+                if let Some(probe) = self.probe.as_ref() {
+                    probe.recorded();
+                }
+                self.upload.recorded();
                 Some(piece)
             }
             // `None` is the end of the records, and the store has committed by the time it says so.
@@ -174,27 +203,42 @@ impl Walk {
         Some(piece)
     }
 
-    /// One piece, counted when a probe is installed.
-    fn count(&self, bytes: &Bytes) {
+    /// One piece, counted by the probe when one is installed and by the upload always.
+    fn count(&mut self, bytes: &Bytes) {
         if let Some(probe) = self.probe.as_ref() {
             probe.wrote(bytes);
         }
+        self.upload.wrote(bytes.len());
     }
 }
 
-/// `document` as the relay's chunked request body, cut at `deadline`.
+/// The pause `throttle-upload` puts before every record, and why it is in the walk rather than in
+/// the chunk loop.
+///
+/// 2 ms per record at the ~883 000 records a 64 MiB document of the smallest admissible record
+/// holds is well past 10 s, which is what makes the motor's `GRAPH_BODY_TIMEOUT_MS` the thing that
+/// answers; a pause per *chunk* would be a pause per record anyway, since the walk's chunks are the
+/// records. Caveat: the figure is chosen to overrun the timeout by a wide margin, not measured, so
+/// the throttled run fails slowly rather than promptly.
+const THROTTLE: std::time::Duration = std::time::Duration::from_millis(2);
+
+/// `document` as the relay's chunked request body, cut at `deadline`, timed by `upload`.
 ///
 /// The `Document` is dropped when the stream ends, which is what closes the store's snapshot; the
 /// item's `Err` is `std::io::Error` because that is what `Body::from_stream` wants, and this walk
 /// never produces one.
 ///
-/// Caveat: a probe is optional rather than free, so the shipped relay pays for four relaxed atomic
+/// `upload` is not optional: it is what writes the `layout-upload` line, and Decision 4's
+/// measurement reads those lines. `probe` still is, and is the test-only counter beside it.
+///
+/// Caveat: a probe is optional rather than free, so the shipped relay pays for six relaxed atomic
 /// updates per chunk instead of zero. A chunk is a socket write, so the updates are noise next to
 /// it; the alternative was a global counter, and a global counter cannot tell one test's upload
 /// from another's.
 pub fn document(
     document: Document,
     probe: Option<Arc<Probe>>,
+    upload: Upload,
     deadline: tokio::time::Instant,
 ) -> impl Stream<Item = Result<Bytes, std::io::Error>> {
     let walk = Walk {
@@ -202,6 +246,7 @@ pub fn document(
         stage: Stage::Head,
         deadline,
         probe,
+        upload,
         armed: true,
     };
     stream::unfold(walk, |mut walk| async move {

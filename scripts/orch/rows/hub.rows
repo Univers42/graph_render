@@ -48,3 +48,5 @@ hub-durability|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start &&
 negctl-ack-before-commit|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-run.sh reset && GM_HUB_BREAK=ack-before-commit scripts/orch/hub-run.sh start && { scripts/orch/hub-run.sh run scripts/orch/gr -e GM_HUB_PG_URL="$(scripts/orch/hub-pg.sh url)" cargo test --manifest-path server/Cargo.toml -p graph-hub --features db-tests,negctl,test-hooks --test durability -- a_batch_answered_after_the_commit_survives_the_kill --exact --test-threads=1; rc=$?; scripts/orch/hub-run.sh reset; test $rc -ne 0; }
 hub-memory|0|scripts/orch/hub-mem.sh measure
 negctl-hub-memory|0|scripts/orch/hub-mem.sh control; test $? -eq 137
+hub-upload-timeout|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && scripts/orch/hub-mem.sh upload
+negctl-throttle-upload|0|scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start && GM_HUB_BREAK=throttle-upload scripts/orch/hub-mem.sh upload; test $? -ne 0

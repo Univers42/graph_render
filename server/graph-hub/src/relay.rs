@@ -20,6 +20,7 @@
 pub mod answer;
 pub mod body;
 pub mod map;
+pub mod upload;
 
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
@@ -36,6 +37,7 @@ use crate::app::App;
 use crate::auth::Credential;
 use crate::error::{HubApiError, MotorFault};
 use crate::relay::body::Probe;
+use crate::relay::upload::Upload;
 
 /// What one `/layout` call asks of the motor. `layout` and `post` are `None` when the caller sent
 /// no such query parameter, and the motor decides what a missing `layout` means (a relayed 400).
@@ -107,10 +109,14 @@ pub async fn post(
     probe: Option<Arc<Probe>>,
 ) -> Result<RelayAnswer, HubApiError> {
     let deadline = tokio::time::Instant::now() + app.settings.limits.stream_deadline;
+    // The upload's own line, timed from the first poll of the body stream. No key and no URL go in
+    // it: `ws` names the workspace and the three numbers are the upload's own, which is everything
+    // `docs/measurements/hub-memory.md` reads out of it.
+    let upload = Upload::new(Arc::clone(&app.log), &request.ws);
     let sent = send(
         app,
         request,
-        Body::from_stream(body::document(document, probe, deadline)),
+        Body::from_stream(body::document(document, probe, upload, deadline)),
     )
     .await;
     let response = match sent {

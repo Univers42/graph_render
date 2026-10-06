@@ -134,9 +134,13 @@ async fn streamed_by_the_relay(hub: &Hub, ws: &str) -> (Vec<u8>, u64) {
         .expect("a snapshot of the workspace");
     let probe = Arc::new(Probe::default());
     let deadline = tokio::time::Instant::now() + hub.app.settings.limits.stream_deadline;
+    // The walk's own line is not what this case is about, so it goes to a sink that reads nothing.
+    let (_log, sink) = support::log_sink();
+    let upload = graph_hub::relay::upload::Upload::new(sink, ws);
     let mut walk = Box::pin(graph_hub::relay::body::document(
         document,
         Some(Arc::clone(&probe)),
+        upload,
         deadline,
     ));
     let mut out: Vec<u8> = Vec::new();
