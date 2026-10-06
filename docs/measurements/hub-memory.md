@@ -108,10 +108,12 @@ byte cut did not shorten the measured read.
 |---|---|---|---|---|---|
 | `~/goinfre/logs/hub-maxheader-b1.out` | 1 | 622 592 | 737 280 | 1 101 824 | 234.1 |
 | `~/goinfre/logs/hub-maxheader-c1.out` | least of 3 | 524 288 | 581 632 | 1 191 936 | 326.2 |
+| gate row `hub-max-header` (`target/gate-maxheader/hub-max-header.log`) | least of 3 | 704 512 | 819 200 | 1 277 952 | 280.1 |
 
 The spec planned 256 B. The ceiling is the worst run plus the noise bound below, rounded up: 410 B.
 Break `sse-full-page` makes the read pull every change's operations, as `/changes` does. Each header
-then carries its 1 KiB note, and the case fails the ceiling (row `negctl-sse-full-page`).
+then carries its 1 KiB note, and the case fails the ceiling: 4 202.1 B per header in the gate run
+(row `negctl-sse-full-page`, `target/gate-maxheader/negctl-sse-full-page.log`).
 
 Caveat: the slope is taken over resident pages. One read's peak moved by about 150 KiB from run to run
 (three earlier runs at 256 headers gave 48, 257 and 1 124 B per header, `hub-maxheader-{1,2,3}.out`,
