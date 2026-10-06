@@ -31,7 +31,7 @@ pub use kamada_kawai::KamadaKawai;
 pub use lgl::Lgl;
 pub use params::ForceParams;
 pub use particle_mesh::ParticleMesh;
-pub use session::{ForceSession, LiveParams, NodeRow, SessionError, StepReport};
+pub use session::{ForceSession, LiveParams, MeshProbe, NodeRow, SessionError, StepReport};
 pub use yifan_hu::YifanHu;
 
 use crate::arena::{CapacityError, FixedState};
