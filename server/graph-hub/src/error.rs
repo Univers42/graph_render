@@ -75,13 +75,6 @@ pub enum HubApiError {
     Motor(MotorFault),
     /// 500: a hub defect. Logged whole, never sent whole.
     Internal(String),
-    /// 501: a route of §5.2's table whose handler its own task has not written yet.
-    ///
-    /// The router registers all twelve paths from Task 3 on, because the authorization layer reads
-    /// the request's own URI and can only decide the right grant for a path the router knows. Until
-    /// a task fills a handler in, that path answers 501 and *not* 404: the route exists, and a 404
-    /// would tell a client it does not.
-    NotImplemented,
 }
 
 impl HubApiError {
@@ -107,7 +100,6 @@ impl HubApiError {
             Self::Busy { .. } => Cow::Borrowed("Busy"),
             Self::Motor(fault) => fault.code(),
             Self::Internal(_) => Cow::Borrowed("internal"),
-            Self::NotImplemented => Cow::Borrowed("NotImplemented"),
         }
     }
 
@@ -134,7 +126,6 @@ impl HubApiError {
             }
             Self::Motor(fault) => fault.status(),
             Self::Internal(_) => 500,
-            Self::NotImplemented => 501,
         }
     }
 
@@ -183,9 +174,6 @@ impl IntoResponse for HubApiError {
             Self::PreconditionFailed => {
                 String::from("If-Match does not equal this plugin's plugin_seq")
             }
-            Self::NotImplemented => String::from(
-                "this route is registered and authorized, and its handler lands in a later task",
-            ),
             other => reason(other).to_owned(),
         };
         let body = serde_json::json!({ "error": self.code(), "message": one_line(&message) });

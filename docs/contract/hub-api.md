@@ -54,8 +54,7 @@ branches). The last column is the test that asserts each status.
 | `GET /v1/workspaces/{ws}/changes?since=&limit=` | `read` | `since=<epoch>.<seq>`, `limit` | `200` `{epoch, head_seq, next, bytes, changes:[…]}` (an object, not a bare array), ascending `seq`, never empty, at most `GRAPH_HUB_CHANGES_BYTES`; `since` is required, and a missing or empty one is `400` | `200` — `tests/read/changes.rs` `changes_after_a_cursor_are_in_seq_order`, `a_changes_page_never_exceeds_the_byte_cap_but_holds_one_change`; `410` `cursor` — `changes_returns_410_for_a_cursor_from_another_epoch`, `changes_returns_410_for_a_cursor_below_what_is_kept`, `changes_returns_410_for_a_seq_above_head` (all hub-api) |
 | `GET /v1/workspaces/{ws}/events` | `read` | `since=<epoch>.<seq>` or `Last-Event-ID`, `Accept: text/event-stream` | `200` an SSE stream: `event: change` with `id: <epoch>.<seq>`, `event: busy` with **no** `id:`, `event: resync`, `:` heartbeats | `429` on both subscriber caps — `tests/events/stream.rs` `the_per_key_subscriber_cap_is_429`, `the_total_subscriber_cap_is_429`; `429` absent after a `busy` close — `tests/events/ends.rs` `the_busy_slot_is_free_before_the_close` (all hub-api). The `200` status line itself is **not asserted by a test**: these cases read wire lines from the open stream |
 | `POST /v1/workspaces/{ws}/layout?layout=&post=` | `read` | the plugin's `read` grant; `Accept` passed through | `200` graph-server's snapshot, streamed unchanged, + `Graph-Seq: <epoch>.<seq>`; never retried | `200` byte-equal to graph-server over three fixtures — `tests/relay/roundtrip.rs` `layout_bytes_equal_motor_bytes_at_the_same_cursor`; `Graph-Seq` == `/graph`'s `ETag` — `tests/relay/shape.rs` `the_graph_seq_header_equals_the_graph_etag`; streamed, never a whole document — `layout_never_holds_a_whole_document`; the snapshot closes before the answer is awaited — `the_snapshot_closes_before_the_motor_answer_is_awaited`; `422` relayed — `a_layout_failure_is_relayed_with_the_motors_error`; `503` relayed with no `Retry-After` — `a_layout_is_never_retried` |
-| anything else, or a wrong method on a registered path | — | — | `404` `NotFound`, JSON shape | `404` — `tests/health.rs` `an_unknown_route_is_the_json_404_shape` (hub-api). On `hub-relay` the same fallback is only constructed, not routed: `tests/limits/refusals.rs` `the_refusal_headers_come_from_the_status_and_not_the_variant` |
-| `POST /v1/workspaces` | — | — | `501` `NotImplemented` — registered and authorized, handler unwritten | **not asserted by a test**. It is outside §5.2's table; `src/lib.rs` `not_ready` answers for it while its own task is open |
+| anything else, or a wrong method on a registered path | — | — | `404` `NotFound`, JSON shape | `404` — `tests/health.rs` `an_unknown_route_is_the_json_404_shape` and, for a wrong method, `a_post_on_the_workspace_list_is_the_json_404_shape` (hub-api). On `hub-relay` the same fallback is only constructed, not routed: `tests/limits/refusals.rs` `the_refusal_headers_come_from_the_status_and_not_the_variant` |
 
 **Order of refusals.** `src/auth.rs` `authorize_middleware` runs before every handler, so no route
 learns anything from a gate being full or a workspace existing: no or unknown key is `401`, a key
@@ -87,7 +86,6 @@ string.
 | 429 | `Busy` | a subscriber cap, per key or in total; `Retry-After: 1` | `tests/limits/refusals.rs` `the_subscriber_cap_per_key_is_429`, `the_subscriber_cap_in_total_is_429`; `tests/events/stream.rs` `the_per_key_subscriber_cap_is_429`, `the_total_subscriber_cap_is_429` (hub-api) |
 | 431 | — | hyper's own answer for a head over `GRAPH_HUB_MAX_HEADER_BYTES`, with no JSON body | `tests/limits/reader.rs` `a_header_over_the_cap_is_431` (raw status line) |
 | 500 | `internal` | a hub defect: a `StoreError::Db`/`Eof`, or a panic | **not asserted by a test** |
-| 501 | `NotImplemented` | a registered, authorized route whose handler its own task has not written | **not asserted by a test** (see Routes) |
 | 502 | `MotorAuth` | the motor refused the hub's own key. A hub defect, logged `motor-fault` | `tests/motor_map/rows.rs` `motor_401_is_502_motor_auth_and_logged` |
 | 502 | `MotorBodyTimeout` | the upload missed graph-server's 10 s body timeout. No `Retry-After`: the same request would miss it again | `tests/motor_map/rows.rs` `motor_408_is_502_motor_body_timeout_with_no_retry_after` |
 | 502 | `MaterializeInvalid` | graph-server answered 422 with `IngestInvalid` or `ContractInvalid`. A hub defect, logged | `tests/motor_map/rows.rs` `motor_422_ingest_invalid_is_502_materialize_invalid`, `motor_422_contract_invalid_is_502_materialize_invalid` |
@@ -216,7 +214,7 @@ and the commands are `docs/measurements/hub-memory.md`.
 **Statuses §5.2 gives a route that no test asserts.** `GET /v1/meta` 401/403, `PUT
 /v1/workspaces/{ws}` 401 and 404, `GET …/plugins` 401/403/404, `POST …/batches` 401/404, `GET
 …/records` (page and one record) 401, `GET /graph` 401/404, `GET …/changes` 401/403/404, `GET
-…/events` 401/403/404 and its own `200` status line, `POST …/layout` 401/403/404, `500 internal`,
-and `501 NotImplemented`. The refusals these would use are the same
+…/events` 401/403/404 and its own `200` status line, `POST …/layout` 401/403/404 and `500
+internal`. The refusals these would use are the same
 `HubApiError` variants the asserted routes use, and the middleware is one layer over the whole
 `/v1` prefix, so a reader should treat them as covered by construction rather than by evidence.
