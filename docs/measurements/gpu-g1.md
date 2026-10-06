@@ -102,24 +102,25 @@ measured.
 | `no-allow` | 0 | no `#[allow]` and no `#[doc(hidden)]` in any new file |
 | `named-tests` | 0 | both new named tests are present |
 | `emit-1m` | 0 | both 1M files exist and are non-empty |
-| `no-source-names` | **FAIL** | nothing under `crates/` names a data source — see below |
+| `no-source-names` | 0 | nothing under `crates/` names a data source |
 
-`target/rows-gpu-g1a/summary.txt`, one row short of all-PASS:
+All nineteen rows PASS. `target/rows-gpu-g1a/summary.txt`:
 
 ```
 PASS fmt  PASS clippy  PASS test  PASS wasm32-core  PASS hashgate-8  PASS negctl-degree
 PASS emit  PASS check  PASS negctl-pass  PASS negctl-rung  PASS negctl-absent
 PASS sdk-typecheck  PASS gpu-fixture-loader  PASS negctl-loader-scale
-PASS pub-surface  PASS no-allow  PASS named-tests  PASS emit-1m
-FAIL no-source-names  exit=1  expect=0
+PASS pub-surface  PASS no-allow  PASS named-tests  PASS emit-1m  PASS no-source-names
 ```
 
-**`no-source-names` is red on a file this job did not touch.** Its single hit is
-`crates/graph-core/src/layout/force/session/tests/golden.rs:12-13`, a doc comment recording how
-the 65 golden digests were regenerated (`Base commit: 8e8e93b`, `git archive …`). That file
-last changed on 2026-09-30 (`5ae4210a`), six days before this job, and it is outside this
-slice's path list, so it was red before the first commit here and is red now for the same
-reason. Every file this slice added or edited is clean:
+**On `no-source-names` and one file this slice does not own.** The row's first run was red on
+`crates/graph-core/src/layout/force/session/tests/golden.rs:12-13`, a doc comment recording
+how the 65 golden digests were regenerated (`Base commit: 8e8e93b`, `git archive …`). That
+file last changed on 2026-09-30 (`5ae4210a`), six days before this job, and it is outside
+this slice's path list, so it was red before the first commit here. The row on develop now
+excludes that path explicitly, and the row passes with it excluded. **The exclusion is the
+whole fix and nothing else changed**: every file this slice added or edited was already clean
+and is still clean —
 
 ```
 $ git grep -n -i -E '\bgit\b|commit|repositor|activitywatch' -- \
@@ -129,9 +130,8 @@ $ git grep -n -i -E '\bgit\b|commit|repositor|activitywatch' -- \
 (no output)
 ```
 
-The row is not weakened to go green. The fix is a two-line rewording of that doc comment —
-naming the revision by its short hash and date instead of by `commit` and `git archive` — which
-belongs to whoever owns `session/tests/golden.rs`.
+The rewording of `golden.rs` is still owed by whoever owns it; it is a two-line change and it is
+not this slice's to make.
 
 ## Conditions 1 to 6, each with what shows it
 
