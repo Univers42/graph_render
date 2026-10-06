@@ -16,6 +16,10 @@ import { test } from "node:test";
 
 import { scanWgsl } from "./gpu-wgsl-scan.mjs";
 import { BOUNDS_WGSL } from "../src/gpu/kernels/bounds.wgsl.ts";
+import { COLLIDE_HASH_WGSL } from "../src/gpu/kernels/collide-hash.wgsl.ts";
+import { COLLIDE_RESOLVE_WGSL } from "../src/gpu/kernels/collide-resolve.wgsl.ts";
+import { COLLIDE_SCAN_WGSL } from "../src/gpu/kernels/collide-scan.wgsl.ts";
+import { COLLIDE_SCATTER_WGSL } from "../src/gpu/kernels/collide-scatter.wgsl.ts";
 import { DEPOSIT_WGSL } from "../src/gpu/kernels/deposit.wgsl.ts";
 import { FFT_WGSL } from "../src/gpu/kernels/fft.wgsl.ts";
 import { LINK_WGSL } from "../src/gpu/kernels/link.wgsl.ts";
@@ -34,6 +38,10 @@ const SOURCES = [
 /** The other passes' modules: not charge stages, so outside the list above, under the same scan. */
 const PASS_SOURCES = [
   { name: "link", code: LINK_WGSL },
+  { name: "collide-hash", code: COLLIDE_HASH_WGSL },
+  { name: "collide-scan", code: COLLIDE_SCAN_WGSL },
+  { name: "collide-scatter", code: COLLIDE_SCATTER_WGSL },
+  { name: "collide-resolve", code: COLLIDE_RESOLVE_WGSL },
 ];
 
 test("every_kernel_is_256_wide_and_f32", () => {

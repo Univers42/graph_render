@@ -305,3 +305,114 @@ The comparison is a transcription check, as charge's is (condition 6): the per-e
 (`params.rs:69-70`) and the fixture's own strengths, the way `edge_geometry` computes them, so
 a CPU-side error in those would be shared by both arms. What the GPU arm is checked for is the
 gather — the CSR, the row order, the per-edge force, the share and the sum.
+
+## G1c — the collide pass, measured
+
+The collide pass on the device (`crates/graph-sdk-js/src/gpu/collide.ts`, kernels
+`gpu/kernels/collide-*.wgsl.ts`): a counting sort of the nodes into a hashed cell list one
+diameter wide (`collide_hash`, `collide_scan`, `collide_scatter`), then a gather over each node's
+nine neighbour cells (`collide_resolve`), one invocation per node. Graded against the fixture's
+`delta_collide` columns by `bounds.ts`'s `compare()`, held to `gpu/bounds-collide.ts`. Measured on
+2026-10-06 with `scripts/studio-probe.sh gpu-mesh <arm> target/gpu-fixtures --pass collide --only
+1k,10k,50k`. All six fixtures pass on both arms; the ceilings below are written.
+
+### The guard: mixed, absolute plus relative (Amendment 1)
+
+The plan's guard, `rmsRel ≤ 1e-4`, failed on `mesh-1k-settled` on both arms (`rmsRel ≈ 5.4e-4`).
+The failure is inherent `f32` noise, not a defect: a JS `f32` reference that mirrors the kernel op
+for op reproduces the device's numbers (`rmsRel 5.379e-4`, `maxAbs 2.637e-5` against the device's
+`5.406e-4` and `2.637e-5`). The settled 1k fixture's reference is tiny (`rmsRef = 0.0072`, against
+`0.67` to `172` for the other five): at equilibrium the collide forces nearly cancel, so the net
+delta is near zero while the individual pushes are `O(30)`. The `f32` rounding scales with the
+pushes, not with their net, so a relative-only guard is a bound on a near-zero denominator.
+
+The guard is re-derived (Amendment 1) as the Higham bound for the sum of `k_c` pushes:
+
+`rmsAbs ≤ 1e-4 · rmsRef + k_c · 5 · 2⁻²³ · P`, relative form `1e-4 + k_c · 5 · 2⁻²³ · P / rmsRef`.
+
+- `k_c` is the largest number of contacts of any one node (pairs closer than `reach`, the CPU's
+  `d2` test), counted in `f64` on the host from the fixture's own positions, with the grid the
+  device sorts with.
+- `P` bounds one push: `(reach − dist) · 0.5` is at most `reach / 2 = collide_radius`
+  (`collide.rs:254-256`). The `delta_collide` column carries no strength — `collide_pass` merges
+  the push straight through `motion::merge` (`particle_mesh.rs:85-95`), and the only collide
+  parameter is `collide_radius` — so `P = reach / 2 = 16`.
+- `5 · 2⁻²³` is condition 8's per-term rounding (a product 0.5, `sqrt` 2, a division 2.5 ULP; an
+  `f32` ULP is `2⁻²³`).
+
+| fixture | `k_c` | `P` | `rmsRef` | guard |
+|---|---:|---:|---:|---:|
+| 1k-start | 8 | 16 | 1.72612 | 1.44e-4 |
+| 1k-settled | 4 | 16 | 0.007189 | 5.41e-3 |
+| 10k-start | 8 | 16 | 1.00834 | 1.76e-4 |
+| 10k-settled | 9 | 16 | 2.6824 | 1.32e-4 |
+| 50k-start | 8 | 16 | 0.67192 | 2.14e-4 |
+| 50k-settled | 23 | 16 | 9.91163 | 1.22e-4 |
+
+**Caveat: `k_c` is measured on the fixture's positions. A denser crowd raises it, so the guard is
+only as good as the fixture's measured crowd, the same limit condition 8 states for link.**
+
+### The adapters
+
+| arm | `vendor/architecture` | flag set that gave it | `isFallbackAdapter` (probe) |
+|---|---|---|---|
+| hardware | `amd/rdna-2` | set 1/4, `unsafe webgpu + vulkan` | false |
+| software | `google/swiftshader` | set 1/4, `swiftshader webgpu + vulkan` | true |
+
+### The measured rows, with their ceilings
+
+`rmsRel` and `maxAbs` as the run printed them; the ceiling is the measured value rounded **up** to
+two significant digits, written in `bounds-collide.ts`. Every measured value sits under its ceiling
+and its guard.
+
+| arm | `n` | state | `rmsRef` | `rmsRel` | `maxAbs` | ceiling `rmsRel` | ceiling `maxAbs` | verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| hardware | 1 000 | 0 | 1.72612 | 4.0081e-06 | 3.2157e-05 | 4.1e-06 | 3.3e-05 | PASS |
+| hardware | 1 000 | 1 | 0.007189 | 5.4055e-04 | 2.6373e-05 | 5.5e-04 | 2.7e-05 | PASS |
+| hardware | 10 000 | 0 | 1.00834 | 2.1390e-05 | 1.2209e-04 | 2.2e-05 | 1.3e-04 | PASS |
+| hardware | 10 000 | 1 | 2.6824 | 6.8592e-06 | 1.1373e-04 | 6.9e-06 | 1.2e-04 | PASS |
+| hardware | 50 000 | 0 | 0.67192 | 8.0766e-05 | 3.8686e-04 | 8.1e-05 | 3.9e-04 | PASS |
+| hardware | 50 000 | 1 | 9.91163 | 7.3358e-06 | 4.6638e-03 | 7.4e-06 | 4.7e-03 | PASS |
+| software | 1 000 | 0 | 1.72612 | 4.0468e-06 | 3.1978e-05 | 4.1e-06 | 3.2e-05 | PASS |
+| software | 1 000 | 1 | 0.007189 | 5.3788e-04 | 2.6374e-05 | 5.4e-04 | 2.7e-05 | PASS |
+| software | 10 000 | 0 | 1.00834 | 2.1392e-05 | 1.2209e-04 | 2.2e-05 | 1.3e-04 | PASS |
+| software | 10 000 | 1 | 2.6824 | 6.8621e-06 | 1.1444e-04 | 6.9e-06 | 1.2e-04 | PASS |
+| software | 50 000 | 0 | 0.67192 | 8.0772e-05 | 3.8722e-04 | 8.1e-05 | 3.9e-04 | PASS |
+| software | 50 000 | 1 | 9.91163 | 7.3364e-06 | 4.6634e-03 | 7.4e-06 | 4.7e-03 | PASS |
+
+Both arms had `repeatEqual=True` and `exact.order=True` on every fixture.
+
+### The window: the CPU's fixed 256, exact
+
+The plan leaves the window's shape open (`:1340-1351`). This build uses the first shape: the
+candidates are visited a window of `WINDOW = 256` at a time (`gather.rs:18`), every window, so no
+contact is dropped and no truncation count is needed. The device keeps no copy of a window — the
+sequence is read in place and the window is only its chunking. **Caveat: the window loses no contact.**
+The contacts it can lose or gain against the CPU are the pairs whose `f32` distance rounds across
+the diameter; the push of such a pair is near zero, so the loss is near zero too. Its cost is a
+crowd's whole population per query: the measured fixtures read at most 55 candidates per node
+(50k, settled), and a dense overlap that put thousands in nine buckets would run as long per
+invocation as the CPU's own quadratic case.
+
+### The controls
+
+| control | command | exit | line |
+|---|---|---:|---|
+| `collide-order` | `--pass collide --only 1k --break collide-order`, hardware | **3** | `FAIL mesh-1k-start order … bucket 8 is not ascending at slot 1: node 981 then 926`; settled: `bucket 113 … node 861 then 242` |
+| `collide-window` | `--pass collide --only 1k --break collide-window`, hardware | **3** | `FAIL mesh-1k-start guard … rmsRel 0.5787 over 1e-4 + k_c=8·5·2⁻²³·16/1.726 = 0.000144 … maxAbs 5.898`; settled: `rmsRel 0.6241 over 1e-4 + k_c=4·5·2⁻²³·16/0.00719 = 0.00541` |
+
+`collide-order` ranks node `i` as `n - 1 - i`, so every member list comes out descending and the
+`order` check names it — the check no `f32` bound can make (plan `:1333-1338`). `collide-window`
+drops the last populated candidate of each 256-window, an `O(1)` error: `rmsRel ≈ 0.6` against the
+new mixed guard (`5.4e-3` settled, `1.4e-4` start), caught by `guard` (condition 9). Both controls
+are caught on both 1k fixtures, the window one by about `115×` and `4000×`.
+
+### What this does not establish
+
+The comparison is a transcription check, as charge's and link's are (condition 6): the grid (radius
+16, cells 32 wide, the origin the finite positions' minimum) is derived on the host from the frozen
+parameters, so a CPU-side error in it would be shared by both arms. What the GPU arm is checked for
+is the hash, the scan, the scatter's order, the reads, the push and the sum. The old `1e-4` guard's
+breach on `mesh-1k-settled` was not a defect in that transcription — the `f32` reference reproduces
+it — it was the relative-only guard being too tight for a fixture whose reference is near zero; the
+mixed guard (Amendment 1) absorbs it, and all six fixtures pass on both arms.
