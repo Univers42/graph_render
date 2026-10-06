@@ -97,9 +97,7 @@ impl ForceSession {
     /// Caveat: every force column here is from a copy at **tick 0** and at `alpha` 1, so
     /// collide's column is not the collide pass this session would run next.
     pub fn mesh_probe(&self) -> Option<MeshProbe> {
-        if self.mesh.is_none() {
-            return None;
-        }
+        self.mesh.as_ref()?;
         let charge = self.run(MeshPass::Charge);
         let solved = charge.mesh.solution()?;
         let (link_dx, link_dy) = self.deltas(MeshPass::Link);

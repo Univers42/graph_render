@@ -54,7 +54,10 @@ fn present(dir: &Path) -> Result<Vec<(String, u32, State)>, String> {
         names.push(name);
     }
     names.sort();
-    let cases = names.iter().map(|name| named(name)).collect::<Result<Vec<_>, String>>()?;
+    let cases = names
+        .iter()
+        .map(|name| named(name))
+        .collect::<Result<Vec<_>, String>>()?;
     for n in REQUIRED {
         for state in State::all() {
             let name = settle::file_name(n, state);

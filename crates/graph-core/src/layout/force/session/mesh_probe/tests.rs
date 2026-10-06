@@ -2,7 +2,6 @@
 //! that the instrument the repo already trusts agrees with it bit for bit, that the frame
 //! it reports is the mesh's own hand-placed one, and that asking changes nothing.
 
-use super::MeshProbe;
 use crate::index::{Topology, index_model};
 use crate::layout::force::{ForceParams, ForceSession, LiveParams};
 use crate::stage::{gate_node_count, seeded_model};
@@ -228,8 +227,10 @@ fn there_is_no_probe_without_a_field_to_solve() {
     );
     // A zero reach is a *range* the live setter refuses, so the probe's own `None` arm for
     // it is reached through the frozen constructor, which checks finiteness only.
-    let mut params = ForceParams::default();
-    params.distance_max = 0.0;
+    let params = ForceParams {
+        distance_max: 0.0,
+        ..ForceParams::default()
+    };
     let mut no_field = ForceSession::from_frozen(&topology(5), &params)
         .expect("finite is the frozen acceptance path")
         .with_particle_mesh();
