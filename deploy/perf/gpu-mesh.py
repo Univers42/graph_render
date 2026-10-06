@@ -308,32 +308,5 @@ def main():
         server.shutdown()
 
 
-ASK_JS = """(async () => {
-  const out = {present: ('gpu' in navigator), adapter: false, fallback: false, marks: ''};
-  if (!out.present) { out.why = "no navigator.gpu"; return out; }
-  let adapter = null;
-  try { adapter = await navigator.gpu.requestAdapter({powerPreference: 'high-performance'}); }
-  catch (error) { out.why = 'requestAdapter threw: ' + error; return out; }
-  if (!adapter) { out.why = 'adapter none'; return out; }
-  out.adapter = true;
-  const info = adapter.info || {};
-  const parts = [];
-  for (const key of %s) {
-    const value = info[key];
-    parts.push(key + ' ' + (value === undefined || value === '' ? '(absent)' : value));
-    if (value) { out.marks = out.marks + ' ' + value; }
-  }
-  out.lines = parts;
-  const fallback = adapter.isFallbackAdapter !== undefined
-    ? adapter.isFallbackAdapter : info.isFallbackAdapter;
-  out.fallback = fallback === true;
-  out.lines.push('isFallbackAdapter ' + fallback);
-  for (const key of %s) { out.lines.push('limit ' + key + ' ' + adapter.limits[key]); }
-  out.features = Array.from(adapter.features).sort();
-  out.lines.push('features ' + out.features.join(','));
-  return out;
-})()""" % (json_array(INFO_KEYS), json_array(LIMIT_KEYS))
-
-
 if __name__ == "__main__":
     sys.exit(main())
