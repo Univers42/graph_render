@@ -62,7 +62,7 @@ fn config_defaults_match_section_6() {
         settings.connections.max_header_bytes, 16_384,
         "GRAPH_HUB_MAX_HEADER_BYTES"
     );
-    assert_eq!(limits.fetch_rows, 32, "GRAPH_HUB_FETCH_ROWS");
+    assert_eq!(limits.fetch_rows, 4096, "GRAPH_HUB_FETCH_ROWS");
     assert_eq!(settings.subscribers.max, 64, "GRAPH_HUB_MAX_SUBSCRIBERS");
     assert_eq!(
         settings.subscribers.per_key, 8,
@@ -135,7 +135,7 @@ fn the_store_config_carries_the_same_numbers() {
     assert_eq!(store.retain, 100_000);
     assert_eq!(store.retain_bytes, 512 << 20);
     assert_eq!(store.changes_bytes, 8 << 20);
-    assert_eq!(store.fetch_rows, 32);
+    assert_eq!(store.fetch_rows, 4096);
     assert_eq!(store.last_seen, 65_536);
     assert_eq!(store.max_body, settings.limits.max_body);
     assert_eq!(store.max_batch, settings.limits.max_batch);

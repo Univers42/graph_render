@@ -186,7 +186,7 @@ pub(super) fn read_limits(env: &Env<'_>) -> Result<Limits, ConfigError> {
         motor_timeout: capped_millis(env.millis("GRAPH_HUB_MOTOR_TIMEOUT_MS", 45_000)?),
         timeout: capped_millis(env.millis("GRAPH_HUB_TIMEOUT_MS", 30_000)?),
         sse_page: capped(env.number("GRAPH_HUB_SSE_PAGE", 256, 1..=65_536)?),
-        fetch_rows: capped(env.number("GRAPH_HUB_FETCH_ROWS", 32, 1..=65_536)?),
+        fetch_rows: capped(env.number("GRAPH_HUB_FETCH_ROWS", 4096, 1..=65_536)?),
         last_seen: capped(env.number("GRAPH_HUB_LAST_SEEN", 65_536, 1..=16_777_216)?),
     })
 }

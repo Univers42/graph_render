@@ -63,10 +63,15 @@ pub struct Twin {
 impl Twin {
     /// A fresh database with workspace `ws`, read `fetch_rows` records per page.
     pub async fn new(name: &str, fetch_rows: u64) -> Twin {
-        let (client, _, url) = support::db::fresh_pair(name).await;
         let mut cfg = StoreConfig::defaults();
-        cfg.url = url.clone();
         cfg.fetch_rows = fetch_rows;
+        Twin::configured(name, cfg).await
+    }
+
+    /// A fresh database with workspace `ws`, under `cfg` with its `url` filled in.
+    pub async fn configured(name: &str, mut cfg: StoreConfig) -> Twin {
+        let (client, _, url) = support::db::fresh_pair(name).await;
+        cfg.url = url.clone();
         let store = Store::connect(&cfg)
             .await
             .unwrap_or_else(|e| panic!("connect a store to {url}: {e}"));

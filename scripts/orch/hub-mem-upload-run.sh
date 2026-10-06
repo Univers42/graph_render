@@ -186,7 +186,7 @@ fi
 [ -n "$seq_line" ] || why="${why:+$why; }no Graph-Seq line: the case did not confirm every run against the /graph ETag"
 [ "$count" = 6 ] || why="${why:+$why; }the hub's log holds $count layout-upload lines, not 6"
 if [ -z "$why" ]; then
-  verdict=pass
+  verdict=pass why=none
   rc=0
 else
   verdict=fail
