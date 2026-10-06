@@ -171,7 +171,7 @@ pub enum Command {
     /// `oracle-<name>`, one pair per differential (`oracle_python::cli`).
     #[command(flatten)]
     PythonOracle(crate::oracle_python::Cli),
-    /// The particle mesh's GPU fixtures and the byte-compare against the committed pair.
+    /// The particle mesh's GPU fixtures and the byte-compare against the stored pair.
     #[command(flatten)]
     GpuFixtures(crate::gpu_fixtures::Cli),
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
