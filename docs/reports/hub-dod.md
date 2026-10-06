@@ -659,8 +659,8 @@ that the item is refused.
 | Live studio integration | not attempted | spec `:690-691`; it needs `packages/graph-studio/src/host/*`, which graph-render-4f owns, so it is a later slice agreed with them |
 | `motor-alone` | not run | spec `:672-674`; no rows file defines it (`git grep -n motor-alone -- scripts/orch/rows` prints nothing, exit 1), and this report claims `motor-lock` (`hub-contract.rows:16`) instead |
 | Slice 1's measurement cell (§1 row 1) | not measured | slice 1 is the contract crate and computes no number the spec asks to measure |
-| `POST /v1/workspaces` answers 501, not the JSON 404 (deviation (c) in §3) | not attempted | `server/graph-hub/src/lib.rs:58`, `:111`; a follow-up branch removes `.post(not_ready)`, `not_ready` and the `NotImplemented` variant, gated by `hub.rows` |
-| `hub-run.sh` reset and root-owned step files (deviation (d) in §3) | not attempted | `scripts/orch/hub-run.sh:174`, `:202`; a follow-up branch removes the step directory through `scripts/orch/gr` as `hub-store.rows:81` does, gated by `hub-store.rows` then `hub.rows` in one worktree with no chown between them |
+| `POST /v1/workspaces` answers 501, not the JSON 404 (deviation (c) in §3) | fixed | branch `hub-fixups`: the route is GET only (`server/graph-hub/src/lib.rs:56`), `not_ready` and `NotImplemented` are gone; `a_post_on_the_workspace_list_is_the_json_404_shape` (`server/graph-hub/tests/health.rs:30`) passes in `$GM_SCRATCH/evidence/hub-fixups/gate-fix-hub/hub-floor.log:37` (`hub.rows:5`, PASS) |
+| `hub-run.sh` reset and root-owned step files (deviation (d) in §3) | fixed | branch `hub-fixups`: `clear_dirs` falls back to `scripts/orch/gr rm -rf` (`scripts/orch/hub-run.sh:174`, `:177`, `:207`); `hub-store.rows` (46/46 PASS) then `hub.rows` (52/52 PASS) ran in one worktree with no chown between them, `$GM_SCRATCH/evidence/hub-fixups/gate-fix-{store,hub}/summary.txt` |
 
 ### Verdict
 
@@ -670,6 +670,7 @@ the spec asks for are measured, and each is within its target (§2). All sixteen
 row and every control of the six hub rows files on the merged tree, and all 149 rows PASS, with all
 68 controls red as required (§5). Two deviations of the plan were found and fixed before the gate,
 (a) and (b) in §3. Two more were found while writing this report, (c) and (d); neither changes the
-wire contract, and both are listed above as follow-up branches. The rest of the table is spec §9's
+wire contract, and both are fixed on the follow-up branch `hub-fixups`, gated by `hub-store.rows`
+and `hub.rows`. The rest of the table is spec §9's
 deferrals, each waiting for a caller or for an agreement with its owner, and `motor-alone`, which no
 rows file defines.
