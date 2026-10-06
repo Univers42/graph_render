@@ -82,7 +82,10 @@ export function loadFixture(bytes: ArrayBuffer): Fixture {
   const n = view.getUint32(12, true);
   const m = view.getUint32(16, true);
   const side = view.getUint32(20, true);
-  const state = view.getUint32(24, true) as 0 | 1;
+  // `state` is 0 or 1 by the format's own table (`fixtures/gpu/README.md:63`), and the narrow
+  // type is built from the comparison rather than asserted, because this file is held to
+  // `no-assert` (`scripts/orch/rows/gpu-g1b.rows`).
+  const state: 0 | 1 = view.getUint32(24, true) === 1 ? 1 : 0;
   const step = view.getInt32(32, true);
   const h = view.getFloat64(40, true);
   const originX = view.getFloat64(48, true);
@@ -111,14 +114,8 @@ export function loadFixture(bytes: ArrayBuffer): Fixture {
   at += 8 * spectrum;
   const spectrumIm = f64s(bytes, at, spectrum, "spectrum_im");
   at += 8 * spectrum;
-  const delta = {} as Record<Pass, { x: Float64Array; y: Float64Array }>;
-  for (const pass of PASSES) {
-    const x = f64s(bytes, at, n, `delta_${pass}_x`);
-    at += 8 * n;
-    const y = f64s(bytes, at, n, `delta_${pass}_y`);
-    at += 8 * n;
-    delta[pass] = { x, y };
-  }
+  const delta = deltas(bytes, at, n);
+  at += 48 * n;
   if (at !== bytes.byteLength) {
     throw new Error(`gmfx: the header says ${at} bytes and the file holds ${bytes.byteLength}`);
   }
@@ -138,8 +135,26 @@ export function scaleFor(n: number): number | undefined {
   return 2 ** (31 - (32 - Math.clz32(n)));
 }
 
-/** The three passes in wire order, which is also the delta columns' order. */
-const PASSES: readonly Pass[] = ["link", "charge", "collide"];
+/**
+ * The three delta column pairs, read at `at` in wire order: `link_x, link_y, charge_x,
+ * charge_y, collide_x, collide_y`, each `n` words apart (`fixtures/gpu/README.md:90-92`).
+ *
+ * The object is built as a literal with all three keys rather than filled in a loop, because a
+ * literal needs no type assertion and an empty-object-plus-assignment needs one — and this
+ * file is held to `no-assert` (`scripts/orch/rows/gpu-g1b.rows`). The loop it replaces advanced
+ * `at` by `16n` per pass; the sum is `48n`, which the caller's one `at` update carries.
+ */
+function deltas(bytes: ArrayBuffer, at: number, n: number): Record<Pass, { x: Float64Array; y: Float64Array }> {
+  const pair = (pass: Pass, from: number): { x: Float64Array; y: Float64Array } => ({
+    x: f64s(bytes, from, n, `delta_${pass}_x`),
+    y: f64s(bytes, from + 8 * n, n, `delta_${pass}_y`),
+  });
+  return {
+    link: pair("link", at),
+    charge: pair("charge", at + 16 * n),
+    collide: pair("collide", at + 32 * n),
+  };
+}
 
 /** A `Uint32Array` view over `count` words at `at`, or a throw naming the section. */
 function u32s(bytes: ArrayBuffer, at: number, count: number, name: string): Uint32Array {
