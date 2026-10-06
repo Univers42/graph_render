@@ -4,13 +4,13 @@
 // no polling timer, and no second concurrent read of `/changes`.
 
 import { textOf } from "./call.ts";
-import { formatCursor, parseCursor } from "./cursor.ts";
+import { formatCursor, parseCursor, type Cursor } from "./cursor.ts";
 import { sseFrames, type SseFrame } from "./sse.ts";
 import { busyBackoff, systemRandom } from "./backoff.ts";
 import { breaking } from "./wire.ts";
 import type { ChangeWire } from "./wire.ts";
 import type { HubCaller } from "./call.ts";
-import { RemoteError } from "../remote/errors.ts";
+import { RemoteError, unreadable } from "../remote/errors.ts";
 
 const JSON_MEDIA_TYPE = "application/json";
 const STREAM_MEDIA_TYPE = "text/event-stream";
@@ -39,6 +39,9 @@ export interface SubscribeOptions {
   readonly random?: () => number;
   /** The `/changes` page size. Defaults to the route's 1 000. */
   readonly page?: number;
+  /** A read that failed with something other than a 410 — a 503 from a busy hub, a network
+   * error. The loop backs off and reconnects from its cursor either way; this only reports it. */
+  readonly onError?: (cause: unknown) => void;
 }
 
 /** What one pass of the stream did, so the loop can decide between a backoff and a resync. */
@@ -77,7 +80,7 @@ export function subscribe(caller: HubCaller, workspace: string, options: Subscri
   async function loop(): Promise<void> {
     for (;;) {
       if (stopped) return;
-      const outcome = await runStream(caller, workspace, state, options);
+      const outcome = await passOf(caller, workspace, state, options);
       if (stopped) return;
       if (outcome.kind === "resync") {
         options.onResync();
@@ -89,6 +92,23 @@ export function subscribe(caller: HubCaller, workspace: string, options: Subscri
       await wait(backoff(steps));
       steps += 1;
     }
+  }
+}
+
+// A thrown read is a closed stream, not the end of the subscription: `loop` runs detached, so a
+// rejection out of it would be unhandled, and Node ends the process on one. A 503 from a hub
+// whose read permits are taken is the common case.
+async function passOf(
+  caller: HubCaller,
+  workspace: string,
+  state: SubscribeState,
+  options: SubscribeOptions,
+): Promise<StreamOutcome> {
+  try {
+    return await runStream(caller, workspace, state, options);
+  } catch (cause) {
+    options.onError?.(cause);
+    return { kind: "end", delivered: false };
   }
 }
 
@@ -110,6 +130,7 @@ export async function runStream(
     if (frame.event === "resync") return { kind: "resync", delivered };
     if (frame.event === "busy") return { kind: "busy", delivered };
     if (frame.event !== "change") continue;
+    if (options.since === undefined && state.epoch === 0) placeAt(state, frame);
     const notice = noticeSeq(frame);
     if (notice > state.target) state.target = notice;
     if (state.target <= state.seq) continue;
@@ -182,10 +203,16 @@ async function readChanges(
   options: SubscribeOptions,
 ): Promise<ChangeWire[] | null> {
   const limit = options.page ?? DEFAULT_PAGE;
-  const route = `/v1/workspaces/${encodeURIComponent(workspace)}/changes?since=${encodeURIComponent(state.cursor)}&limit=${limit}`;
+  // The position, not `state.cursor`: the cursor is `""` until the first delivery, and the hub
+  // refuses an empty `since` (`routes/changes.rs` `since_of`).
+  const since = formatCursor({ epoch: state.epoch, seq: state.seq });
+  const route = `/v1/workspaces/${encodeURIComponent(workspace)}/changes?since=${encodeURIComponent(since)}&limit=${limit}`;
   try {
     const answer = await caller.callJson({ method: "GET", route, accept: JSON_MEDIA_TYPE });
-    return JSON.parse(await textOf(answer)) as ChangeWire[];
+    // `{epoch, head_seq, next, bytes, changes}` (hub-api.md, `routes/changes.rs` `page_body`).
+    const page = JSON.parse(await textOf(answer)) as { changes?: unknown };
+    if (!Array.isArray(page.changes)) throw unreadable(route, "the page has no changes array");
+    return page.changes as ChangeWire[];
   } catch (cause) {
     if (cause instanceof RemoteError && cause.status === 410) return null;
     throw cause;
@@ -198,13 +225,27 @@ async function readChanges(
 // can never be. A frame with neither is a frame this client cannot place, and the only safe
 // answer to that is the target it already has.
 function noticeSeq(frame: SseFrame): number {
-  const fromData = seqOf(frame.data);
-  if (fromData !== undefined) return fromData;
-  if (frame.id === undefined) return 0;
+  return seqOf(frame.data) ?? idOf(frame)?.seq ?? 0;
+}
+
+// No `since`: the hub starts the stream at the workspace's head (`events.rs` `cursor_of`), so the
+// first notice's `id` names the epoch, and the change before it is where this subscriber stands.
+// A notice without a readable `id` leaves the epoch at 0, and the hub answers that cursor's first
+// `/changes` with a 410, which is a resync.
+function placeAt(state: SubscribeState, frame: SseFrame): void {
+  const at = idOf(frame);
+  if (at === undefined || at.seq === 0) return;
+  state.epoch = at.epoch;
+  state.seq = at.seq - 1;
+  state.target = state.seq;
+}
+
+function idOf(frame: SseFrame): Cursor | undefined {
+  if (frame.id === undefined) return undefined;
   try {
-    return parseCursor(frame.id).seq;
+    return parseCursor(frame.id);
   } catch {
-    return 0;
+    return undefined;
   }
 }
 

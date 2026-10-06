@@ -4,6 +4,9 @@
 //! after [`graph_store::Store::ping`] answers. A refusal is a [`ConfigError`], so `main` prints
 //! `name: reason` and exits 2 the way graph-server's `main.rs:35-38` does.
 //!
+//! [`migrate_database`] runs after them: a hub that passed every check brings its schema up to date
+//! before it binds, so its first write never meets an unmigrated database.
+//!
 //! The `no-start-check` break makes [`Settings::check`] return `Ok(())` after logging what it
 //! skipped, which is what row `negctl-no-start-check` forces: a green `start_check_refuses_*` can
 //! then never be an unchecked `check`.
@@ -159,4 +162,20 @@ pub async fn check_database(db: &Store) -> Result<(), ConfigError> {
         return Err(ConfigError::new("GRAPH_HUB_DB_URL", reason));
     }
     Ok(())
+}
+
+/// Applies the store's migrations that the database has not recorded, and returns how many.
+///
+/// WHY at start and not by an operator step: `Store::connect` opens no connection and the restore
+/// detector reads an unmigrated database as empty, so a hub started on a fresh database served,
+/// then answered 500 `db` on its first write (found by the SDK's live rows, 2026-10-06). Two hubs
+/// starting together serialize on `graph_store::migrate::MIGRATE_LOCK`.
+pub async fn migrate_database(db: &Store) -> Result<u32, ConfigError> {
+    let mut client = db
+        .client()
+        .await
+        .map_err(|_| ConfigError::new("GRAPH_HUB_DB_URL", "cannot be reached"))?;
+    graph_store::migrate::apply(&mut client)
+        .await
+        .map_err(|_| ConfigError::new("GRAPH_HUB_DB_URL", "cannot be migrated"))
 }
