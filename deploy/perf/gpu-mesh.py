@@ -236,9 +236,7 @@ def line(report, ms):
         f"boundsExact={report['boundsExact']} maxAbsGuard={report['maxAbsGuard']:.6g} "
         f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} ms={ms:.1f}"
     )
-    if report["failures"]:
-        return f"{' '.join(report['failures'])} {fields}"
-    return fields
+    return f"{' '.join(report['failures'])} {fields}" if report["failures"] else fields
 
 
 def json_array(keys):

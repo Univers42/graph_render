@@ -40,25 +40,14 @@
 import { Refusal, open } from "./adapter.ts";
 import { create, destroy } from "./buffers.ts";
 import type { Buffers } from "./buffers.ts";
-import { BOUNDS_WGSL } from "./kernels/bounds.wgsl.ts";
-import { DEPOSIT_WGSL } from "./kernels/deposit.wgsl.ts";
-import { FFT_WGSL } from "./kernels/fft.wgsl.ts";
-import { READ_WGSL } from "./kernels/read.wgsl.ts";
-import { ZERO_WGSL } from "./kernels/zero.wgsl.ts";
 import { loadFixture, scaleFor } from "./fixture.ts";
 import type { Fixture } from "./fixture.ts";
-import { expectedUnits } from "./bounds.ts";
 import type { Arm } from "./bounds.ts";
 import { bumpDensity, readback, report } from "./readback.ts";
 import type { Ran } from "./readback.ts";
-import type {
-  GPUBindGroup,
-  GPUBuffer,
-  GPUComputePassEncoder,
-  GPUComputePipeline,
-  GPUDevice,
-  GpuHost,
-} from "./types.ts";
+import { build, dispatch, groupsFor } from "./pipelines.ts";
+import type { Rig } from "./pipelines.ts";
+import type { GPUBuffer, GPUDevice, GpuHost } from "./types.ts";
 
 /** What the charge arm needs from the host. No fault knob: the harness passes it separately. */
 export interface ChargeRequest {
@@ -140,13 +129,6 @@ export async function runCharge(request: ChargeRequest, fault?: string): Promise
     device.destroy();
   }
 }
-    } finally {
-      destroy(buffers);
-    }
-  } finally {
-    device.destroy();
-  }
-}
 
 /** The fault's code, or a throw naming the five that exist. */
 function faultCodeFor(fault?: string): number {
@@ -158,32 +140,6 @@ function faultCodeFor(fault?: string): number {
     throw new Refusal(`--break ${fault}: the faults are ${[...Object.keys(FAULTS), FAULT_REPEAT].sort().join(", ")}`);
   }
   return code;
-}
-
-/** Everything the pass needs, built once per device and reused by both runs. */
-interface Rig {
-  readonly zero: GPUComputePipeline;
-  readonly block: GPUComputePipeline;
-  readonly extent: GPUComputePipeline;
-  readonly deposit: GPUComputePipeline;
-  readonly widen: GPUComputePipeline;
-  readonly fft: GPUComputePipeline;
-  readonly read: GPUComputePipeline;
-  readonly zeroBind: GPUBindGroup;
-  readonly blockBind: GPUBindGroup;
-  readonly extentBind: GPUBindGroup;
-  readonly depositBind: GPUBindGroup;
-  readonly widenBind: GPUBindGroup;
-  /** One per transform pass: `a→b`, `b→a`, `a→b`, `b→a`. */
-  readonly fftBind: readonly GPUBindGroup[];
-  readonly readBind: GPUBindGroup;
-}
-
-/** One full run's read-back. */
-interface Ran {
-  readonly density: Int32Array;
-  readonly delta: Float32Array;
-  readonly extent: Float32Array;
 }
 
 /** The `f32` uploads. Every narrowing in the whole pass happens here, once. */
@@ -266,88 +222,6 @@ function writeFrame(
   floats[14] = CHARGE_ALPHA;
   floats[15] = 1 / scale;
   device.queue.writeBuffer(buffer, 0, words);
-}
-
-/** Compiles every kernel and binds every group, once. */
-function build(device: GPUDevice, buffers: Buffers): Rig {
-  const zero = pipeline(device, ZERO_WGSL, "zero_density", "zero");
-  const bounds = pipeline(device, BOUNDS_WGSL, "fold_block", "block");
-  const extent = pipeline(device, BOUNDS_WGSL, "fold_extent", "extent");
-  const deposit = pipeline(device, DEPOSIT_WGSL, "deposit", "deposit");
-  const widen = pipeline(device, DEPOSIT_WGSL, "widen_density", "widen");
-  const fft = pipeline(device, FFT_WGSL, "fft_line", "fft");
-  const read = pipeline(device, READ_WGSL, "read_field", "read");
-  const frame = buffers.frame;
-  const nodes = buffers.nodes;
-  // One bind group per pipeline, with the binding numbers the shader declares and not the
-  // position in the argument list. `layout: "auto"` derives a pipeline's layout from the
-  // bindings its entry point *uses*, so a group must carry exactly those: an entry the entry
-  // point does not use is a validation error, not a harmless extra, and a gap in the numbering
-  // is a different error again. `fold_extent` and `widen_density` skip `nodes`, so their
-  // groups are written out with the numbers the WGSL gives them.
-  const binding = (
-    pipe: GPUComputePipeline,
-    entries: readonly (readonly [number, GPUBuffer])[],
-  ): GPUBindGroup =>
-    device.createBindGroup({
-      label: pipe.label ?? "bind",
-      layout: pipe.getBindGroupLayout(0),
-      entries: entries.map(([index, buffer]) => ({ binding: index, resource: { buffer } })),
-    });
-  const passUniform = (index: number): GPUBuffer => {
-    const buffer = buffers.framePass[index];
-    if (buffer === undefined) {
-      throw new Refusal(`gpu: no uniform for transform pass ${index}`);
-    }
-    return buffer;
-  };
-  return {
-    zero,
-    block: bounds,
-    extent,
-    deposit,
-    widen,
-    fft,
-    read,
-    zeroBind: binding(zero, [[0, frame], [1, buffers.density]]),
-    blockBind: binding(bounds, [[0, frame], [1, nodes], [2, buffers.boxes]]),
-    extentBind: binding(extent, [[0, frame], [2, buffers.boxes], [3, buffers.extent]]),
-    depositBind: binding(deposit, [[0, frame], [1, nodes], [2, buffers.density]]),
-    widenBind: binding(widen, [[0, frame], [2, buffers.density], [3, buffers.field]]),
-    fftBind: [
-      binding(fft, [[0, passUniform(0)], [1, buffers.gain], [2, buffers.field], [3, buffers.scratch], [4, buffers.twiddle]]),
-      binding(fft, [[0, passUniform(1)], [1, buffers.gain], [2, buffers.scratch], [3, buffers.field], [4, buffers.twiddle]]),
-      binding(fft, [[0, passUniform(2)], [1, buffers.gain], [2, buffers.field], [3, buffers.scratch], [4, buffers.twiddle]]),
-      binding(fft, [[0, passUniform(3)], [1, buffers.gain], [2, buffers.scratch], [3, buffers.field], [4, buffers.twiddle]]),
-    ],
-    readBind: binding(read, [[0, frame], [1, nodes], [2, buffers.field], [3, buffers.delta]]),
-  };
-}
-
-/** One compute pipeline from one WGSL module and one entry point. */
-function pipeline(device: GPUDevice, code: string, entryPoint: string, label: string): GPUComputePipeline {
-  return device.createComputePipeline({
-    label,
-    layout: "auto",
-    compute: { module: device.createShaderModule({ label, code }), entryPoint },
-  });
-}
-
-/** One dispatch: set the pipeline and the group, then dispatch `groups` workgroups of 256. */
-function dispatch(
-  pass: GPUComputePassEncoder,
-  pipe: GPUComputePipeline,
-  bind: GPUBindGroup,
-  groups: number,
-): void {
-  pass.setPipeline(pipe);
-  pass.setBindGroup(0, bind);
-  pass.dispatchWorkgroups(groups, 1, 1);
-}
-
-/** `⌈count/256⌉` workgroups, the unit every stage's dispatch is counted in. */
-function groupsFor(count: number): number {
-  return Math.ceil(count / 256);
 }
 
 /** One full pass: clear, fold, deposit, widen, four transforms, read. Then the read-back. */
