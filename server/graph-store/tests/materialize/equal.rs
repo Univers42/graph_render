@@ -42,6 +42,31 @@ async fn document_bytes_equal_to_json_over_the_model() {
     }
 }
 
+/// A page cut by bytes rather than rows loses no record and ends only on an empty page, and a
+/// record that costs more than the whole budget is still read, alone on its page.
+#[tokio::test]
+async fn pages_cut_by_bytes_read_every_record() {
+    let mut cfg = StoreConfig::defaults();
+    cfg.max_body = 4096;
+    cfg.max_batch = 8;
+    cfg.changes_bytes = cfg.max_change();
+    let mut twin = Twin::configured("doc_pages_cut_by_bytes", cfg).await;
+    twin.register("tracker", TRACKER).await;
+    twin.register("other", OTHER).await;
+    let wide = format!(r#""name":"{}""#, "w".repeat(4500));
+    for chunk in 0..8 {
+        let ids: Vec<String> = (0..5).map(|i| format!("t{chunk}{i}")).collect();
+        let ups: Vec<(&str, &str, u32, &str)> = ids
+            .iter()
+            .map(|id| ("task", id.as_str(), 1, r#""name":"N""#))
+            .collect();
+        assert!(twin.apply("tracker", batch_of(&ups, &[])).await, "a chunk");
+    }
+    let mid = batch_of(&[("task", "t35x", 1, wide.as_str())], &[]);
+    assert!(twin.apply("tracker", mid).await, "the wide record");
+    assert_eq!(twin.read().await, twin.model.to_json());
+}
+
 /// Two reads at one cursor are the same bytes, and they quote the same cursor.
 #[tokio::test]
 async fn document_is_byte_identical_at_the_same_cursor() {

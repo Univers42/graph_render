@@ -84,7 +84,7 @@ pub struct Limits {
     /// Caveat: 256 headers per read bounds one page, and the next read continues from the last seq
     /// sent; a subscriber past the cap is not slowed, it is served in more pages.
     pub sse_page: u64,
-    /// `GRAPH_HUB_FETCH_ROWS`: rows one portal page reads. Default 32.
+    /// `GRAPH_HUB_FETCH_ROWS`: rows one document page reads at most. Default 4096.
     /// Caveat: 32 rows is a guess about a record's size, so a workspace of large records reads the
     /// same number of bytes per round trip as a workspace of small ones reads many times more.
     pub fetch_rows: u64,

@@ -175,6 +175,64 @@ async fn layout_never_holds_a_whole_document() {
     );
 }
 
+/// Decision 4's number is the relay's own `layout-upload` line, so the line has to exist, appear
+/// **once** per `/layout`, and carry the byte count the walk itself wrote — the same number
+/// `layout_never_holds_a_whole_document` reads off the probe. If the line were written twice, or
+/// with a byte count no walk produced, `docs/measurements/hub-memory.md` would be measuring a
+/// number nothing wrote.
+///
+/// The line carries no key and no URL: `ws` names the workspace and the three numbers are the
+/// upload's own, and the assertion below is what holds it to that.
+#[tokio::test]
+async fn one_layout_upload_writes_one_layout_upload_line() {
+    let (motor, key) = real_with_key().await;
+    let hub = hub_against(&motor, &key, &[]).await;
+    single_plugin(&hub, "relay-counted", 7).await;
+    let store = hub.app.store().await.expect("the store under test");
+    let document = graph_store::materialize::open(store, "relay-counted")
+        .await
+        .expect("a snapshot of the workspace");
+    let probe = Arc::new(Probe::default());
+    let request = graph_hub::relay::RelayReq {
+        cursor: document.cursor(),
+        ws: String::from("relay-counted"),
+        layout: Some(String::from(LAYOUT)),
+        post: None,
+        accept: None,
+    };
+    let answer = graph_hub::relay::post(&hub.app, &request, document, Some(Arc::clone(&probe)))
+        .await
+        .expect("the relay answer");
+    assert_eq!(answer.status, 200);
+    let counts = probe.counts();
+    let uploads: Vec<_> = hub
+        .lines()
+        .into_iter()
+        .filter(|line| line["event"] == "layout-upload")
+        .collect();
+    assert_eq!(uploads.len(), 1, "one /layout writes one line: {uploads:?}");
+    let line = &uploads[0];
+    assert_eq!(line["ws"], "relay-counted");
+    assert_eq!(
+        line["bytes"].as_u64(),
+        Some(counts.bytes),
+        "the line's bytes are the walk's own"
+    );
+    assert_eq!(
+        line["records"].as_u64(),
+        Some(counts.records),
+        "the line's records are the walk's own"
+    );
+    assert_eq!(counts.records, 7, "the fixture wrote seven records");
+    assert!(line["upload_ms"].is_u64(), "upload_ms is a number: {line}");
+    let keys: Vec<&String> = line.as_object().expect("an object").keys().collect();
+    assert_eq!(
+        keys,
+        ["bytes", "event", "records", "upload_ms", "ws"],
+        "the line carries no key and no URL"
+    );
+}
+
 /// §5.2's relayed row for `LayoutFailed`: the caller sees the motor's own status, `error` and
 /// message, because the failure is about the caller's graph and not about a hub defect.
 #[tokio::test]

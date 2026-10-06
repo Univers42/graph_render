@@ -26,7 +26,8 @@
 #                                            is staged, nothing is built, and the script exits 1.
 #
 # Caveat: `test` needs a database (scripts/orch/hub-pg.sh start) and `upload-measurement` needs two
-# (the hub's and the motor's); upload-measurement refuses with exit 2 until Task 10 lands it.
+# (the hub's and the motor's), which it starts itself: it is `scripts/orch/hub-mem.sh upload`, the
+# Decision 4 measurement, and it builds the motor image on the way.
 #
 # Exit: 0 done · 1 a step failed · 2 misuse, a missing file, or a verb not landed yet.
 set -euo pipefail
@@ -143,10 +144,15 @@ test_hub() {
     -p graph-hub "$@"
 }
 
-# The measurement row of docs/measurements/hub-memory.md lands with Task 10 of the plan: it needs
-# the hub's database and a motor, and until then there is no honest thing to run here.
+# The Decision 4 measurement (docs/measurements/hub-memory.md): `scripts/orch/hub-mem.sh upload`,
+# which starts the motor container and the hub, runs the client case and writes
+# target/hub-mem/upload.txt. It is the same verb the gate row runs, so a number quoted here and a
+# number the row reads come from one script.
+#
+# `exec` and not a call: the verb owns the containers it starts and its own exit code, and a wrapper
+# that mapped them would be a second place to get them wrong.
 upload_measurement() {
-  die "upload-measurement lands with the memory row of Task 10 (docs/measurements/hub-memory.md); use scripts/orch/hub-mem.sh upload"
+  exec scripts/orch/hub-mem.sh upload
 }
 
 case ${1-} in

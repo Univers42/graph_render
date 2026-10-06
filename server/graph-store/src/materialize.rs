@@ -7,7 +7,9 @@
 //! out of it, and the cursor the document quotes is the snapshot's own `head_seq`.
 //!
 //! Records arrive in `(qcoll, id)` byte order through a keyset over the `COLLATE "C"` primary key,
-//! `fetch_rows` at a time, so memory is bounded by one page and not by the workspace. Each row comes
+//! a page at a time: at most `fetch_rows` rows and `changes_bytes` of row cost, so memory is bounded
+//! by one page and not by the workspace, and a small-record workspace takes few round trips (32
+//! rows a page cost 23 000 queries on a 745 633-record upload). Each row comes
 //! with the references it holds that do not resolve (an anti-join on `links`), which is the only
 //! fact pruning needs from outside the record.
 //!
@@ -58,6 +60,7 @@ pub async fn open(store: &Store, ws: &str) -> Result<Document, StoreError> {
         cursor,
         doc_bytes,
         fetch_rows: store.config().fetch_rows.max(1) as i64,
+        page_bytes: store.config().changes_bytes as i64,
     };
     Ok(Document::new(client, opened, declared))
 }

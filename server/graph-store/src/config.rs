@@ -17,9 +17,10 @@ pub struct StoreConfig {
     pub retain: u64,
     /// `GRAPH_HUB_RETAIN_BYTES`: bytes of change log kept per workspace. Default 512 MiB.
     pub retain_bytes: u64,
-    /// `GRAPH_HUB_CHANGES_BYTES`: bytes one `/changes` page may carry. Default 8 MiB.
+    /// `GRAPH_HUB_CHANGES_BYTES`: bytes one `/changes` page may carry, and the row cost one
+    /// document page may read. Default 8 MiB.
     pub changes_bytes: u64,
-    /// `GRAPH_HUB_FETCH_ROWS`: rows one portal page reads. Default 32.
+    /// `GRAPH_HUB_FETCH_ROWS`: rows one document page reads at most. Default 4096.
     pub fetch_rows: u64,
     /// `GRAPH_HUB_MAX_BATCH`: operations in one batch. Default 10 000.
     pub max_batch: u64,
@@ -58,7 +59,7 @@ impl StoreConfig {
             retain: 100_000,
             retain_bytes: 512 * 1024 * 1024,
             changes_bytes: 8 * 1024 * 1024,
-            fetch_rows: 32,
+            fetch_rows: 4096,
             max_batch: 10_000,
             max_body: 4 * 1024 * 1024,
             max_record_bytes: 1024 * 1024,
