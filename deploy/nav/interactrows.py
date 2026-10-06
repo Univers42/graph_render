@@ -4,6 +4,7 @@ Every row is judged by what the served app reports (the view's own opacity, sele
 positions, the store's clipboard) after real CDP mouse input; nothing is dispatched through the
 studio's API. `--break` makes the hover row expect 0.13 where the app fades to 0.12.
 """
+import json
 import time
 
 from drive import SETTLE_S
@@ -17,6 +18,12 @@ OPACITY_TOLERANCE = 0.005
 FOLLOW_TOLERANCE = 0.5
 DRAG_PX = 150
 MENU_LABELS = ("focus", "pin", "hide", "copy")
+# The nav bar's own five titles, in the order it renders them (ui/NavBar.tsx:25-31): the row finds
+# each button by the aria-label the bar puts on it, so it reads what a screen announces.
+NAV_FIT = "Fit the graph to the view"
+NAV_ZOOM_IN = "Zoom in ×2"
+NAV_BUTTONS = (NAV_FIT, NAV_ZOOM_IN, "Zoom out ÷2", "Reset the camera to 1:1", "Pan 50 pixels")
+ZOOM_RATIO_TOLERANCE = 1e-9
 
 
 def evaluate(studio, body):
@@ -211,7 +218,76 @@ def row_menu_hide(studio):
     return row(name, text, f"pick at {at} gives {still} after hiding node {node}", still != node)
 
 
+def nav_centre(studio, label):
+    """A camera button's centre in page coordinates, and whether the shadow root finds the button there."""
+    return studio.page.evaluate(f"""
+    (() => {{
+      const root = document.querySelector('graph-studio').shadowRoot;
+      const b = Array.from(root.querySelectorAll('.gs-nav-btn'))
+        .find((e) => e.getAttribute('aria-label') === {json.dumps(label)});
+      if (b === undefined) return null;
+      const r = b.getBoundingClientRect();
+      const at = [r.left + r.width / 2, r.top + r.height / 2];
+      const hit = root.elementFromPoint(at[0], at[1]);
+      return {{ at, hit: hit !== null && (hit === b || b.contains(hit)) }};
+    }})()""")
+
+
+def nav_centres(studio):
+    """Where each of the five buttons is, and the ones the canvas covers instead."""
+    centres, covered = {}, []
+    for label in NAV_BUTTONS:
+        got = nav_centre(studio, label)
+        if got is None:
+            return None, [label]
+        centres[label] = tuple(got["at"])
+        if not got["hit"]:
+            covered.append(label)
+    return centres, covered
+
+
+def drop_nav_press(studio):
+    """The negative control: the bar stops taking the pointer, the way it did before the fix."""
+    studio.page.evaluate("""
+    (() => {
+      const style = document.createElement('style');
+      style.textContent = '.gs-nav{pointer-events:none}';
+      document.querySelector('graph-studio').shadowRoot.appendChild(style);
+    })()""")
+
+
+def row_camera_buttons(studio, broken):
+    """Every button in the nav bar is where the pointer finds it, and `+` and `⤢` do their work.
+
+    The fit is measured first, so the last click has a camera to come back to: a fit is a
+    function of the drawing and the viewport, so the second one must be the same camera.
+    """
+    name = "camera buttons"
+    text = "the five camera buttons take a real click: + is x2 and the fit is the same camera again"
+    if broken:
+        drop_nav_press(studio)
+    centres, covered = nav_centres(studio)
+    if centres is None:
+        return row(name, text, f"no button in the nav bar is labelled {covered[0]!r}", False,
+                   "the nav bar has no button with that aria-label")
+    studio.click(centres[NAV_FIT])
+    fit = studio.settle()
+    studio.click(centres[NAV_ZOOM_IN])
+    zoomed = studio.settle()
+    studio.click(centres[NAV_FIT])
+    back = studio.settle()
+    ratio = zoomed["scale"] / fit["scale"] if fit["scale"] else 0.0
+    doubled = abs(ratio - 2.0) <= ZOOM_RATIO_TOLERANCE
+    detail = (f"the canvas covers {covered or 'none of the 5'}; + took the scale from "
+              f"x{fit['scale']:.6f} to x{zoomed['scale']:.6f} (x{ratio:.6f}), the fit brought it back to "
+              f"x{back['scale']:.6f}, {'the same camera' if back == fit else 'a different one'}")
+    return row(name, text, detail, not covered and doubled and back == fit)
+
+
 def run_rows(studio, broken):
     studio.focus_page()
     return [row_hover(studio, DIM_BROKEN if broken else DIM), row_click(studio), row_shift_click(studio),
-            row_box(studio), row_drag_node(studio), row_menu(studio), row_menu_hide(studio)]
+            row_box(studio), row_drag_node(studio), row_menu(studio), row_menu_hide(studio),
+            # Last: the nav bar sits over the canvas, so this row clicks a chrome control rather
+            # than the drawing, and the break control stops the bar taking the pointer at all.
+            row_camera_buttons(studio, broken)]
