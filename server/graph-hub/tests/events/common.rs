@@ -13,6 +13,7 @@ use graph_store::StoreError;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+pub use crate::support::fixtures::epoch_of;
 use crate::support::fixtures::{hub_db, ready, upsert};
 use crate::support::{Hub, db};
 
@@ -183,21 +184,6 @@ pub async fn hub_with_one_change(env: &[(&str, &str)], prefix: &str) -> (Hub, St
     )
     .await;
     (hub, ws)
-}
-
-/// The workspace's epoch, read through the listing rather than guessed by a fixture.
-pub async fn epoch_of(hub: &Hub, ws: &str) -> String {
-    let reply = hub.get_with("/v1/workspaces").await;
-    assert_eq!(reply.code(), 200, "{}", reply.body());
-    let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON list");
-    value["workspaces"]
-        .as_array()
-        .expect("a workspaces array")
-        .iter()
-        .find(|row| row["id"] == ws)
-        .and_then(|row| row["epoch"].as_u64())
-        .unwrap_or_else(|| panic!("the listing holds {ws}"))
-        .to_string()
 }
 
 /// Wait until the hub holds `count` subscriber slots in total.

@@ -14,6 +14,9 @@ mod bodies;
 #[cfg(feature = "db-tests")]
 #[path = "memory/container.rs"]
 mod container;
+#[cfg(feature = "db-tests")]
+#[path = "memory/heads.rs"]
+mod heads;
 #[path = "memory/ledger.rs"]
 mod ledger;
 #[path = "memory/rss.rs"]
