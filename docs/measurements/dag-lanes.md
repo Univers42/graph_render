@@ -165,6 +165,12 @@ flock ~/goinfre/orch/bench.lock env DRUN_MEM=12g \
   scripts/orch/node-slim.sh node --experimental-strip-types examples/plugins/git/bench.mjs \
   target/wasm32-unknown-unknown/release/graph_wasm.wasm <logs...>
 
+# the width under rule D (lanes width (rule D)): the same runs as the committer-time row,
+# same wasm, same logs, on the motor after the lane rule changed. The plugin did NOT change.
+flock ~/goinfre/orch/bench.lock scripts/orch/node-slim.sh node --experimental-strip-types \
+  examples/plugins/git/bench.mjs \
+  target/wasm32-unknown-unknown/release/graph_wasm.wasm target/git-lanes/<name>.log   # -> layout.dag.lanes.width=<k>
+
 # the width the reference drawing uses
 git -C <repo> log --all --topo-order --graph --format=%H > target/git-lanes/<name>.graph
 scripts/orch/node-slim.sh node --experimental-strip-types examples/plugins/git/graph-width.mjs \
@@ -193,14 +199,24 @@ the reference's own width: the maximum over lines of `(index of "*") / 2 + 1`, s
 Load before each run was printed by `bench.mjs`: **7.55**, **7.15**, **6.82** for the three rounds
 of the real histories and **6.12**, **5.95** for the synthetic's rounds. Times are wasm32 only.
 
-| input | n | m | build ms | lanes ms (wasm32) | sugiyama ms (wasm32) | lanes width (author time) | lanes width (committer time) | `git log --graph` width | `git log --graph --date-order` width | note 5 | note 4 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| contributor-stats | 488 | 490 | 2.2 | 0.1 | 0.8 | 2 | 2 | 2 | 2 | 0 | 0 |
-| activitywatch | 1 271 | 1 356 | 5.7 | 0.2 | 28.1 | 6 | 6 | 4 | 4 | 0 | 0 |
-| aw-server-rust | 989 | 1 014 | 4.7 | 0.1 | 3.5 | 14 | 8 | 3 | 4 | 0 | 0 |
-| graph_render | 2 175 | 2 860 | 9.3 | 0.4 | 224.9 | 40 | 40 | 26 | 36 | 0 | 0 |
-| git/git | 85 928 | 107 694 | 570.1 | 14.7 | 111.3 | 364 | 281 | 106 | 181 | 0 | 0 |
-| synthetic (n = 10⁶, seed 1) | 1 000 000 | 1 049 603 | 5 917.6 | 186.7 | 763.8 | 75 | n/a | n/a | n/a | 0 | 0 |
+| input | n | m | build ms | lanes ms (wasm32) | sugiyama ms (wasm32) | lanes width (author time) | lanes width (committer time) | lanes width (rule D) | `git log --graph` width | `git log --graph --date-order` width | note 5 | note 4 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| contributor-stats | 488 | 490 | 2.2 | 0.1 | 0.8 | 2 | 2 | 2 | 2 | 2 | 0 | 0 |
+| activitywatch | 1 271 | 1 356 | 5.7 | 0.2 | 28.1 | 6 | 6 | 4 | 4 | 4 | 0 | 0 |
+| aw-server-rust | 989 | 1 014 | 4.7 | 0.1 | 3.5 | 14 | 8 | 4 | 3 | 4 | 0 | 0 |
+| graph_render | 2 175 | 2 860 | 9.3 | 0.4 | 224.9 | 40 | 40 | 38 | 26 | 36 | 0 | 0 |
+| git/git | 85 928 | 107 694 | 570.1 | 14.7 | 111.3 | 364 | 281 | 197 | 106 | 181 | 0 | 0 |
+| synthetic (n = 10⁶, seed 1) | 1 000 000 | 1 049 603 | 5 917.6 | 186.7 | 763.8 | 75 | n/a | 70 | n/a | n/a | 0 | 0 |
+
+`lanes width (rule D)` was measured on 2026-10-06 after the lane rule changed in the motor
+(`docs/decisions/dag-lanes-merge.md`, "Addendum: rule D"): an edge now shares its target's
+smallest reserved lane when that lane is lower than the source's own, so every line forked
+off one old base converges into the column already waiting for it instead of holding its own
+column all the way down. **The motor changed and the plugin did not** — the same wasm command
+on the same committer-time logs, and `examples/plugins/git/` is untouched by that landing, so
+the column is a motor number alone. The same run re-read the layout times and they did not move
+beyond the shared host's noise (14.3 ms against 14.7 ms on git/git), so the `lanes ms` column
+is left as it stands.
 
 The synthetic has no `git log --graph` width in any column: it is not from a repository.
 The `lanes width` columns are the lane count it drew; the two `git log --graph` width columns are
@@ -222,8 +238,12 @@ than the history needs. Committer time is the time the commit was written, and i
 The `git log --graph --date-order width` column is the floor to read those against: git's own
 drawing in git's own date order. The committer-time column still sits above it (40 against 36 on
 graph_render, 281 against 181 on git/git), so switching the format recovers a large part of the
-overdraw but does not close it — the residual is the motor's greedy lane assignment, cause 1 of
-`docs/decisions/dag-lanes-merge.md`, not the plugin's time field.
+overdraw but does not close it — the residual was the motor's greedy lane assignment, cause 1 of
+`docs/decisions/dag-lanes-merge.md`, not the plugin's time field. Rule D is that cause's fix and
+lands in the motor alone: `lanes width (rule D)` reads 197 on git/git against the reference's
+181 in the same date order, and 38 against 36 on graph_render, so it closes most of what the
+time field could not. The two causes stay in separate landings, and neither column moved
+because of the other.
 
 ### Targets
 

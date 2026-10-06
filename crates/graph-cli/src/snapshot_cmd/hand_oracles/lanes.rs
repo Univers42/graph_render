@@ -5,13 +5,31 @@
 //!
 //! **What is shared and what is not.** The convention itself — largest `version` first, tie
 //! broken by dense index; the lowest-index unplaced vertex breaking a cycle; a vertex taking
-//! its smallest reserved lane, else the smallest free one, else a new one; a first forward
-//! edge carrying its own lane and a later one sharing the target's smallest reserved lane —
-//! is the thing under test, so both sides necessarily state it. What this file does not share
-//! is the code: an ordered set's smallest element and a max-heap's top are different facts
-//! computed by different code, the free pool is a `BTreeSet<u32>` against a
-//! `BinaryHeap<Reverse<u32>>`, and `reserved` is a map of sets against three `Vec`s indexed
-//! by dense node. A transcription error in either would be shared by neither.
+//! its smallest reserved lane, else the smallest free one, else a new one; and **rule D**
+//! below for each forward edge — is the thing under test, so both sides necessarily state it.
+//! What this file does not share is the code: an ordered set's smallest element and a
+//! max-heap's top are different facts computed by different code, the free pool is a
+//! `BTreeSet<u32>` against a `BinaryHeap<Reverse<u32>>`, and `reserved` is a map of sets
+//! against three `Vec`s indexed by dense node. A transcription error in either would be shared
+//! by neither.
+//!
+//! **Rule D, the lane convention** (`docs/decisions/dag-lanes-merge.md`, "Addendum: rule D",
+//! 2026-10-06). For each forward edge of `v`, in dense edge order, let `S` be the target's
+//! smallest reserved lane if it has one. The edge **shares `S`** when `S` exists and either
+//! `S < lane(v)` — a lower column already waiting for the target, so the line bends *left*
+//! into it — or `lane(v)` is already carried by an earlier edge of `v`. Otherwise the edge
+//! pushes `lane(v)` if no earlier edge took it, else takes the smallest free lane; either way
+//! the lane it chose is pushed into the target's reservation. After all of `v`'s forward
+//! edges, `lane(v)` returns to the pool if no edge took it — never before.
+//!
+//! Because this oracle restates the same rule with different data structures, it cannot be
+//! the evidence that the `S < lane(v)` guard is present: a build that shared on every
+//! reserved target and called it rule D would agree with this file edge for edge. The
+//! evidence is the named test
+//! `a_line_bends_left_into_a_column_already_waiting_and_keeps_a_fresh_one_for_its_third_edge`
+//! in `crates/graph-core/src/layout/lanes/tests/history.rs`, named in
+//! `crates/graph-core/src/registry/lanes.rs`, plus `compare::nothing_sits_on_an_edge`, which
+//! reads lanes and rows rather than the assignment.
 //!
 //! It rebuilds the seed's own model rather than reading it back off the snapshot, which
 //! carries positions and not lane membership. `compare` then holds the drawing to the four
@@ -121,10 +139,13 @@ fn assign(t: &Topology, row: &[u32]) -> (Vec<u32>, Vec<u32>) {
         let own = state.settle(v);
         lane[v as usize] = own;
         let edges = out.remove(&v).unwrap_or_default();
-        for (k, &(edge, late)) in edges.iter().enumerate() {
-            carried[edge as usize] = state.carry(k == 0, own, late);
+        // Rule D: the give-back runs after the edges, keyed on no edge having taken the
+        // vertex's own lane — not on having no forward edge.
+        let mut own_taken = false;
+        for &(edge, late) in &edges {
+            carried[edge as usize] = state.carry(own, late, &mut own_taken);
         }
-        if edges.is_empty() {
+        if !own_taken {
             state.give(own);
         }
     }
@@ -191,22 +212,26 @@ impl Assign {
         own
     }
 
-    /// The lane an edge from a vertex in `own` to `late` runs down. The vertex's first edge
-    /// carries its own lane; a later one shares `late`'s smallest reserved lane, or takes a
-    /// free one and reserves it for `late`.
-    fn carry(&mut self, first: bool, own: u32, late: u32) -> u32 {
-        if first {
-            self.reserved.entry(late).or_default().insert(own);
-            return own;
-        }
+    /// Rule D for one forward edge, from a vertex in `own` to `late`. `own_taken` says
+    /// whether an earlier edge of this vertex already took `own`.
+    ///
+    /// The edge shares `late`'s smallest reserved lane when there is one and either it is
+    /// lower than `own`, so the line bends left into a column already waiting, or `own` is
+    /// already spoken for and cannot be reserved twice. Otherwise it pushes `own` itself, or
+    /// takes the smallest free lane when `own_taken` is set, and either way reserves what it
+    /// chose for `late`.
+    fn carry(&mut self, own: u32, late: u32, own_taken: &mut bool) -> u32 {
         let shared = self
             .reserved
             .get(&late)
             .and_then(|set| set.iter().next().copied());
-        if let Some(low) = shared {
+        if let Some(low) = shared
+            && (low < own || *own_taken)
+        {
             return low;
         }
-        let lane = self.take();
+        let lane = if *own_taken { self.take() } else { own };
+        *own_taken = true;
         self.reserved.entry(late).or_default().insert(lane);
         lane
     }

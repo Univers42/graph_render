@@ -65,14 +65,22 @@ depending on how it arrived.
    1. `lane(v)` is the smallest lane in `reserved[v]`. If `reserved[v]` is empty, it is the
       smallest lane in `free`, or a new lane `width` (then `width += 1`). Every other lane in
       `reserved[v]` is released to `free`, because its edge ends at `v`.
-   2. For each forward edge `v → p`, in the order of step 2:
-      - **The first edge** pushes `lane(v)` into `reserved[p]`: the first-parent line continues
-        straight.
-      - **A later edge**, when `reserved[p]` is non-empty, shares its smallest lane: two lines
-        into one vertex converge. When `reserved[p]` is empty, the edge takes the
-        smallest free lane (or a new one) and pushes it into `reserved[p]`.
-   3. If `v` has no forward edge, `lane(v)` is released after row `v`.
-4. **Geometry.**
+   2. **Rule D** (`docs/decisions/dag-lanes-merge.md`, "Addendum: rule D", 2026-10-06). For
+      each forward edge `v → p`, in the order of step 2, let `S` be the smallest lane in
+      `reserved[p]` when there is one. The edge **shares `S`** when `S` exists and either:
+      - `S < lane(v)` — a lower column is already waiting for `p`, so the line bends *left*
+        into it and never *right*; or
+      - `lane(v)` is already carried by an earlier edge of `v`, so it cannot be reserved
+        twice.
+
+      Otherwise the edge **pushes `lane(v)`** into `reserved[p]` if no earlier edge took it:
+      the first-parent line continues straight. If one did, the edge takes the smallest lane
+      in `free` (or a new one) and pushes that instead. Either way the lane it chose is
+      pushed into `reserved[p]`.
+   3. After **all** of `v`'s forward edges, `lane(v)` is released to `free` if no edge took
+      it. That is *after* the edges, never before: freeing it first puts a lane in two
+      reservations, which the invariant check in `assign.rs` catches.
+5. **Geometry.**
    - **Nodes:** `Point` at `x = lane(v) · lane_spacing`, `y = r(v) · row_spacing`.
    - **Edges:** a `Polyline` from `v` (lane `a`) to `p` (lane `b`), carried in lane `l`, through
      `(a, r(v))`, then `(l, r(v) + ½)` if `l ≠ a`, then `(l, r(p) − ½)` if `l ≠ b`, then
