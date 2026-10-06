@@ -1,6 +1,6 @@
 /**
- * The GPU tier's face in this SDK: a `.gmfx` reader, and the charge pass that runs against
- * one.
+ * The GPU tier's face in this SDK: a `.gmfx` reader, and the charge and link passes that run
+ * against one.
  *
  * ## What this slice adds, and what it deliberately does not
  *
@@ -31,6 +31,11 @@
  * and condition 6 requires this doc to say so rather than let "agrees with the CPU mesh" be
  * read as "and the CPU mesh is right".
  *
+ * **The link pass** (`gpu/link.ts`, G1c) is the same check for the fixture's `delta_link`: a
+ * per-node gather over a CSR built once on the host, no atomics, held to the derived guard
+ * `k_measured · 5 · 2⁻²³` and its own measured ceiling (`gpu/bounds-link.ts`). Its public
+ * `probeLink` takes no fault, as `probeCharge` takes none.
+ *
  * **The bounds are per-device.** `bounds.ts` holds one measured ceiling table keyed by
  * `(arm, n, state)`, and each arm is held to its own row. A driver update re-measures; it does
  * not widen.
@@ -40,5 +45,7 @@ export { loadFixture, scaleFor } from "./gpu/fixture.ts";
 export type { Fixture, Pass } from "./gpu/fixture.ts";
 export { probeCharge } from "./gpu/charge-api.ts";
 export type { ChargeReport, ChargeRequest } from "./gpu/charge-api.ts";
+export { probeLink } from "./gpu/link-api.ts";
+export type { LinkRequest } from "./gpu/link-api.ts";
 export { probeCollide, type CollideRequest } from "./gpu/collide-api.ts";
 export { Refusal } from "./gpu/adapter.ts";

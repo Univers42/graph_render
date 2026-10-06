@@ -1,23 +1,29 @@
-"""Runs the particle mesh's charge pass on a WebGPU device and grades it against the CPU.
+"""Runs one of the particle mesh's passes on a WebGPU device and grades it against the CPU.
 
     scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures
     scripts/studio-probe.sh gpu-mesh software target/gpu-fixtures --only 1k,10k,50k
     GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k --break butterfly
+    GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass link --break link-bias
+
+`--pass charge|link|collide` (default `charge`) picks the module the page imports and its
+`run<Pass>` export; argv, the page call and the printed line are `gpu_mesh_args.py`'s.
 
 Build first (scripts/studio.sh build). Serves the repository root on 127.0.0.1 — a secure
 context, which WebGPU requires — writes a one-line probe page into target/gpu-js, opens it in
-headless Chromium and asks it to run the charge pass over every fixture in the directory that
+headless Chromium and asks it to run the chosen pass over every fixture in the directory that
 `--only` keeps.
 
 The page fetches each `.gmfx` over the harness's own origin and passes the `ArrayBuffer` to
-`runCharge`, which is `crates/graph-sdk-js/src/gpu/charge.ts` compiled to `target/gpu-js` by the
-`gpu-js` gate row. The fixture never crosses as base64: at 1M the file is 100.7 MiB and a
-base64 handoff is a 134 MiB string through `import()` (`fixtures/gpu/README.md:188-191`).
+`run<Pass>` — `runCharge` is `crates/graph-sdk-js/src/gpu/charge.ts`, `runLink` is `link.ts`,
+each compiled to `target/gpu-js` by the `gpu-js` gate row. The fixture never crosses as
+base64: at 1M the file is 100.7 MiB and a base64 handoff is a 134 MiB string through
+`import()` (`fixtures/gpu/README.md:188-191`).
 
 Per fixture one line, `PASS <name> …` or `FAIL <name> <failures> …`, with every report field.
 The arm is held to its own measured ceiling row in `bounds.ts`, and the guards are the derived
 ones: `rmsRel ≤ 1e-4` at every fixture, and at the two 1M fixtures
-`maxAbs ≤ |charge| · (2⁻¹¹/√3) / h²` with `h` from the fixture header.
+`maxAbs ≤ |charge| · (2⁻¹¹/√3) / h²` with `h` from the fixture header. Link is held to
+`bounds-link.ts`: its own rows, and `rmsRel ≤ k_measured · 5 · 2⁻²³`.
 
 Exit: 0 every fixture passed · 3 any fixture failed, any refusal, or a limit the pass needs is
 below what the device reports · 2 the harness could not run. The software refusal is the
@@ -32,7 +38,6 @@ are one device's numbers on one driver stack, and a driver update re-measures th
 widening them.
 """
 import contextlib
-import json
 import shutil
 import sys
 import tempfile
@@ -45,9 +50,8 @@ import nav  # first: it puts the perf gate's CDP client on the path
 import cdp
 import gpu
 from gpu_mesh_page import ASK_JS, PAGE, READY_JS
+from gpu_mesh_args import call_js, fixtures, line, parse_args
 
-# The sizes `--only` accepts, as the fixture names' middle word. `1m` is the 1M pair.
-SIZES = ("1k", "10k", "50k", "1m")
 # A renderer that names one of these computed on the CPU, whatever else the info says. lavapipe
 # is Mesa's software Vulkan and llvmpipe its software GL; SwiftShader is the browser's own.
 SOFTWARE_MARKS = gpu.SOFTWARE_NAMES + ("lavapipe",)
@@ -162,58 +166,11 @@ def refusal(arm, report):
             f"{', '.join(named) or 'unnameable'}, fallback={report['fallback']}")
 
 
-def parse_args(argv):
-    """`<arm> <dir> [--only 1k,10k,50k,1m] [--break <fault>]`, or a usage error."""
-    if len(argv) < 3 or argv[1] not in ("software", "hardware"):
-        return None
-    arm, directory = argv[1], argv[2]
-    only, fault = None, None
-    rest = argv[3:]
-    while rest:
-        head = rest[0]
-        if head == "--only" and len(rest) > 1:
-            only = rest[1].split(",")
-            rest = rest[2:]
-        elif head == "--break" and len(rest) > 1:
-            fault = rest[1]
-            rest = rest[2:]
-        else:
-            return None
-    if only is not None and not all(size in SIZES for size in only):
-        return None
-    return arm, directory, only, fault
+def run_fixtures(label, sets, url, names, run):
+    """Reopen the browser on the set that gave the adapter and run every fixture there.
 
-
-def fixtures(directory, only):
-    """Every `mesh-*.gmfx` in `directory` that `--only` keeps, as the name without its suffix.
-
-    The suffix is the page's to append: `path.name` already ends in `.gmfx`, and a harness that
-    passed it through made the page fetch `mesh-1k-start.gmfx.gmfx` — a 404, whose HTML error
-    page then failed the fixture's own magic check and looked like a kernel fault.
+    `run` is `(arm, fault, pass)`, the page call's three arguments after the fixture's name.
     """
-    names = sorted(path.name for path in Path(directory).glob("mesh-*.gmfx"))
-    stems = [name[: -len(".gmfx")] for name in names]
-    if only is None:
-        return stems
-    return [stem for stem in stems if stem.split("-")[1] in only]
-
-
-def call_js(name, arm, fault):
-    """`window.gpuMesh(name, arm, fault)` as one expression, each argument a JS literal.
-
-    `json.dumps`, not `!r`: `!r` writes the five letters `None` and the page answers
-    `ReferenceError: None is not defined` — a harness bug in the costume of a kernel failure, on
-    every fixture at once.
-    """
-    return f"window.gpuMesh({json.dumps(name)}, {json.dumps(arm)}, {fault_js(fault)})"
-
-
-def fault_js(fault):
-    """The fault argument: JS `undefined` when the harness was given no `--break`."""
-    return "undefined" if fault is None else json.dumps(fault)
-
-def run_fixtures(label, sets, url, names, arm, fault):
-    """Reopen the browser on the set that gave the adapter and run every fixture there."""
     flags = next(flags for name, flags in sets if name == label)
     with browser_on(flags) as page:
         page.navigate(url)
@@ -224,7 +181,7 @@ def run_fixtures(label, sets, url, names, arm, fault):
         for name in names:
             began = time.monotonic()
             try:
-                report = page.evaluate(call_js(name, arm, fault), timeout=900)
+                report = page.evaluate(call_js(name, *run), timeout=900)
             except cdp.CdpError as failure:
                 print(f"FAIL {name} the page threw: {failure}")
                 failed = True
@@ -235,19 +192,6 @@ def run_fixtures(label, sets, url, names, arm, fault):
                 failed = True
             print(f"{verdict} {name} {line(report, ms)}")
         return failed
-
-
-def line(report, ms):
-    """One fixture's line: every report field, and the wall time the harness measured."""
-    fields = (
-        f"n={report['n']} state={report['state']} side={report['side']} "
-        f"rmsAbs={report['rmsAbs']:.6g} rmsRef={report['rmsRef']:.6g} "
-        f"rmsRel={report['rmsRel']:.6g} maxAbs={report['maxAbs']:.6g} "
-        f"depositedUnits={report['depositedUnits']} repeatEqual={report['repeatEqual']} "
-        f"boundsExact={report['boundsExact']} maxAbsGuard={report['maxAbsGuard']:.6g} "
-        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} ms={ms:.1f}"
-    )
-    return f"{' '.join(report['failures'])} {fields}" if report["failures"] else fields
 
 
 def write_page():
@@ -261,9 +205,10 @@ def main():
     args = parse_args(sys.argv)
     if args is None:
         print("gpu-mesh: usage: gpu-mesh.py software|hardware DIR "
-              "[--only 1k,10k,50k,1m] [--break FAULT]", file=sys.stderr)
+              "[--only 1k,10k,50k,1m] [--break FAULT] [--pass charge|link|collide]",
+              file=sys.stderr)
         return 2
-    arm, directory, only, fault = args
+    arm, directory, only, fault, pass_name = args
     names = fixtures(directory, only)
     if not names:
         print(f"gpu-mesh: no mesh-*.gmfx in {directory} that --only keeps", file=sys.stderr)
@@ -276,7 +221,8 @@ def main():
     url = f"http://127.0.0.1:{server.server_address[1]}/target/gpu-js/probe.html"
     print(f"arm {arm} at {url} over {len(names)} fixture(s)"
           + (f" --only {','.join(only)}" if only else "")
-          + (f" --break {fault}" if fault else ""))
+          + (f" --break {fault}" if fault else "")
+          + (f" --pass {pass_name}" if pass_name != "charge" else ""))
     try:
         label, report = first_adapter(sets, url)
         if report is None:
@@ -287,7 +233,7 @@ def main():
             print(f"gpu-mesh: {refused}", file=sys.stderr)
             return 3
         write_page()
-        return 3 if run_fixtures(label, sets, url, names, arm, fault) else 0
+        return 3 if run_fixtures(label, sets, url, names, (arm, fault, pass_name)) else 0
     except (cdp.CdpError, OSError) as failure:
         print(f"gpu-mesh: could not run: {failure}", file=sys.stderr)
         return 2

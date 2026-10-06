@@ -22,6 +22,7 @@ import { COLLIDE_SCAN_WGSL } from "../src/gpu/kernels/collide-scan.wgsl.ts";
 import { COLLIDE_SCATTER_WGSL } from "../src/gpu/kernels/collide-scatter.wgsl.ts";
 import { DEPOSIT_WGSL } from "../src/gpu/kernels/deposit.wgsl.ts";
 import { FFT_WGSL } from "../src/gpu/kernels/fft.wgsl.ts";
+import { LINK_WGSL } from "../src/gpu/kernels/link.wgsl.ts";
 import { READ_WGSL } from "../src/gpu/kernels/read.wgsl.ts";
 import { ZERO_WGSL } from "../src/gpu/kernels/zero.wgsl.ts";
 
@@ -34,8 +35,9 @@ const SOURCES = [
   { name: "read", code: READ_WGSL },
 ];
 
-/** The collide pass's modules, one per stage of `collide.rs`; scanned with the charge pass's. */
-const COLLIDE_SOURCES = [
+/** The other passes' modules: not charge stages, so outside the list above, under the same scan. */
+const PASS_SOURCES = [
+  { name: "link", code: LINK_WGSL },
   { name: "collide-hash", code: COLLIDE_HASH_WGSL },
   { name: "collide-scan", code: COLLIDE_SCAN_WGSL },
   { name: "collide-scatter", code: COLLIDE_SCATTER_WGSL },
@@ -43,7 +45,7 @@ const COLLIDE_SOURCES = [
 ];
 
 test("every_kernel_is_256_wide_and_f32", () => {
-  const problems = scanWgsl([...SOURCES, ...COLLIDE_SOURCES]);
+  const problems = scanWgsl([...SOURCES, ...PASS_SOURCES]);
   assert.deepEqual(problems, [], problems.join("; "));
 });
 
