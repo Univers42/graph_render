@@ -40,7 +40,12 @@ O(n + m) memory, no dummy vertices",
     scale_ceiling: LANES_CEILING,
     degradation: "none in routing: every edge has at most two interior points and none is left \
 unrouted. Width grows with the number of lines alive at once, up to n on an antichain (the \
-seeded model's undirected graph draws wide); time stays O((n + m) log n). The gate model \
+seeded model's undirected graph draws wide); time stays O((n + m) log n). Rule D holds width \
+down where the lines converge: an edge shares the target's smallest reserved lane when that \
+lane is lower than its own, so a fan-in drawn from fifty sources costs the columns the \
+sources occupy and not one column per source. It is not a minimum: where the target's \
+reserved lane is HIGHER than the source's own, the source keeps its own lane and the drawing \
+stays as wide as it was. The gate model \
 exercises the tie-break path only: its arcs are already a topological order and every version \
 is 0.0, so no cycle is broken and no two versions are compared — the cycle-breaking and \
 version-ordering paths are covered by the unit tests named in `oracle`. Note 5 is carried by \
@@ -53,9 +58,12 @@ lane switches, cosmetic. Escape hatch: none needed — every edge is still route
 (cycle breaking): a directed cycle is broken at the lowest-index unplaced vertex, so more \
 edges than a minimum feedback arc set are drawn head to tail, each with note 5, none lost. \
 Escape hatch: read note 5 off the snapshot; its presence names the edges that run against \
-the rows. Ponytail (lane choice): lowest-free-lane is greedy; minimal width is not claimed; a \
-wider drawing is cosmetic. Escape hatch: none needed — every edge is still routed, and the \
-width is measured in docs/measurements/dag-lanes.md. Ponytail (scale_ceiling): one host's \
+the rows. Ponytail (lane choice): rule D shares a lane only when it is LOWER than the source's own, \
+so a merge converges into the leftmost waiting column and never bends right into one; the \
+choice of which column that is, on a merge, depends on the order other vertices' edges \
+arrived in, which is a convention and not a crossing minimiser. Lowest-free-lane remains \
+greedy; minimal width is not claimed; a wider drawing is cosmetic. Escape hatch: none needed \
+— every edge is still routed, and the width is measured in docs/measurements/dag-lanes.md. Ponytail (scale_ceiling): one host's \
 measurement, not a property of the layout — the native bench in docs/measurements/dag-lanes.md \
 drew 1,000,000 vertices in 199.80 ms at load 2.08; the algorithm itself has no budget and \
 degrades in time only. Escape hatch: re-run the bench and lower the figure to the \

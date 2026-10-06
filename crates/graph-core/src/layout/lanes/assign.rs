@@ -176,14 +176,17 @@ impl Reserved {
     /// is the vertex-on-an-edge bug, from the other direction. `pool` is unused in release.
     #[cfg(debug_assertions)]
     fn assert_unheld(&self, lane: u32) {
-        debug_assert!(
-            self.held[lane as usize] == 0,
+        // `get`, not an index: a lane nothing ever reserved has no entry in `held`, and
+        // "held by nobody" is exactly the state the give-back wants to confirm.
+        debug_assert_eq!(
+            self.held.get(lane as usize).copied().unwrap_or(0),
+            0,
             "lane {lane} is given to the pool while reserved"
         );
     }
 
-    #[cfg(not(debug_assertions))]
-    fn assert_unheld(&self, _lane: u32) {}
+    // No `cfg(not(debug_assertions))` twin, unlike `hold`/`release`: `give_back`'s only
+    // call site is itself behind `debug_assertions`, so a release stub would be dead code.
 
     #[cfg(debug_assertions)]
     fn hold(&mut self, lane: u32) {

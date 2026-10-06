@@ -103,8 +103,9 @@ fn parallel_edges_between_one_pair_leave_nothing_sitting() {
 }
 
 /// A merge of fan-in 50 whose sources sit at 50 different rows, which is what makes the
-/// convergence lanes real: each source carries its own lane down to `sink` and the sink's
-/// own row must find none of them.
+/// convergence lanes real: under rule D every source but the first shares the column already
+/// waiting for `sink`, so the fan-in costs the columns the sources occupy and not one column
+/// per source, and the sink's own row must find none of them running past it.
 #[test]
 fn a_merge_with_a_fifty_way_fan_in_from_different_rows_leaves_nothing_sitting() {
     let mut n: Vec<NodeRecord> = (0..50)
@@ -168,7 +169,11 @@ fn a_line_bends_left_into_a_column_already_waiting_and_keeps_a_fresh_one_for_its
     let (lane, carried, width) = assigned(&n, &e);
     assert_eq!(x, [1.0, 0.0, 1.0, 0.0, 1.0], "a, b, c, d, e");
     assert_eq!(y, [1.0, 4.0, 2.0, 0.0, 3.0], "a, b, c, d, e");
-    assert_eq!(carried, [0, 1, 2, 1, 0], "ab shares 0, ae opens 2, ce joins 1");
+    assert_eq!(
+        carried,
+        [0, 1, 2, 1, 0],
+        "ab shares 0, ae opens 2, ce joins 1"
+    );
     assert_eq!(width, 3);
     assert_eq!(paths.offsets, [0, 1, 1, 3, 3, 3]);
     assert_eq!(paths.pts, [0.0, 1.5, 2.0, 1.5, 2.0, 2.5]);
@@ -187,12 +192,20 @@ fn three_lines_forked_from_one_base_share_the_column_waiting_for_it() {
         vertex("c", 3.0),
         vertex("d", 4.0),
     ];
-    let e = [arc("da", "d", "a"), arc("ca", "c", "a"), arc("ba", "b", "a")];
+    let e = [
+        arc("da", "d", "a"),
+        arc("ca", "c", "a"),
+        arc("ba", "b", "a"),
+    ];
     let (x, y, paths, notes) = drawn(&n, &e);
     let (_, carried, width) = assigned(&n, &e);
     assert_eq!(x, [0.0, 1.0, 1.0, 0.0], "a, b, c, d");
     assert_eq!(y, [3.0, 2.0, 1.0, 0.0], "a, b, c, d");
-    assert_eq!(carried, [0, 0, 0], "all three forks share the base's column");
+    assert_eq!(
+        carried,
+        [0, 0, 0],
+        "all three forks share the base's column"
+    );
     assert_eq!(width, 2);
     assert_eq!(paths.offsets, [0, 0, 1, 2]);
     assert_eq!(paths.pts, [0.0, 1.5, 0.0, 2.5]);
