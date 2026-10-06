@@ -52,7 +52,7 @@ the ones without a second parent are fast-forwarded commits):
 | 2. hub-store | met | two landings: `d1dae673` 2nd parent `64e867a4` (= `origin/hub-store-changes`, exact ref match), and `ba17fe9e` 2nd parent `004d2c53` | `hub-virtual-root` `scripts/orch/rows/hub-store.rows:29` and `hub.rows:3`, `hub-floor` `hub-store.rows:35` and `hub.rows:5`, `svc-supply` `hub-store.rows:61` and `hub.rows:14`, `hub-seq` `:66`, `hub-epoch-trigger` `:41`, `hub-epoch-detector` `:45`, `hub-epoch-deadlock` `:70`, `hub-idem` `:68`, `hub-changes-snapshot` `:75`, `hub-pg-durability` `:82`, `cargo-deny-server` `:59` | §4 of this report — the virtual root is unchanged and `server/Cargo.lock` is byte-identical to the baseline |
 | 3. hub-api | met | `c202527f`, 2nd parent `74ef178d` | `hub-authz` `scripts/orch/rows/hub.rows:31`, `hub-reload` `:33`, `hub-limits` `:35`, `hub-events` `:38`, `hub-roundtrip` `:43`, `hub-motor-map` `:45`, `hub-durability` `:47`, `hub-memory` `:49`, `hub-breaks-off` `:1`, `cargo-deny-server` `:19`, `lock-parity` `:21`, `svc-features` `:24` | `docs/measurements/hub-memory.md`: peak RSS 395 MiB of the 1 GiB cap, §2 of this report |
 | 4. hub-sdk | met, with two ruled deviations | `bf61f076`, 2nd parent `7510e7d9`; the live rows in `hub-live` (`ac8f53c2`, `fbd696f7`) | `hub-sdk-types` `scripts/orch/rows/hub-sdk.rows:13`, `hub-sdk-lint` `:14`, `hub-sdk-unit` `:15`, `hub-sdk-example` `:20`, plus the `negctl-hub-sdk-*` rows `:16-19` and `:21`. The live rows `hub-sync` `:26` (nested `hub-sync.rows:7`, control `:8`) and `hub-sdk` `:27` (nested `hub-sdk-live.rows:8`, control `:9`) were commented out at slice 4's landing and run since `ac8f53c2`; deviations (a) and (b) in §3 are what they found | `hub-sdk.rows`; the live rows' verdicts are in §5 |
-| 5. hub-report | met | this file | none of its own (a report gates nothing) | §2 and §4 measured here; §5 and §6 are the full gate |
+| 5. hub-report | met | this file | none of its own (a report gates nothing); §5 runs every row of `scripts/orch/rows/{hub-contract,hub-store,hub,hub-sdk,service-supply,svc-floor}.rows` | §2 and §4 measured here; §5 is the full gate, 149 rows and 149 PASS (68 of them controls, all red as required); §6 is what is not done |
 
 The landing-commit ties are from the paths each merge brought in:
 
@@ -85,7 +85,7 @@ their paths, and `14934630` additionally matches a live ref exactly.
 | The SDK `hub.ts` / `plugin.ts` and the `./hub`, `./plugin` exports | met | `bf61f076` 2nd parent `7510e7d9` | `createHub`, `createPlugin` and their re-export blocks | `crates/graph-sdk-js/src/hub.ts:19,27,39`, `src/plugin.ts:20,38,49`, `package.json:12-13` |
 | The contract module | met | `cb11ea17` 2nd parent `14934630` | nine `pub mod`s and the generated `hub.d.ts` | `crates/graph-contract/src/hub.rs:29-38`, `:44-54`, `generated/hub.d.ts` (202 lines) |
 | The example plugin | met | `bf61f076` 2nd parent `7510e7d9` | registers itself with the hub | `examples/plugins/rows-file/sync.mjs:16` |
-| This report | met | this commit | §1–§6 | `docs/reports/hub-dod.md` |
+| This report | met | this commit | §1–§6 | `docs/reports/hub-dod.md`; §5's evidence is `$GM_SCRATCH/evidence/hub-report/<logdir>/summary.txt` and one `<row>.log` per row |
 
 ### The numbers §6 asks to be measured
 
@@ -94,10 +94,10 @@ Every measured cell comes from `docs/measurements/hub-memory.md` on `fbd696f7`, 
 
 | Number | §6 asks | Measured | Ledger row | Cell |
 |---|---|---|---|---|
-| peak RSS at every cap at once | < 1 GiB under `drun` | **395 MiB** peak `VmHWM` (404 580 KiB), cgroup peak 413 130 752 B, 38 % of the cap | `hub-memory.md:170` (`measure` row; the `control` row at `:171` is OOM-killed, exit 137) | met |
+| peak RSS at every cap at once | < 1 GiB under `drun` | **395 MiB** peak `VmHWM` (404 580 KiB), cgroup peak 413 130 752 B, 38 % of the cap; §5's run measured **431 MiB** (441 368 KiB), cgroup peak 450 682 880 B, 42 % of the cap | `hub-memory.md:170` (`measure` row; the `control` row at `:171` is OOM-killed, exit 137); §5's run `gate-dod-hub-rerun/hub-memory.log:129`, its control `negctl-hub-memory.log:30` (`oom_killed=true`, exit 137) | met — the file's 395 MiB and the gate's 431 MiB are two runs of one test; both are under the cap with 58 % or more left |
 | `F_w` | graph-server's measured 18.25 replaced by the hub's own | **52** ceiling, 50.92 worst of three runs | `hub-memory.md:16` | met — graph-server's value is `server/graph-server/src/config/slots.rs:15` ("1,224,659,341 B, 18.25x the body") and the constant at `:22`; the hub's 52 replaces it and is **2.85× larger**, which is why the budget grew |
 | `max_header` | one change header row as read, planning estimate 256 B | **410 B** ceiling; 234.1, 326.2 and 280.1 B per header over three runs (the last is gate row `hub-max-header`) | `hub-memory.md:18`, runs at `:122-124` | met — the ceiling replaces the 256 B estimate (`:126`), and §6's total uses 410 B (`:138`, `:149`) |
-| last-seen map entry size | planning estimate 256 B | **272 B** ceiling, 263.8 measured at 65 536 entries | `hub-memory.md:17`, `:106` | met; §5's `hub-memory` row re-measures it |
+| last-seen map entry size | planning estimate 256 B | **272 B** ceiling, 263.8 measured at 65 536 entries | `hub-memory.md:17`, `:106` | met; re-checked against the 272 B ceiling by `the_last_seen_map_entry_is_the_planned_size` (`server/graph-hub/tests/memory.rs:78`, the assert at `:84-87`) inside `hub-floor` (`hub.rows:5`, `hub-store.rows:35`) and `svc-test` (`hub-contract.rows:21`, `svc-floor.rows:4`), all PASS in §5; the gate does not print the number (no `--nocapture`), so §5 adds no new measurement of it |
 | `/layout` upload of a `GRAPH_HUB_MAX_DOC_BYTES` workspace | slowest of five under 8 000 ms, two seconds under graph-server's 10 s `GRAPH_BODY_TIMEOUT_MS` (`hub-memory.md:217-222`) | **2 773 ms** slowest, median 2 605, over a 67 108 842 B document of 745 633 records; no 408 at the motor | `hub-memory.md:25-30`, results at `:318-325` | met — before the fix the same upload failed three runs (slowest 8 133, 8 482 and 9 868 ms, `:359`); the cause and the fix are `:290-316` |
 | the planning total | about 425 MiB plus `base` and the `IO_BUF` terms | **655 MiB** recomputed, plus `base` and three `IO_BUF`; 369 MiB of the 1 GiB left over | `hub-memory.md:144-154` | met, with the caveat the file states at `:155-156`: this is arithmetic over a measured `F_w`, not a whole-process measurement |
 
@@ -249,6 +249,27 @@ A subscriber with no `since` is now placed at the first notice's id minus one (`
 `subscribe.ts:235`). None of the five changes the wire contract; each makes the SDK read what the
 hub already sent.
 
+### Found while writing this report
+
+Neither is fixed in this slice; both are §6 rows. Line numbers are at `fbd696f7`.
+
+**(c) A stray `POST /v1/workspaces`.** `server/graph-hub/src/lib.rs:58` routes
+`get(routes::workspaces::list).post(not_ready)`, and `not_ready` (`:111`) answers 501
+`NotImplemented` (`server/graph-hub/src/error.rs:137`), the only use of that variant. Spec §5.2's
+route table (`:252-266`, unchanged since `c202527f`) has `GET /v1/workspaces` and
+`PUT /v1/workspaces/{ws}`, and no `POST` on either path. The doc comment at `lib.rs:105-110` calls it
+"a route of §5.2's table whose handler its own task has not written yet", which is false: no task
+writes it. A `POST` there should be a 405, which axum gives on its own once the method is removed.
+No SDK call or row sends that request, so nothing observable to a plugin changes.
+
+**(d) `hub-run.sh`'s reset cannot remove root-owned step files.** `hub-store.rows` runs its cargo
+tests as root inside `gr` with `GM_HUB_STEP_DIR=../../target/hub-steps` (`scripts/orch/hub-pg.sh:279`),
+which leaves root-owned files in `target/hub-steps`. `hub-run.sh`'s `reset` (`:172-175`,
+`rm -rf "$state" "$steps"`) and its start (`:202`, `rm -f "$steps"/*.req`) run as the host user, so in
+a worktree that ran `hub-store.rows` first, `hub.rows:47-50` fail before any hub starts. That is
+exactly what §5's first run of `hub.rows` hit. `hub-store.rows:81-82` and `:85` already remove their
+own step file through `scripts/orch/gr rm -f`, with the reason at `:81`; `hub-run.sh` does not.
+
 ## 4. Open review items
 
 "Open" here means: no row in the review is marked closed or fixed, and reading the cited code on
@@ -375,7 +396,244 @@ other §8 row. Those are §5, which the full gate runs on the landing commit.
 
 ## 5. The full gate
 
-Filled by the full gate on the landing commit (plan Tasks 5–6).
+Run on 2026-10-06 (+02:00) in the `hub-report` worktree, on `c2c2f034` (develop `fbd696f7` merged
+into the branch; `git diff --stat fbd696f7 c2c2f034` lists only this file) plus this report's first
+draft, committed as `926df582`. The driver ran each rows file once, in this order, each under the
+host gate lock:
+
+```sh
+for f in hub-contract hub-store hub hub-sdk service-supply svc-floor; do
+  timeout 14400 scripts/orch/timed scripts/orch/gate.sh target/gate-dod-$f scripts/orch/rows/$f.rows
+done
+```
+
+- **Totals:** 149 rows, 149 PASS, 0 not run. 68 of the 149 are controls, and all 68 went red as
+  required. Four rows were red on the first run and green on a re-run of the same lines on the same
+  tree (below); every other row was green on its first run.
+- **Controls:** a control row expects exit 0 and wraps its own check (`! <check>`, or
+  `test $? -eq 137`), so its PASS means the check it breaks went red.
+- **Nested gates:** `hub-sdk.rows:26-27` run their own `gate.sh`, untimed because a nested `timed`
+  deadlocks, into `target/gate-hub-sync` (`hub-sync.rows`) and `target/gate-hub-sdk`
+  (`hub-sdk-live.rows`). Their rows are listed under those files.
+- **Deviation from plan Task 5 Step 2:** one log directory per rows file, with one `<row>.log` per
+  row in it, not one directory per row.
+- **Evidence:** `$GM_SCRATCH/evidence/hub-report/<logdir>/`, copied from `target/<logdir>/` with
+  every `scheme://…` value replaced by `<url>`; line numbers are unchanged.
+- **After the gate:** the push job merged develop `d8dc23c6` into the branch (`6be43446`, 12:55:15).
+  `git diff --stat 926df582 6be43446` lists eight files: `deploy/nav/interactrows.py`,
+  `packages/graph-render/src/spacing.ts` and its test, `packages/graph-studio/src/styles/studio.css.ts`,
+  `prompts/jobs/render-sparse-cells.md`, `scripts/orch/queue.txt`,
+  `scripts/orch/rows/render-sparse-cells.rows` and `scripts/studio-interact.sh`. No rows file of
+  this gate reads any of them, so the gate was not re-run.
+
+| Rows file | Rows | PASS | Window | Time |
+|---|---|---|---|---|
+| `hub-contract.rows` | 19 | 19 | 11:33:37–12:01:07 | 1 650 s |
+| `hub-store.rows` | 46 | 46 | 12:01:07–12:11:39 | 632 s |
+| `hub.rows` | 52 | 48; 52 after the re-run | 12:11:39–12:35:21 | 1 422 s |
+| `hub-sdk.rows`, nested `hub-sync.rows`, `hub-sdk-live.rows` | 13 + 2 + 2 | 17 | 12:35:21–12:51:32 | 971 s |
+| `service-supply.rows` | 9 | 9 | 12:51:32–12:52:13 | 41 s |
+| `svc-floor.rows` | 6 | 6 | 12:52:13–12:54:24 | 131 s |
+| re-run of `hub.rows:47-50` | 4 | 4 | 12:54:26–12:55:12 | 46 s |
+
+The six files took 4 847 s; the re-run took 46 s more.
+
+### The rows
+
+| Row | Expect | Exit | Verdict | Evidence |
+|---|---|---|---|---|
+| `fmt` (`hub-contract.rows:4`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/fmt.log` 1s |
+| `clippy` (`hub-contract.rows:5`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/clippy.log` 10s |
+| `clippy-hub` (`hub-contract.rows:6`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/clippy-hub.log` 4s |
+| `test` (`hub-contract.rows:7`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/test.log` 594s |
+| `codegen` (`hub-contract.rows:8`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/codegen.log` 0s |
+| `wasm32-core` (`hub-contract.rows:9`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/wasm32-core.log` 5s |
+| `hub-wire` (`hub-contract.rows:10`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/hub-wire.log` 5s |
+| `hub-materialize` (`hub-contract.rows:12`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/hub-materialize.log` 0s |
+| `motor-lock` (`hub-contract.rows:16`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/motor-lock.log` 0s |
+| `svc-fmt` (`hub-contract.rows:19`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/svc-fmt.log` 1s |
+| `svc-clippy` (`hub-contract.rows:20`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/svc-clippy.log` 7s |
+| `svc-test` (`hub-contract.rows:21`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/svc-test.log` 135s |
+| `root-fmt` (`hub-contract.rows:22`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/root-fmt.log` 1s |
+| `hooks-gated` (`hub-contract.rows:23`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-contract/hooks-gated.log` 15s |
+| `hub-virtual-root` (`hub-store.rows:29`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-virtual-root.log` 1s |
+| `scratch-members` (`hub-store.rows:33`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/scratch-members.log` 0s |
+| `hub-floor` (`hub-store.rows:35`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-floor.log` 126s |
+| `clippy-store` (`hub-store.rows:37`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/clippy-store.log` 3s |
+| `hooks-gated-store` (`hub-store.rows:39`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hooks-gated-store.log` 3s |
+| `hub-epoch-trigger` (`hub-store.rows:41`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-epoch-trigger.log` 5s |
+| `hub-epoch-detector` (`hub-store.rows:45`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-epoch-detector.log` 8s |
+| `hub-promotion` (`hub-store.rows:53`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-promotion.log` 5s |
+| `hub-pitr` (`hub-store.rows:55`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-pitr.log` 8s |
+| `hub-snapshot` (`hub-store.rows:56`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-snapshot.log` 11s |
+| `hub-crash-copy` (`hub-store.rows:57`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-crash-copy.log` 12s |
+| `drun-check` (`hub-store.rows:58`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/drun-check.log` 0s |
+| `cargo-deny-server` (`hub-store.rows:59`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/cargo-deny-server.log` 3s |
+| `svc-supply` (`hub-store.rows:61`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/svc-supply.log` 18s |
+| `svc-supply-messages` (`hub-store.rows:65`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/svc-supply-messages.log` 4s |
+| `hub-seq` (`hub-store.rows:66`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-seq.log` 8s |
+| `hub-idem` (`hub-store.rows:68`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-idem.log` 7s |
+| `hub-epoch-deadlock` (`hub-store.rows:70`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-epoch-deadlock.log` 16s |
+| `hub-materialize` (`hub-store.rows:72`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-materialize.log` 80s |
+| `hub-changes-snapshot` (`hub-store.rows:75`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-changes-snapshot.log` 6s |
+| `hub-retention` (`hub-store.rows:77`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-retention.log` 4s |
+| `hub-pg-durability` (`hub-store.rows:82`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-store/hub-pg-durability.log` 25s |
+| `hub-breaks-off` (`hub.rows:1`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-breaks-off.log` 0s |
+| `hub-virtual-root` (`hub.rows:3`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-virtual-root.log` 2s |
+| `hub-floor` (`hub.rows:5`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-floor.log` 125s |
+| `clippy-hub` (`hub.rows:7`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/clippy-hub.log` 2s |
+| `hooks-gated-hub` (`hub.rows:9`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hooks-gated-hub.log` 16s |
+| `hub-image` (`hub.rows:11`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-image.log` 15s |
+| `drun-check` (`hub.rows:13`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/drun-check.log` 0s |
+| `svc-supply` (`hub.rows:14`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/svc-supply.log` 18s |
+| `svc-supply-messages` (`hub.rows:18`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/svc-supply-messages.log` 3s |
+| `cargo-deny-server` (`hub.rows:19`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/cargo-deny-server.log` 8s |
+| `lock-parity` (`hub.rows:21`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/lock-parity.log` 2s |
+| `svc-features` (`hub.rows:24`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/svc-features.log` 1s |
+| `svc-image` (`hub.rows:26`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/svc-image.log` 74s |
+| `hub-start-check` (`hub.rows:29`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-start-check.log` 8s |
+| `hub-authz` (`hub.rows:31`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-authz.log` 5s |
+| `hub-reload` (`hub.rows:33`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-reload.log` 5s |
+| `hub-limits` (`hub.rows:35`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-limits.log` 16s |
+| `hub-routes` (`hub.rows:37`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-routes.log` 8s |
+| `hub-events` (`hub.rows:38`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-events.log` 16s |
+| `hub-events-seq` (`hub.rows:40`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-events-seq.log` 4s |
+| `hub-max-header` (`hub.rows:41`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-max-header.log` 238s |
+| `hub-roundtrip` (`hub.rows:43`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-roundtrip.log` 6s |
+| `hub-motor-map` (`hub.rows:45`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-motor-map.log` 8s |
+| `hub-durability` (`hub.rows:47`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-rerun/hub-durability.log` 11s |
+| `hub-memory` (`hub.rows:49`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-rerun/hub-memory.log` 24s |
+| `hub-upload-timeout` (`hub.rows:51`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub/hub-upload-timeout.log` 262s |
+| `wasm-release` (`hub-sdk.rows:12`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/wasm-release.log` 0s |
+| `hub-sdk-types` (`hub-sdk.rows:13`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/hub-sdk-types.log` 1s |
+| `hub-sdk-lint` (`hub-sdk.rows:14`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/hub-sdk-lint.log` 3s |
+| `hub-sdk-unit` (`hub-sdk.rows:15`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/hub-sdk-unit.log` 7s |
+| `hub-sdk-example` (`hub-sdk.rows:20`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/hub-sdk-example.log` 1s |
+| `sdk-remote-regression` (`hub-sdk.rows:22`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/sdk-remote-regression.log` 0s |
+| `hub-sync` (`hub-sdk.rows:26`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/hub-sync.log` 13s |
+| `hub-sdk` (`hub-sdk.rows:27`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-hub-sdk/hub-sdk.log` 19s |
+| `hub-sync` (`hub-sync.rows:7`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-hub-sync/hub-sync.log` 6s |
+| `hub-sdk-live` (`hub-sdk-live.rows:8`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-hub-sdk/hub-sdk-live.log` 9s |
+| `svc-digest` (`service-supply.rows:12`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-service-supply/svc-digest.log` 9s |
+| `svc-digest-wasm` (`service-supply.rows:14`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-service-supply/svc-digest-wasm.log` 11s |
+| `svc-features` (`service-supply.rows:16`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-service-supply/svc-features.log` 0s |
+| `lock-parity` (`service-supply.rows:18`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-service-supply/lock-parity.log` 2s |
+| `svc-fmt` (`svc-floor.rows:2`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-svc-floor/svc-fmt.log` 2s |
+| `svc-clippy` (`svc-floor.rows:3`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-svc-floor/svc-clippy.log` 0s |
+| `svc-test` (`svc-floor.rows:4`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-svc-floor/svc-test.log` 125s |
+| `root-fmt` (`svc-floor.rows:5`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-svc-floor/root-fmt.log` 1s |
+| `hooks-gated` (`svc-floor.rows:15`) | 0 | 0 | PASS | `$GM_SCRATCH/evidence/hub-report/gate-dod-svc-floor/hooks-gated.log` 3s |
+
+### The controls
+
+| Control | Break | Row it must turn red | Exit | Verdict |
+|---|---|---|---|---|
+| `negctl-lax-reader` (`hub-contract.rows:11`) | `GM_HUB_BREAK=lax-reader` | `hub-wire` | 0 | PASS |
+| `negctl-keep-dangling` (`hub-contract.rows:13`) | `GM_HUB_BREAK=keep-dangling` | `hub-materialize` | 0 | PASS |
+| `negctl-keep-cells` (`hub-contract.rows:14`) | `GM_HUB_BREAK=keep-cells` | `hub-materialize` | 0 | PASS |
+| `negctl-motor-lock` (`hub-contract.rows:17`) | one appended line in a copy of `Cargo.lock` | `motor-lock` | 0 | PASS |
+| `negctl-hooks-gated` (`hub-contract.rows:24`) | `--features test-hooks` forced on the release build | `hooks-gated` | 0 | PASS |
+| `negctl-hub-virtual-root` (`hub-store.rows:32`) | the virtual root rebuilt from the base `f1a23521` | `hub-virtual-root` | 0 | PASS |
+| `negctl-scratch-members` (`hub-store.rows:34`) | graph-store's manifest removed from the two-member scratch copy | `scratch-members` | 0 | PASS |
+| `negctl-hub-floor` (`hub-store.rows:36`) | an unformatted file in a scratch copy | `hub-floor` | 0 | PASS |
+| `negctl-clippy-store` (`hub-store.rows:38`) | a clippy-failing line in a scratch copy | `clippy-store` | 0 | PASS |
+| `negctl-hooks-gated-store` (`hub-store.rows:40`) | `--features test-hooks` forced on the store lib | `hooks-gated-store` | 0 | PASS |
+| `negctl-no-trigger` (`hub-store.rows:42`) | `GM_HUB_BREAK=no-trigger` | `hub-epoch-trigger` | 0 | PASS |
+| `negctl-trigger-enable-origin` (`hub-store.rows:43`) | `GM_HUB_BREAK=trigger-enable-origin` | `hub-epoch-trigger` | 0 | PASS |
+| `negctl-one-trigger-origin` (`hub-store.rows:44`) | `GM_HUB_BREAK=one-trigger-origin` | `hub-epoch-trigger` | 0 | PASS |
+| `negctl-detector-at-start` (`hub-store.rows:46`) | `GM_HUB_BREAK=detector-at-start` | `hub-epoch-detector` | 0 | PASS |
+| `negctl-lsn-only` (`hub-store.rows:47`) | `GM_HUB_BREAK=lsn-only` | `hub-epoch-detector` | 0 | PASS |
+| `negctl-hw-after-lsn` (`hub-store.rows:48`) | `GM_HUB_BREAK=hw-after-lsn` | `hub-epoch-detector` | 0 | PASS |
+| `negctl-checkpoint-timeline` (`hub-store.rows:54`) | `GM_HUB_BREAK=checkpoint-timeline` | `hub-promotion` | 0 | PASS |
+| `negctl-deny-license-server` (`hub-store.rows:60`) | `MIT` removed from a copy of `deny.toml` | `cargo-deny-server` | 0 | PASS |
+| `negctl-svc-supply-features` (`hub-store.rows:62`) | `--break` | `svc-supply` | 0 | PASS |
+| `negctl-svc-supply-lock-version` (`hub-store.rows:63`) | `--break-version` | `svc-supply` | 0 | PASS |
+| `negctl-svc-supply-lock-feature` (`hub-store.rows:64`) | `--break-feature` | `svc-supply` | 0 | PASS |
+| `negctl-sequence-seq` (`hub-store.rows:67`) | `GM_HUB_BREAK=sequence-seq` | `hub-seq` | 0 | PASS |
+| `negctl-no-idem` (`hub-store.rows:69`) | `GM_HUB_BREAK=no-idem` | `hub-idem` | 0 | PASS |
+| `negctl-no-deadlock-retry` (`hub-store.rows:71`) | `GM_HUB_BREAK=no-deadlock-retry` | `hub-epoch-deadlock` | 0 | PASS |
+| `negctl-keep-dangling` (`hub-store.rows:73`) | `GM_HUB_BREAK=keep-dangling` | `hub-materialize` | 0 | PASS |
+| `negctl-keep-cells` (`hub-store.rows:74`) | `GM_HUB_BREAK=keep-cells` | `hub-materialize` | 0 | PASS |
+| `negctl-changes-read-committed` (`hub-store.rows:76`) | `GM_HUB_BREAK=changes-read-committed` | `hub-changes-snapshot` | 0 | PASS |
+| `negctl-prune-in-own-transaction` (`hub-store.rows:78`) | `GM_HUB_BREAK=prune-own-transaction` | `hub-retention` | 0 | PASS |
+| `negctl-sync-commit-unset` (`hub-store.rows:85`) | `synchronous_commit = off`, `wal_writer_delay = 10s` | `hub-pg-durability` | 0 | PASS |
+| `negctl-hub-breaks-off` (`hub.rows:2`) | the `negctl` feature forced on in a scratch copy | `hub-breaks-off` | 0 | PASS |
+| `negctl-hub-virtual-root` (`hub.rows:4`) | the virtual root rebuilt from the base `f1a23521` | `hub-virtual-root` | 0 | PASS |
+| `negctl-hub-floor` (`hub.rows:6`) | an unformatted file in a scratch copy | `hub-floor` | 0 | PASS |
+| `negctl-clippy-hub` (`hub.rows:8`) | a clippy-failing line in a scratch copy | `clippy-hub` | 0 | PASS |
+| `negctl-hooks-gated-hub` (`hub.rows:10`) | `--features test-hooks` forced on the hub release build | `hooks-gated-hub` | 0 | PASS |
+| `negctl-hub-image` (`hub.rows:12`) | `HUB_IMAGE_BREAK=bin` | `hub-image` | 0 | PASS |
+| `negctl-svc-supply-features` (`hub.rows:15`) | `--break` | `svc-supply` | 0 | PASS |
+| `negctl-svc-supply-lock-version` (`hub.rows:16`) | `--break-version` | `svc-supply` | 0 | PASS |
+| `negctl-svc-supply-lock-feature` (`hub.rows:17`) | `--break-feature` | `svc-supply` | 0 | PASS |
+| `negctl-deny-license-server` (`hub.rows:20`) | `MIT` removed from a copy of `deny.toml` | `cargo-deny-server` | 0 | PASS |
+| `negctl-lock-parity-version` (`hub.rows:22`) | `--break-version` | `lock-parity` | 0 | PASS |
+| `negctl-lock-parity-feature` (`hub.rows:23`) | `--break-feature` | `lock-parity` | 0 | PASS |
+| `negctl-svc-features` (`hub.rows:25`) | `--break` | `svc-features` | 0 | PASS |
+| `negctl-svc-image` (`hub.rows:27`) | `SERVICE_IMAGE_BREAK=headers` | `svc-image` | 0 | PASS |
+| `negctl-svc-image-leak` (`hub.rows:28`) | `SERVICE_IMAGE_BREAK=leak` | `svc-image` | 0 | PASS |
+| `negctl-no-start-check` (`hub.rows:30`) | `GM_HUB_BREAK=no-start-check` | `hub-start-check` | 0 | PASS |
+| `negctl-skip-grant` (`hub.rows:32`) | `GM_HUB_BREAK=skip-grant` | `hub-authz` | 0 | PASS |
+| `negctl-reload-keys-only` (`hub.rows:34`) | `GM_HUB_BREAK=reload-keys-only` | `hub-reload` | 0 | PASS |
+| `negctl-no-cap` (`hub.rows:36`) | `GM_HUB_BREAK=no-cap` | `hub-limits` | 0 | PASS |
+| `negctl-skip-event` (`hub.rows:39`) | `GM_HUB_BREAK=skip-event` | `hub-events` | 0 | PASS |
+| `negctl-sse-full-page` (`hub.rows:42`) | `GM_HUB_BREAK=sse-full-page` | `hub-max-header` | 0 | PASS |
+| `negctl-drop-record` (`hub.rows:44`) | `GM_HUB_BREAK=drop-record` | `hub-roundtrip` | 0 | PASS |
+| `negctl-layoutfailed-as-502` (`hub.rows:46`) | `GM_HUB_BREAK=layoutfailed-as-502` | `hub-motor-map` | 0 | PASS |
+| `negctl-ack-before-commit` (`hub.rows:48`) | `GM_HUB_BREAK=ack-before-commit` | `hub-durability` | 0 | PASS |
+| `negctl-hub-memory` (`hub.rows:50`) | the request cap lifted under `drun --memory 1g` (expects exit 137) | `hub-memory` | 0 | PASS |
+| `negctl-throttle-upload` (`hub.rows:52`) | `GM_HUB_BREAK=throttle-upload` | `hub-upload-timeout` | 0 | PASS |
+| `negctl-hub-sdk-cursor` (`hub-sdk.rows:16`) | `GM_HUB_SDK_BREAK=parsefloat` | `hub-sdk-unit` | 0 | PASS |
+| `negctl-hub-sdk-gap` (`hub-sdk.rows:17`) | `GM_HUB_SDK_BREAK=no-gap-check` | `hub-sdk-unit` | 0 | PASS |
+| `negctl-hub-sdk-key` (`hub-sdk.rows:18`) | `GM_HUB_SDK_BREAK=new-key-per-retry` | `hub-sdk-unit` | 0 | PASS |
+| `negctl-hub-sdk-ifmatch` (`hub-sdk.rows:19`) | `GM_HUB_SDK_BREAK=head-seq-if-match` | `hub-sdk-unit` | 0 | PASS |
+| `negctl-hub-sdk-example` (`hub-sdk.rows:21`) | `GM_HUB_SDK_BREAK=1` | `hub-sdk-example` | 0 | PASS |
+| `negctl-hub-sync-via-graph` (`hub-sync.rows:8`) | `GM_HUB_SDK_BREAK=sync-via-graph` | `hub-sync` | 0 | PASS |
+| `negctl-hub-sdk-live` (`hub-sdk-live.rows:9`) | `GM_HUB_SDK_BREAK=1` | `hub-sdk-live` | 0 | PASS |
+| `negctl-svc-digest` (`service-supply.rows:13`) | `--break` | `svc-digest` | 0 | PASS |
+| `negctl-svc-digest-wasm` (`service-supply.rows:15`) | `--break` | `svc-digest-wasm` | 0 | PASS |
+| `negctl-svc-features` (`service-supply.rows:17`) | `--break` | `svc-features` | 0 | PASS |
+| `negctl-lock-parity-version` (`service-supply.rows:19`) | `--break-version` | `lock-parity` | 0 | PASS |
+| `negctl-lock-parity-feature` (`service-supply.rows:20`) | `--break-feature` | `lock-parity` | 0 | PASS |
+| `negctl-hooks-gated` (`svc-floor.rows:16`) | `--features test-hooks` forced on the release build | `hooks-gated` | 0 | PASS |
+
+### Controls that stayed green
+
+None. All 68 exited 0, which for a control means the check it breaks went red.
+
+### Rows over 60 s
+
+| Row | Time | Line it ends on (a cargo row: the sum of its `test result:` lines) |
+|---|---|---|
+| `test` (`hub-contract.rows:7`) | 594s | 23 `test result:` lines, 2715 passed, 0 failed |
+| `svc-test` (`hub-contract.rows:21`) | 135s | 46 `test result:` lines, 97 passed, 0 failed |
+| `hub-floor` (`hub-store.rows:35`) | 126s | 46 `test result:` lines, 97 passed, 0 failed |
+| `hub-materialize` (`hub-store.rows:72`) | 80s | 1 `test result:` line, 18 passed, 0 failed |
+| `negctl-keep-dangling` (`hub-store.rows:73`) | 79s | 1 `test result:` line, 14 passed, 4 failed |
+| `negctl-keep-cells` (`hub-store.rows:74`) | 77s | 1 `test result:` line, 17 passed, 1 failed |
+| `hub-floor` (`hub.rows:5`) | 125s | 46 `test result:` lines, 97 passed, 0 failed |
+| `svc-image` (`hub.rows:26`) | 74s | `no row was left unrun` |
+| `hub-max-header` (`hub.rows:41`) | 238s | 1 `test result:` line, 1 passed, 0 failed |
+| `negctl-sse-full-page` (`hub.rows:42`) | 208s | 1 `test result:` line, 0 passed, 1 failed |
+| `hub-upload-timeout` (`hub.rows:51`) | 262s | 1 `test result:` line, 1 passed, 0 failed |
+| `negctl-throttle-upload` (`hub.rows:52`) | 255s | 1 `test result:` line, 0 passed, 1 failed |
+| `svc-test` (`svc-floor.rows:4`) | 125s | 46 `test result:` lines, 97 passed, 0 failed |
+
+### Red on the first run
+
+| Red row | Exit | Cause (its log) | Repair |
+|---|---|---|---|
+| `hub-durability` (`hub.rows:47`) | 1 | `hub-run.sh reset` could not remove the root-owned step files: 20 `rm: cannot remove 'target/hub-steps/…': Permission denied` lines (`gate-dod-hub/hub-durability.log:2-21`) | re-run: PASS, 11 s (`gate-dod-hub-rerun/hub-durability.log`) |
+| `negctl-ack-before-commit` (`hub.rows:48`) | 1 | the same, 10 lines (`gate-dod-hub/negctl-ack-before-commit.log:2-11`), so the hub never started and the control could not go red | re-run: PASS, 5 s |
+| `hub-memory` (`hub.rows:49`) | 2 | the same, 10 lines (`gate-dod-hub/hub-memory.log:5-14`), then `hub-mem: the database or the hub did not start` (`:15`) | re-run: PASS, 24 s, 441 368 KiB peak (`gate-dod-hub-rerun/hub-memory.log:129`) |
+| `negctl-hub-memory` (`hub.rows:50`) | 1 | the same, 10 lines, then the same `did not start` line; the exit was not the 137 the control asserts | re-run: PASS, 6 s, `oom_killed=true` exit 137 (`gate-dod-hub-rerun/negctl-hub-memory.log:30`) |
+
+The cause is deviation (d) in §3: `hub-store.rows` had left root-owned files in
+`target/hub-steps`. The repair was one operator step,
+`scripts/orch/gr chown -R 1000:1000 target/hub-steps target/hub-run`, then
+`scripts/orch/timed scripts/orch/gate.sh target/gate-dod-hub-rerun target/hub-rerun.rows`, where
+`target/hub-rerun.rows` is `hub.rows:47-50` byte for byte. No source changed between the two runs.
+The chown is a workaround, not a fix; the fix is a §6 row.
 
 ## 6. What is not done
 
@@ -399,3 +657,17 @@ that the item is refused.
 | Live studio integration | not attempted | spec `:690-691`; it needs `packages/graph-studio/src/host/*`, which graph-render-4f owns, so it is a later slice agreed with them |
 | `motor-alone` | not run | spec `:672-674`; no rows file defines it (`git grep -n motor-alone -- scripts/orch/rows` prints nothing, exit 1), and this report claims `motor-lock` (`hub-contract.rows:16`) instead |
 | Slice 1's measurement cell (§1 row 1) | not measured | slice 1 is the contract crate and computes no number the spec asks to measure |
+| `POST /v1/workspaces` answers 501, not 405 (deviation (c) in §3) | not attempted | `server/graph-hub/src/lib.rs:58`, `:111`; a follow-up branch removes `.post(not_ready)`, `not_ready` and the `NotImplemented` variant, gated by `hub.rows` |
+| `hub-run.sh` reset and root-owned step files (deviation (d) in §3) | not attempted | `scripts/orch/hub-run.sh:174`, `:202`; a follow-up branch removes the step directory through `scripts/orch/gr` as `hub-store.rows:81` does, gated by `hub-store.rows` then `hub.rows` in one worktree with no chown between them |
+
+### Verdict
+
+graph-hub is **done** against spec §8 and §10. All five slices are met (§1). The six numbers §6 of
+the spec asks for are measured, and each is within its target (§2). All sixteen §14(b) defects
+(`N1`–`N16`) are met, each on a named row (§3). No review item is open (§4). The full gate ran every
+row and every control of the six hub rows files on the merged tree, and all 149 rows PASS, with all
+68 controls red as required (§5). Two deviations of the plan were found and fixed before the gate,
+(a) and (b) in §3. Two more were found while writing this report, (c) and (d); neither changes the
+wire contract, and both are listed above as follow-up branches. The rest of the table is spec §9's
+deferrals, each waiting for a caller or for an agreement with its owner, and `motor-alone`, which no
+rows file defines.
