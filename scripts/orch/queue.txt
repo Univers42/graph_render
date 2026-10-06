@@ -154,3 +154,4 @@ lanes-merge|build|prompts/jobs/lanes-merge.md|scripts/orch/rows/lanes-merge.rows
 gpu-g1b|build|prompts/jobs/gpu-g1b.md|scripts/orch/rows/gpu-g1b.rows|no
 studio-nav-pointer|build|prompts/jobs/studio-nav-pointer.md|scripts/orch/rows/studio-nav-pointer.rows|no
 render-sparse-cells|build|prompts/jobs/render-sparse-cells.md|scripts/orch/rows/render-sparse-cells.rows|no
+dag-horizontal-verdict|devil|prompts/jobs/dag-horizontal-verdict.md|scripts/orch/rows/docs.rows|no
