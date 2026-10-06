@@ -1,0 +1,9 @@
+# The `hub-sdk` LIVE rows (graph-hub plan Task 18): the example plugin, `subscribe` and `layout`
+# against a real hub, PostgreSQL and graph-server motor that `scripts/orch/hub-live.sh --motor`
+# starts fresh for each row and removes after it.
+# Run: scripts/orch/gate.sh <logdir> scripts/orch/rows/hub-sdk-live.rows
+#
+# The negative control runs the example with GM_HUB_SDK_BREAK=1, which pushes a record that is not
+# in its rows file; the row checks the red is that assertion and not some other failure.
+hub-sdk-live|0|scripts/orch/hub-live.sh --motor scripts/orch/node-slim.sh node --test --test-force-exit --experimental-strip-types crates/graph-sdk-js/test/live/hub-sdk-live.live.mjs
+negctl-hub-sdk-live|0|scripts/orch/hub-live.sh --motor scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=1 node --test --test-force-exit --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/live/hub-sdk-live.live.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "the example pushed a record that is not in the rows file" <<<"$out"'

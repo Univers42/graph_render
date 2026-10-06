@@ -69,7 +69,8 @@ add_writer() {
   "$here/hub-run.sh" start >/dev/null
 }
 
-"$here/hub-pg.sh" reset >/dev/null && "$here/hub-pg.sh" start >/dev/null || fail "the hub database did not start"
+"$here/hub-pg.sh" reset >/dev/null || fail "the hub database could not be reset"
+"$here/hub-pg.sh" start >/dev/null || fail "the hub database did not start"
 if ((motor)); then
   start_motor || fail "the motor did not start"
 fi
