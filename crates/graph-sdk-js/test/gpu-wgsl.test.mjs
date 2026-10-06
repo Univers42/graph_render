@@ -17,6 +17,7 @@ import { test } from "node:test";
 import { scanWgsl } from "./gpu-wgsl-scan.mjs";
 import { BOUNDS_WGSL } from "../src/gpu/kernels/bounds.wgsl.ts";
 import { COLLIDE_HASH_WGSL } from "../src/gpu/kernels/collide-hash.wgsl.ts";
+import { COLLIDE_RESOLVE_WGSL } from "../src/gpu/kernels/collide-resolve.wgsl.ts";
 import { COLLIDE_SCAN_WGSL } from "../src/gpu/kernels/collide-scan.wgsl.ts";
 import { COLLIDE_SCATTER_WGSL } from "../src/gpu/kernels/collide-scatter.wgsl.ts";
 import { DEPOSIT_WGSL } from "../src/gpu/kernels/deposit.wgsl.ts";
@@ -38,6 +39,7 @@ const COLLIDE_SOURCES = [
   { name: "collide-hash", code: COLLIDE_HASH_WGSL },
   { name: "collide-scan", code: COLLIDE_SCAN_WGSL },
   { name: "collide-scatter", code: COLLIDE_SCATTER_WGSL },
+  { name: "collide-resolve", code: COLLIDE_RESOLVE_WGSL },
 ];
 
 test("every_kernel_is_256_wide_and_f32", () => {
