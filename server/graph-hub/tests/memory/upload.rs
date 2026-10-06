@@ -1,0 +1,256 @@
+//! The client half of Task 10 Step 4: one workspace filled to `GRAPH_HUB_MAX_DOC_BYTES`, then six
+//! `POST /layout` calls against the hub container `scripts/orch/hub-run.sh` started.
+//!
+//! Decision 4's input is **one `GRAPH_HUB_MAX_DOC_BYTES` canonical document made of the smallest
+//! record the contract admits**, because the record count is then the highest the cap allows and
+//! the per-record overhead the lowest: the upload is as many chunks as it can be, which is the
+//! relay's worst case rather than its best. The plan's "one-character id" is not reachable — ids
+//! must be distinct, and a document of this size holds ~745 000 of them — so the ids are the
+//! shortest distinct ones of a **fixed** width, and the case prints the record size and the count it
+//! actually wrote so `docs/measurements/hub-memory.md` records the real figures rather than the
+//! plan's estimate.
+//!
+//! One warm-up and then five timed runs, each asserted 200 with `Graph-Seq` equal to the `/graph`
+//! ETag at the same cursor (H15), which is what makes the six `layout-upload` lines in the hub's log
+//! five measurements of one thing.
+//!
+//! Caveat: the case reads the hub's **answer heads** only, so it does not check that a layout of
+//! this size is correct; `hub-roundtrip` checks that at a small size. What this case is about is the
+//! upload's cost and the headers the contract promises on the way out.
+
+use std::time::Duration;
+
+use crate::ledger;
+use crate::support::db;
+use crate::support::wire::Remote;
+use records::{ID_WIDTH, batch_body};
+
+#[path = "upload/records.rs"]
+mod records;
+
+/// The workspace this case fills.
+const WS: &str = "upload-cap";
+
+/// The plugins the records are spread over, and why there are more than one.
+///
+/// `GRAPH_HUB_MAX_PLUGIN_BYTES` is 16 MiB (§6's default) and a 64 MiB document does not fit under
+/// one plugin, so the fill spreads its records over [`PLUGINS`] of them. Decision 4 asks for **one**
+/// document at the cap, not one plugin, and the cap it is measured against is `doc_bytes`.
+///
+/// Every name is the same length on purpose: the stored record spells its collection qualified
+/// (`p0.task`, `p1.task`, …, `crates/graph-contract/src/hub/ids.rs:67`), so names of equal length
+/// make every record in the document the same size — which is what lets one measured `record_bytes`
+/// stand for all ~745 000 of them.
+const PLUGINS: usize = 8;
+
+/// Plugin `i`'s name: `p0` … `p7`, two characters each.
+fn plugin(i: usize) -> String {
+    format!("p{i}")
+}
+
+/// The motor layout asked for: `layout.grid`, the first registry entry, as `hub-roundtrip` uses.
+const LAYOUT: &str = "layout.grid";
+
+/// How long one request may take.
+///
+/// Caveat: a bound above one 64 MiB upload plus the motor's own layout of it, and not a measurement;
+/// the figure that matters is in `target/hub-mem/upload.txt`, read out of the hub's log. This is here
+/// so a hub that is gone ends the case on an error instead of on the test harness's own patience.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// One warm-up, then this many timed runs: the pass condition is over the slowest of the five, so
+/// five is what the row reads and the warm-up is what keeps a first run's cold page cache out of it.
+const WARM_UPS: usize = 1;
+const RUNS: usize = 5;
+
+/// Records per batch.
+///
+/// `max_batch` is 10 000 operations (graph-contract's `Limits::DEFAULT`), and a body of that many
+/// smallest records is ~890 kB, well under `max_body`'s 4 MiB — so the operation cap, not the body
+/// cap, is what bounds a batch here, and taking the whole of it is what keeps the fill to 75 round
+/// trips.
+const BATCH: usize = 10_000;
+
+/// The id width, and why it is not one character.
+///
+/// A document at the cap holds ~745 000 records and ids must be distinct across all of them, so one
+/// character (36 of them) is arithmetically impossible. `id` admits `[a-z0-9-]`, so 36^5 = 60 466 176
+/// five-character ids cover the count with room to spare, and a **fixed** width is what makes "one
+/// record costs the same as every other" a fact rather than an average — a mixed-width document
+/// would give the fill a range of per-record costs and the measurement one number to name.
+/// [`records::ID_WIDTH`] is the width itself; this is why it is that.
+///
+/// What the fill wrote, read back off the store rather than predicted.
+struct Filled {
+    /// The workspace's `doc_bytes`, the number the cap is enforced on.
+    doc_bytes: u64,
+    /// Records written.
+    records: u64,
+    /// One record's stored text, in bytes, separators excluded.
+    record_bytes: u64,
+    /// Batches posted.
+    batches: u64,
+}
+
+/// Fill `WS` to `cap` with the smallest admissible record, then time five `/layout` calls.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "run by scripts/orch/hub-mem.sh upload against a hub and a motor it started"]
+async fn a_capped_workspace_uploads_five_times_inside_the_motor_body_timeout() {
+    db::migrated().await;
+    let remote = Remote::with_timeout(REQUEST_TIMEOUT);
+    for i in 0..PLUGINS {
+        remote.ready(WS, &plugin(i)).await;
+    }
+    let cap = cap();
+    let fill = fill_to_the_cap(&remote, cap).await;
+    assert!(
+        cap - fill.doc_bytes < fill.record_bytes,
+        "the fill stopped {} bytes short of the cap, which is a whole record or more",
+        cap - fill.doc_bytes
+    );
+    println!(
+        "HUB_MEM upload cap={cap} doc_bytes={} records={} record_bytes={} batches={} \
+         id_width={ID_WIDTH} plugins={PLUGINS}",
+        fill.doc_bytes, fill.records, fill.record_bytes, fill.batches
+    );
+    // Every figure the measurement file quotes, checked against the file: a run whose input size has
+    // moved must not be reported under the old numbers, and `docs/measurements/hub-memory.md` is where
+    // a changed figure is written down. This is the same contract `f_w_ceiling` and
+    // `last_seen_entry_ceiling_bytes` have.
+    for (name, have) in [
+        ("upload_doc_bytes", fill.doc_bytes as f64),
+        ("upload_records", fill.records as f64),
+        ("upload_record_bytes", fill.record_bytes as f64),
+        ("upload_id_width", ID_WIDTH as f64),
+        ("upload_plugins", PLUGINS as f64),
+        ("upload_batches", fill.batches as f64),
+    ] {
+        let recorded = ledger::value(name);
+        assert_eq!(
+            have, recorded,
+            "{name} is {have} but docs/measurements/hub-memory.md records {recorded}; \
+             write the new figure there with this run"
+        );
+    }
+    let etag = graph_etag(&remote).await;
+    for _ in 0..WARM_UPS {
+        assert_layout_ok(&remote, &etag, "warm-up").await;
+    }
+    for _ in 0..RUNS {
+        assert_layout_ok(&remote, &etag, "run").await;
+    }
+    println!("HUB_MEM upload etag={etag} warm_ups={WARM_UPS} runs={RUNS}");
+}
+
+/// The cap this case fills to, read from the environment rather than from §6's default: the hub
+/// container's `GRAPH_HUB_MAX_DOC_BYTES` and this number must be one value, and the script is what
+/// sets both.
+fn cap() -> u64 {
+    std::env::var("HUB_MEM_MAX_DOC_BYTES")
+        .expect("HUB_MEM_MAX_DOC_BYTES: run through scripts/orch/hub-mem.sh upload")
+        .parse()
+        .expect("a byte count")
+}
+
+/// Batches of the smallest admissible record until one more record would pass `cap`.
+///
+/// The loop stops on the store's own `doc_bytes`, read through `materialize::open` once per batch,
+/// and not on arithmetic over it: the store refuses a batch that would cross the cap with a 413
+/// (`writer/plan.rs:275`), and a fill that raced the cap would fail for a reason the measurement is
+/// not about. The store is opened once and its snapshot taken per batch, so the fill holds no
+/// connection between batches.
+async fn fill_to_the_cap(remote: &Remote, cap: u64) -> Filled {
+    let store = db::store().await;
+    let mut written = 0_u64;
+    let mut batches = 0_u64;
+    let mut record_bytes = 0_u64;
+    loop {
+        let before = doc_bytes(&store).await;
+        let room = cap.saturating_sub(before);
+        // One record plus the separator that joins it to the previous one. The first pass has no
+        // record yet, so it takes one and measures what that cost.
+        let per = if written == 0 { 1 } else { record_bytes + 1 };
+        if written > 0 && room <= per {
+            return Filled {
+                doc_bytes: before,
+                records: written,
+                record_bytes,
+                batches,
+            };
+        }
+        let take = ((room / per) as usize).clamp(1, BATCH);
+        post(remote, written, take, batches).await;
+        written += take as u64;
+        batches += 1;
+        if record_bytes == 0 {
+            // The first batch measured: what `take` records added, over `take`. Fixed-width ids
+            // are what make this one number stand for every record in the document.
+            record_bytes = (doc_bytes(&store).await - before) / take as u64;
+            assert!(
+                record_bytes > 0,
+                "a batch of {take} records added no bytes to doc_bytes"
+            );
+        }
+    }
+}
+
+/// One batch of `take` records with ids `from`, `from + 1`, …, and the 200 that says it landed.
+///
+/// The plugin is `batch % PLUGINS`, so the records are spread evenly and no one plugin reaches its
+/// own 16 MiB cap before the document reaches 64 MiB. Round-robin on the batch index and not on the
+/// record index because a batch is the unit the cap is checked in (`writer/plan.rs:275`).
+async fn post(remote: &Remote, from: u64, take: usize, batch: u64) {
+    let name = plugin(batch as usize % PLUGINS);
+    let body = batch_body(from, take);
+    let reply = remote
+        .post_batch(WS, &name, &body, &format!("{WS}-fill-{batch}"))
+        .await
+        .unwrap_or_else(|error| panic!("the fill batch {batch}: {error}"));
+    assert_eq!(
+        reply.code(),
+        200,
+        "the fill batch {batch} of {take} into {name}: {} {}",
+        reply.code(),
+        reply.body()
+    );
+}
+
+/// The workspace's own `doc_bytes`, the number the cap is enforced on.
+async fn doc_bytes(store: &graph_store::Store) -> u64 {
+    let document = graph_store::materialize::open(store, WS)
+        .await
+        .expect("a snapshot of the filled workspace");
+    document.doc_bytes()
+}
+
+/// The `/graph` ETag at the current cursor, which is the position `Graph-Seq` must equal (H15).
+async fn graph_etag(remote: &Remote) -> String {
+    let reply = remote.graph_head(WS).await;
+    assert_eq!(
+        reply.code(),
+        200,
+        "/graph: {} {}",
+        reply.code(),
+        reply.body()
+    );
+    let etag = reply.header("etag").trim_matches('"').to_owned();
+    assert!(!etag.is_empty(), "/graph carries no ETag");
+    etag
+}
+
+/// One `/layout` call: 200, and `Graph-Seq` equal to the ETag the document was read at.
+async fn assert_layout_ok(remote: &Remote, etag: &str, what: &str) {
+    let reply = remote.layout_head(WS, LAYOUT).await;
+    assert_eq!(
+        reply.code(),
+        200,
+        "{what}: {} {}",
+        reply.code(),
+        reply.body()
+    );
+    assert_eq!(
+        reply.header("graph-seq"),
+        etag,
+        "{what}: Graph-Seq is the position /graph quoted"
+    );
+}

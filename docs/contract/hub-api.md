@@ -158,7 +158,7 @@ than in a row of its own, and `every_hub_env_name_is_read` pins the count.
 | `GRAPH_HUB_RETAIN` | `100000` changes | 1–1 000 000 000 | how many changes are kept per workspace | older changes pruned in the commit's transaction |
 | `GRAPH_HUB_RETAIN_BYTES` | `536870912` (512 MiB) | 1 B–16 GiB | how many bytes of changes are kept | below one max change, the start refuses |
 | `GRAPH_HUB_CHANGES_BYTES` | `8388608` (8 MiB) | 1 B–16 GiB | one `/changes` page | the page ends; never less than one change |
-| `GRAPH_HUB_FETCH_ROWS` | `32` | 1–65 536 | rows per portal page | — |
+| `GRAPH_HUB_FETCH_ROWS` | `4096` | 1–65 536 | rows per document page; the page is also cut at `GRAPH_HUB_CHANGES_BYTES` of row cost | — |
 | `GRAPH_HUB_LAST_SEEN` | `65536` entries | 1–16 777 216 | the last-seen map | the least recently used entry is evicted |
 | `GRAPH_HUB_WRITERS` | `2` | 1–1024 | batches, manifest PUTs and creates in flight | waits, then 503 with `Retry-After: 1` |
 | `GRAPH_HUB_WRITERS_PER_KEY` | `1` | 1–1024 | `WRITERS` permits one key holds at once | waits, then 503 |
