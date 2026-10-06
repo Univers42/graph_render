@@ -1,4 +1,5 @@
-//! §6's start checks: the limits as `config::Settings` reads them, and the seven refusals.
+//! §6's start checks: the limits as `config::Settings` reads them, the seven refusals, and the
+//! migration that follows them.
 //!
 //! Two files, because they need different things: [`settings`] reads no database and could run in
 //! the no-database floor, while [`refusals`] reads the image's own PostgreSQL. Both sit behind
@@ -9,6 +10,8 @@
 //! can produce cannot be told apart from one `main` reports for the wrong reason.
 #![cfg(feature = "db-tests")]
 
+#[path = "start/migrate.rs"]
+mod migrate;
 #[path = "start/refusals.rs"]
 mod refusals;
 #[path = "start/settings.rs"]
