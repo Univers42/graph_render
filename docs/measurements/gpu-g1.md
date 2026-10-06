@@ -102,7 +102,36 @@ measured.
 | `no-allow` | 0 | no `#[allow]` and no `#[doc(hidden)]` in any new file |
 | `named-tests` | 0 | both new named tests are present |
 | `emit-1m` | 0 | both 1M files exist and are non-empty |
-| `no-source-names` | 0 | nothing under `crates/` names a data source |
+| `no-source-names` | **FAIL** | nothing under `crates/` names a data source — see below |
+
+`target/rows-gpu-g1a/summary.txt`, one row short of all-PASS:
+
+```
+PASS fmt  PASS clippy  PASS test  PASS wasm32-core  PASS hashgate-8  PASS negctl-degree
+PASS emit  PASS check  PASS negctl-pass  PASS negctl-rung  PASS negctl-absent
+PASS sdk-typecheck  PASS gpu-fixture-loader  PASS negctl-loader-scale
+PASS pub-surface  PASS no-allow  PASS named-tests  PASS emit-1m
+FAIL no-source-names  exit=1  expect=0
+```
+
+**`no-source-names` is red on a file this job did not touch.** Its single hit is
+`crates/graph-core/src/layout/force/session/tests/golden.rs:12-13`, a doc comment recording how
+the 65 golden digests were regenerated (`Base commit: 8e8e93b`, `git archive …`). That file
+last changed on 2026-09-30 (`5ae4210a`), six days before this job, and it is outside this
+slice's path list, so it was red before the first commit here and is red now for the same
+reason. Every file this slice added or edited is clean:
+
+```
+$ git grep -n -i -E '\bgit\b|commit|repositor|activitywatch' -- \
+    crates/graph-core/src/layout/force crates/graph-cli/src/gpu_fixtures.rs \
+    crates/graph-cli/src/gpu_fixtures crates/graph-sdk-js/src/gpu \
+  | grep -v 'session/tests/golden.rs'
+(no output)
+```
+
+The row is not weakened to go green. The fix is a two-line rewording of that doc comment —
+naming the revision by its short hash and date instead of by `commit` and `git archive` — which
+belongs to whoever owns `session/tests/golden.rs`.
 
 ## Conditions 1 to 6, each with what shows it
 
