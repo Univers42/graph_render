@@ -187,10 +187,9 @@ def parse_args(argv):
 def fixtures(directory, only):
     """Every `mesh-*.gmfx` in `directory` that `--only` keeps, as the name without its suffix.
 
-    The suffix is the page's to append, not the harness's to carry: `path.name` already ends in
-    `.gmfx`, and a harness that passed it through made the page fetch
-    `mesh-1k-start.gmfx.gmfx` — a 404, whose HTML error page then failed the fixture's own magic
-    check and looked like a kernel fault.
+    The suffix is the page's to append: `path.name` already ends in `.gmfx`, and a harness that
+    passed it through made the page fetch `mesh-1k-start.gmfx.gmfx` — a 404, whose HTML error
+    page then failed the fixture's own magic check and looked like a kernel fault.
     """
     names = sorted(path.name for path in Path(directory).glob("mesh-*.gmfx"))
     stems = [name[: -len(".gmfx")] for name in names]
@@ -210,13 +209,8 @@ def call_js(name, arm, fault):
 
 
 def fault_js(fault):
-    """The fault argument: JS `undefined` when the harness was given no `--break`.
-
-    Not `null`: `runCharge`'s second parameter is optional, and an explicit `null` is a value the
-    fault table does not hold, so the page would answer `Refusal: --break null` on a clean run.
-    """
+    """The fault argument: JS `undefined` when the harness was given no `--break`."""
     return "undefined" if fault is None else json.dumps(fault)
-
 
 def run_fixtures(label, sets, url, names, arm, fault):
     """Reopen the browser on the set that gave the adapter and run every fixture there."""

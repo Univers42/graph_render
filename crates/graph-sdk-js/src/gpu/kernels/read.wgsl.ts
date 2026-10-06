@@ -64,11 +64,6 @@ fn read_field(@builtin(global_invocation_id) id: vec3<u32>) {
   let fx = clamp(ux - f32(cx), 0.0, 1.0);
   let fy = clamp(uy - f32(cy), 0.0, 1.0);
   var at = cy * frame.side + cx;
-  // --break deposit moves the cell here as it does there, so the read follows its own stencil
-  // and the fault is a field error rather than a read of the wrong place.
-  if (frame.fault == 2u) {
-    at = at + 1u;
-  }
   let w0 = (1.0 - fx) * (1.0 - fy);
   let w1 = fx * (1.0 - fy);
   let w2 = (1.0 - fx) * fy;

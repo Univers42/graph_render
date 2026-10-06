@@ -90,7 +90,14 @@ export function report(
     maxAbs: measured.maxAbs,
     depositedUnits: deposited,
     repeatEqual,
-    repeatDetail: repeatDetailFor(densityEqual, deltaEqual, first.delta, second.delta),
+    repeatDetail: repeatDetailFor(
+      densityEqual,
+      deltaEqual,
+      first.density,
+      second.density,
+      first.delta,
+      second.delta,
+    ),
     boundsExact,
   });
   return {
@@ -147,13 +154,35 @@ function sameBytes(left: Int32Array | Float32Array, right: Int32Array | Float32A
 function repeatDetailFor(
   densityEqual: boolean,
   deltaEqual: boolean,
+  firstDensity: Int32Array,
+  secondDensity: Int32Array,
   first: Float32Array,
   second: Float32Array,
 ): string {
   if (!densityEqual) {
-    return "the second run's density differs from the first";
+    return firstDensityDifference(firstDensity, secondDensity);
   }
   return firstDeltaDifference(first, second);
+}
+
+/** The first index and count at which two runs' density columns differ. */
+function firstDensityDifference(left: Int32Array, right: Int32Array): string {
+  const count = Math.min(left.length, right.length);
+  let first = -1;
+  let seen = 0;
+  for (let k = 0; k < count; k += 1) {
+    if ((left[k] ?? 0) !== (right[k] ?? 0)) {
+      if (first < 0) {
+        first = k;
+      }
+      seen += 1;
+    }
+  }
+  if (first < 0) {
+    return "the second run's density differs from the first";
+  }
+  return `the second run's density differs from the first at cell ${first}` +
+    ` (${left[first]} then ${right[first]}) and at ${seen - 1} more of ${count} cells`;
 }
 
 /**

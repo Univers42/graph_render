@@ -128,9 +128,17 @@ fn fft_line(@builtin(workgroup_id) group: vec3<u32>,
   // A line at or past live is +0 in and +0 out (fft/pass.rs:44-47). The deposit never stored
   // input rows cells.. and no node reads output rows cells.., so this is the CPU's own
   // pruning and not a shortcut.
+  //
+  // The whole row is written, and it has to be: t is the lane index, 0..255, so a single
+  // 't < side' store covers a quarter of a 1024-side line and leaves the rest of the row holding
+  // whatever the buffer held before — uninitialized bytes on the first run, the first run's
+  // leftovers on the second. That is a non-determinism, not a stale value: the two runs of the
+  // repeat check disagree, and the disagreement is in the delta, which is the only column the
+  // transform writes. The stride below is the load loop's and the store loop's, and the row is
+  // 'side' entries whichever of the three writes it.
   if (r >= frame.live) {
-    if (t < side) {
-      dst[r * side + t] = vec2<f32>(0.0, 0.0);
+    for (var i = t; i < side; i = i + 256u) {
+      dst[r * side + i] = vec2<f32>(0.0, 0.0);
     }
     return;
   }
