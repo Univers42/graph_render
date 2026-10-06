@@ -10,7 +10,12 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { orderCheck } from "../src/gpu/bounds-collide.ts";
+import {
+  COLLIDE_RMS_REL_GUARD,
+  collideCeilings,
+  collideVerdict,
+  orderCheck,
+} from "../src/gpu/bounds-collide.ts";
 import { cellOf, gridFor, scanPlan } from "../src/gpu/collide.ts";
 import { loadFixture } from "../src/gpu/fixture.ts";
 
@@ -161,4 +166,20 @@ test("the_order_check_names_a_descending_bucket", () => {
   assert.match(orderCheck(Uint32Array.from([0, 3, 0, 2, 4]), start, 5) ?? "", /node 0/);
   // Spans that do not end at n.
   assert.match(orderCheck(Uint32Array.from([0, 3, 1, 2]), Uint32Array.from([0, 2, 2, 4]), 5) ?? "", /not n/);
+});
+
+test("every_collide_ceiling_sits_under_its_guard", () => {
+  for (const [key, row] of Object.entries(collideCeilings())) {
+    assert.match(key, /^(hardware|software):\d+:[01]$/, `${key}: a row is keyed (arm, n, state)`);
+    assert.ok(row.rmsRel <= COLLIDE_RMS_REL_GUARD, `${key}: rmsRel ${row.rmsRel} is over the guard`);
+    assert.ok(Number.isFinite(row.maxAbs) && row.maxAbs > 0, `${key}: maxAbs ${row.maxAbs}`);
+  }
+  // A missing row is guard only: n = 7 has no fixture, so no row.
+  const clean = { n: 7, state: 0, arm: "hardware", rmsRel: 0, maxAbs: 1, repeatEqual: true, order: null };
+  assert.deepEqual(collideVerdict({ ...clean, rmsRel: COLLIDE_RMS_REL_GUARD / 2 }).failures, []);
+  const over = collideVerdict({ ...clean, rmsRel: COLLIDE_RMS_REL_GUARD * 2 });
+  assert.equal(over.pass, false, "a breached guard fails the case");
+  assert.match(over.failures.join(" "), /^guard \(n=7, state=0\)/, `got ${over.failures}`);
+  const unordered = collideVerdict({ ...clean, order: "bucket 3 is not ascending" });
+  assert.match(unordered.failures.join(" "), /^order /, `got ${unordered.failures}`);
 });

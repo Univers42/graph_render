@@ -40,4 +40,5 @@ export { loadFixture, scaleFor } from "./gpu/fixture.ts";
 export type { Fixture, Pass } from "./gpu/fixture.ts";
 export { probeCharge } from "./gpu/charge-api.ts";
 export type { ChargeReport, ChargeRequest } from "./gpu/charge-api.ts";
+export { probeCollide, type CollideRequest } from "./gpu/collide-api.ts";
 export { Refusal } from "./gpu/adapter.ts";
