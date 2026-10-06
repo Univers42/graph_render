@@ -28,10 +28,10 @@ use std::process::ExitCode;
 pub use settle::State;
 
 /// `emit-gpu-fixtures`, one subcommand with the two halves of the same job: write the
-/// files, or byte-compare the committed ones against what this tree would write.
+/// files, or byte-compare the stored ones against what this tree would write.
 #[derive(Subcommand)]
 pub enum Cli {
-    /// Writes the mesh fixtures for the GPU arm, or byte-compares the committed ones.
+    /// Writes the mesh fixtures for the GPU arm, or byte-compares the stored ones.
     #[command(name = "emit-gpu-fixtures")]
     EmitGpuFixtures {
         /// Output directory.
