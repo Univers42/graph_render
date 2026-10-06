@@ -62,14 +62,19 @@ pub struct Sugiyama;
 /// The layered-DAG stage's parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SugiyamaParams {
-    /// Y distance between adjacent layers. Finite and above 0.
+    /// Distance between adjacent layers, along y, or along x when `horizontal`. Finite and
+    /// above 0.
     pub layer_spacing: f32,
+    /// Lays the layers (rows) out along x, left to right, instead of along y. `false` is the
+    /// vertical drawing, bit for bit.
+    pub horizontal: bool,
 }
 
 impl Default for SugiyamaParams {
     fn default() -> Self {
         Self {
             layer_spacing: LAYER_SPACING,
+            horizontal: false,
         }
     }
 }
@@ -79,7 +84,12 @@ impl Stage for Sugiyama {
     const ID: &'static str = "layout.dag.sugiyama";
 
     fn run(topology: &Topology, params: &SugiyamaParams) -> Result<Geometry, StageError> {
-        run(topology, params.layer_spacing)
+        let drawing = run(topology, params.layer_spacing)?;
+        Ok(if params.horizontal {
+            drawing.transposed()
+        } else {
+            drawing
+        })
     }
 }
 
