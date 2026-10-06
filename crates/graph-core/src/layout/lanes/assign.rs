@@ -4,23 +4,46 @@
 //! - A vertex takes the smallest lane its incoming edges reserved for it. If there is none, it
 //!   takes the smallest free lane, or opens a new one. The other lanes reserved for it are
 //!   freed, because their edges end here.
-//! - Its first forward edge carries its own lane on.
-//! - A later forward edge shares the target's smallest reserved lane if the target has one,
-//!   and otherwise takes a free lane and reserves it.
-//! - A vertex with no forward edge frees its lane after its row.
+//!
+//! Then each forward edge of the vertex, in dense edge order. Let `S` be the target's smallest
+//! reserved lane, if the target has one. The edge **shares `S`** when `S` exists and either
+//! `S < lane(v)` — a lower column is already waiting there, so the line bends **left** into it
+//! — or `lane(v)` is already carried by an earlier edge of this vertex, which cannot be
+//! reserved twice. Otherwise the edge pushes `lane(v)` if no earlier edge took it, or takes
+//! the smallest free lane if one did. Either way the lane it chose goes into the target's
+//! reservation. (`docs/decisions/dag-lanes-merge.md`, "Addendum: rule D".)
+//!
+//! After all of the forward edges, `lane(v)` goes back to the pool if no edge took it. That
+//! is **after** the edges, never before: freeing it first puts a lane in two reservations on
+//! every merge-heavy graph.
 //!
 //! A lane inside a reservation is never free, so no vertex is placed on an edge that runs past
-//! it.
+//! it. The one thing no structural check in the tree can see is the `S < lane(v)` guard above:
+//! without it the layout shares on every reserved target and draws rule C, and `assert_sole`,
+//! `nothing_sits_on_an_edge` and the hand oracle all still pass. The evidence that the guard
+//! is there is `tests/history.rs`'s
+//! `a_line_bends_left_into_a_column_already_waiting_and_keeps_a_fresh_one_for_its_third_edge`.
 //!
-//! Ponytail (lane choice): lowest-free-lane is greedy, and minimal width is not claimed.
-//! Failing input: two lines whose lanes could interleave narrower. Direction: a wider drawing,
-//! which is cosmetic. Escape hatch: none needed — every edge is still routed, and the width
-//! is reported in `docs/measurements/dag-lanes.md`.
+//! The two structures this reads — the free pool and the reservations — are `pool.rs` and
+//! `reserved.rs`; `rows.rs` has the row order.
+//!
+//! Ponytail (lane choice): rule D shares a lane only when it is *lower* than the source's own,
+//! so a line never bends right into a waiting column — and which column a merge converges into
+//! then depends on the order other vertices' edges arrived in. A convention, not a crossing
+//! minimiser; lowest-free-lane remains greedy and minimal width is not claimed.
+//! Failing input: a merge whose target is already spoken for by a higher lane, where the source
+//! keeps its own column and the drawing stays as wide as it was.
+//! Direction: a wider drawing, which is cosmetic.
+//! Escape hatch: none needed — every edge is still routed, and the width is reported in
+//! `docs/measurements/dag-lanes.md`.
 
+mod pool;
+mod reserved;
+
+use self::pool::Pool;
+use self::reserved::Reserved;
 use super::rows::Rows;
 use crate::index::Topology;
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
 
 pub(super) const NONE: u32 = u32::MAX;
 
@@ -30,153 +53,6 @@ pub(super) struct Drawing {
     pub(super) lane: Vec<u32>,
     /// `carried[e]`: the lane edge `e` runs down between its rows; [`NONE`] for a self-loop.
     pub(super) carried: Vec<u32>,
-}
-
-/// Released lanes, smallest first, and how many lanes were ever opened.
-struct Pool {
-    free: BinaryHeap<Reverse<u32>>,
-    width: u32,
-    /// Which lanes are in `free`. Debug-only: the one-reservation invariant is a property of
-    /// `next` being indexed by lane, and the check has to be O(1) to run on every push.
-    #[cfg(debug_assertions)]
-    free_flag: Vec<bool>,
-}
-
-impl Pool {
-    fn take(&mut self) -> u32 {
-        if let Some(Reverse(lane)) = self.free.pop() {
-            self.mark_taken(lane);
-            return lane;
-        }
-        self.width += 1;
-        self.mark_opened(self.width - 1);
-        self.width - 1
-    }
-
-    fn give(&mut self, lane: u32) {
-        self.free.push(Reverse(lane));
-        self.mark_given(lane);
-    }
-
-    #[cfg(debug_assertions)]
-    fn mark_taken(&mut self, lane: u32) {
-        self.free_flag[lane as usize] = false;
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn mark_taken(&mut self, _lane: u32) {}
-
-    #[cfg(debug_assertions)]
-    fn mark_opened(&mut self, lane: u32) {
-        if self.free_flag.len() <= lane as usize {
-            self.free_flag.resize(lane as usize + 1, false);
-        }
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn mark_opened(&mut self, _lane: u32) {}
-
-    #[cfg(debug_assertions)]
-    fn mark_given(&mut self, lane: u32) {
-        self.free_flag[lane as usize] = true;
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn mark_given(&mut self, _lane: u32) {}
-}
-
-/// The lanes reserved for each vertex, one intrusive list per vertex. A lane is in at most one
-/// reservation at a time, so `next` is indexed by lane.
-struct Reserved {
-    head: Vec<u32>,
-    next: Vec<u32>,
-    min: Vec<u32>,
-    /// How many reservations hold each lane. Debug-only: 0 or 1, and the whole correctness
-    /// argument rests on it never being 2.
-    #[cfg(debug_assertions)]
-    held: Vec<u32>,
-}
-
-impl Reserved {
-    /// `pool` is read only by the debug-only invariant check below, so it is named `_pool`:
-    /// in a release build there is no check and the argument is genuinely unused.
-    fn push(&mut self, v: u32, lane: u32, _pool: &Pool) {
-        self.hold(lane);
-        #[cfg(debug_assertions)]
-        self.assert_sole(lane, v, _pool);
-        if self.next.len() <= lane as usize {
-            self.next.resize(lane as usize + 1, NONE);
-        }
-        self.next[lane as usize] = self.head[v as usize];
-        self.head[v as usize] = lane;
-        self.min[v as usize] = self.min[v as usize].min(lane);
-    }
-
-    /// Empties `v`'s reservation and returns its smallest lane, or [`NONE`]. Every other lane
-    /// in it goes back to `pool`.
-    ///
-    /// `keep` is released too, and that is the whole point: it is not given to `pool`, because
-    /// the caller takes it as `v`'s own lane, but it is no longer *reserved for `v`* — the
-    /// first forward edge re-reserves it for its target. A lane the caller never re-reserves
-    /// (a vertex with no forward edge) is given to the pool by the caller instead.
-    fn settle(&mut self, v: u32, pool: &mut Pool) -> u32 {
-        let keep = self.min[v as usize];
-        let mut lane = self.head[v as usize];
-        while lane != NONE {
-            let next = self.next[lane as usize];
-            #[cfg(debug_assertions)]
-            self.assert_sole(lane, v, pool);
-            if lane != keep {
-                pool.give(lane);
-                self.release(lane);
-            }
-            lane = next;
-        }
-        self.head[v as usize] = NONE;
-        self.min[v as usize] = NONE;
-        if keep != NONE {
-            self.release(keep);
-        }
-        keep
-    }
-
-    /// The one-reservation invariant in code, not only in the doc above
-    /// (`docs/decisions/dag-lanes.md` condition 1): `next` is indexed *by lane*, so a lane in
-    /// two reservations is a cycle `settle` would walk forever, and a reserved lane that is
-    /// also free is the vertex-on-an-edge bug this layout exists to avoid. Both are checked on
-    /// every push and every settle in a debug build.
-    #[cfg(debug_assertions)]
-    fn assert_sole(&self, lane: u32, holder: u32, pool: &Pool) {
-        debug_assert_eq!(
-            self.held[lane as usize], 1,
-            "lane {lane} is in two reservations"
-        );
-        debug_assert!(
-            !pool.free_flag[lane as usize],
-            "lane {lane} is reserved for {holder} and free"
-        );
-    }
-
-    #[cfg(debug_assertions)]
-    fn hold(&mut self, lane: u32) {
-        // Grow only: `resize` would truncate the higher lanes' counts when a lower lane is
-        // re-held, which is exactly what happens when a lane is reused.
-        if self.held.len() <= lane as usize {
-            self.held.resize(lane as usize + 1, 0);
-        }
-        self.held[lane as usize] += 1;
-    }
-
-    #[cfg(debug_assertions)]
-    fn release(&mut self, lane: u32) {
-        self.held[lane as usize] -= 1;
-    }
-
-    #[cfg(not(debug_assertions))]
-    fn hold(&mut self, _lane: u32) {}
-
-    #[cfg(not(debug_assertions))]
-    fn release(&mut self, _lane: u32) {}
 }
 
 /// Every non-loop edge under its earlier endpoint, in edge order (a counting sort), each as
@@ -230,21 +106,35 @@ struct State {
 }
 
 impl State {
-    /// The lane an edge from a vertex in `lane` to `late` runs down. The vertex's first edge
-    /// carries its own lane. A later edge shares `late`'s smallest reserved lane, or takes a
-    /// free lane and reserves it for `late`.
-    fn carry(&mut self, first: bool, lane: u32, late: u32) -> u32 {
-        if first {
-            self.reserved.push(late, lane, &self.pool);
-            return lane;
-        }
-        let shared = self.reserved.min[late as usize];
-        if shared != NONE {
+    /// Rule D for one forward edge, from a vertex in `lane` to `late`. `own_taken` says
+    /// whether an earlier edge of this vertex already took `lane`, which is what tells
+    /// "the vertex's own lane is still available" from "the own lane is spoken for".
+    ///
+    /// The edge shares `late`'s smallest reserved lane when there is one and either it is
+    /// lower than `lane` — a column already waiting for `late`, so the line bends left into it
+    /// — or `lane` is already spoken for and cannot be reserved twice. Otherwise it pushes
+    /// `lane` itself, or takes a free lane when `own_taken` is set, and either way reserves
+    /// what it chose for `late`. `docs/decisions/dag-lanes-merge.md`, "Addendum: rule D".
+    fn carry(&mut self, lane: u32, late: u32, own_taken: &mut bool) -> u32 {
+        let shared = self.reserved.smallest(late);
+        if shared != NONE && (shared < lane || *own_taken) {
             return shared;
         }
-        let fresh = self.pool.take();
+        let fresh = if *own_taken { self.pool.take() } else { lane };
+        *own_taken = true;
         self.reserved.push(late, fresh, &self.pool);
         fresh
+    }
+
+    /// Rule D's give-back, run **after** the vertex's forward edges: `lane` returns to the
+    /// pool only when no edge took it. Running it first — the reading of "frees it after its
+    /// row" that looks natural — puts a lane in two reservations on every merge-heavy graph
+    /// (`docs/decisions/dag-lanes-merge.md` condition 1), which the reservations' two checks
+    /// both catch in a debug build.
+    fn give_back(&mut self, lane: u32) {
+        #[cfg(debug_assertions)]
+        self.reserved.assert_unheld(lane);
+        self.pool.give(lane);
     }
 }
 
@@ -254,19 +144,8 @@ impl Drawing {
         let n = rows.order.len();
         let forward = Forward::of(topology, rows);
         let mut state = State {
-            pool: Pool {
-                free: BinaryHeap::new(),
-                width: 0,
-                #[cfg(debug_assertions)]
-                free_flag: Vec::new(),
-            },
-            reserved: Reserved {
-                head: vec![NONE; n],
-                next: Vec::new(),
-                min: vec![NONE; n],
-                #[cfg(debug_assertions)]
-                held: Vec::new(),
-            },
+            pool: Pool::new(),
+            reserved: Reserved::of(n as u32),
         };
         let mut drawing = Self {
             lane: vec![NONE; n],
@@ -284,11 +163,12 @@ impl Drawing {
             lane = state.pool.take();
         }
         self.lane[v as usize] = lane;
-        for (k, &(edge, late)) in out.iter().enumerate() {
-            self.carried[edge as usize] = state.carry(k == 0, lane, late);
+        let mut own_taken = false;
+        for &(edge, late) in out {
+            self.carried[edge as usize] = state.carry(lane, late, &mut own_taken);
         }
-        if out.is_empty() {
-            state.pool.give(lane);
+        if !own_taken {
+            state.give_back(lane);
         }
     }
 }

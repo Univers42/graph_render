@@ -49,7 +49,7 @@
     {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.random.3d","post":null,"hash":"89620096232222a2460bcd14d1ecba194c56d7259fd5f6da827d8360f8cddb03"},
     {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.force.yifan_hu.3d","post":null,"hash":"78b86ad7c1a22938014d1dc46bbdb687984519ed16478f1ca485819d72b842cf"},
     {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.dag.dot","post":null,"hash":"3aed94c03b5e9360cb0aae88deefdf110d34addde8e77260515b23fffb4f3ad8"},
-    {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.dag.lanes","post":null,"hash":"a143ef0c9c9182eafc269e7237a3f07e7723a3aceafd6c66fb9f5b7c3c610865"},
+    {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.dag.lanes","post":null,"hash":"d6fb30744ed276884e1858403ab0df4d4ac5449dd4c71bb1f1721bd830a9c9d4"},
     {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.grid","post":"post.bundle.fdeb","hash":"924f3c8c5af24ba9c445c49ebeac73e8ace945f96207fd21b61ce92eef10930d"},
     {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.grid","post":"post.bundle.mingle","hash":"22e2306bb855c7b481cb4313969f442c1f0ebf138dc731aafc8264e744090ea7"},
     {"fixture":"server/graph-server/tests/digest/n400.json","source":"studio","layout":"layout.grid","post":"post.route.grid","hash":"e85ae882479a49197a81c794bdfd8b194b319148635f4f3d2224e143cab581b6"},
