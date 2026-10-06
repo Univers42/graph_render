@@ -21,12 +21,12 @@ run that justifies it.
 | `upload_id_width` | 5 | 5 | the id's fixed width in base 36 |
 | `upload_plugins` | 8 | 8 | plugins the records are spread over |
 | `upload_batches` | 75 | 75 | batch `POST`s the fill took |
-| `upload_ms` | 7410 7492 7671 7708 8133 | the same | the five timed uploads, in log order |
-| `upload_median_ms` | 7671 | 7671 | their median |
-| `upload_slowest_ms` | 8133 | 8133 | the slowest, which §5.3's condition is over |
+| `upload_ms` | 7847 8482 7773 7737 7813 | the same | the five timed uploads, in log order |
+| `upload_median_ms` | 7813 | 7813 | their median |
+| `upload_slowest_ms` | 8482 | 8482 | the slowest, which §5.3's condition is over |
 | `upload_chunks` | 745635 | 745635 | chunks in one upload: one per record, plus head and tail |
 | `upload_chunk_bytes` | 90 | 90 | mean chunk size, the knob a miss names |
-| `upload_budget_ms` | 8000 | 8133 | §5.3's budget, against the slowest run — **a miss** |
+| `upload_budget_ms` | 8000 | 8482 | §5.3's budget, against the slowest run — **a miss** |
 
 ## Conditions
 
@@ -189,33 +189,44 @@ two seconds under graph-server's `GRAPH_BODY_TIMEOUT_MS` default of 10 000
 equal to the `/graph` ETag at the same cursor. One warm-up precedes the five and is excluded. A miss
 is a **stop**, not a retune.
 
-**The five numbers and the median** (`target/hub-mem/upload.txt`):
+**The five numbers and the median**, from the run gate row `hub-upload-timeout` recorded
+(`target/gate-hub-upload/hub-upload-timeout.log`):
 
 | # | Quantity | Value |
 |---|---|---|
-| `upload_ms` | the five `upload_ms`, in log order | 7410 · 7492 · 7671 · 7708 · 8133 |
-| `upload_median_ms` | their median | 7671 |
-| `upload_slowest_ms` | the slowest, which is what the condition is over | 8133 |
+| `upload_ms` | the five `upload_ms`, in log order | 7847 · 8482 · 7773 · 7737 · 7813 |
+| `upload_median_ms` | their median | 7813 |
+| `upload_slowest_ms` | the slowest, which is what the condition is over | 8482 |
+
+A second run of the same row, minutes earlier, gave **7410 · 7492 · 7671 · 7708 · 8133** (median
+7671, slowest 8133) on the identical input — the figures above are the gate's, and the two runs are
+both recorded because the spread is part of the result: the run-to-run range here is about 800 ms,
+which is the same order as the 2 s of headroom §5.3 asks for.
 
 **Chunk size**, the knob a miss names: the walk yields one record per chunk plus a head and a tail,
 so one upload is **745 635** chunks and the mean chunk is **90 bytes**. A miss is this number that
 grows — the relay's chunking is one record per `Document::next()` (`relay/body.rs`), and a larger
 chunk would be a change to graph-store's walk, not to the hub.
 
-**Result: a miss.** The slowest of the five was **8 133 ms**, over the 8 000 ms budget, so
-`scripts/orch/hub-mem.sh upload` exits 1 and `docs/measurements/hub-memory.md` records the numbers
-rather than a retune (§5.3). The median (7 671 ms) is inside the budget and the first four runs are,
-so this is a marginal miss on the slowest run rather than a distribution that misses throughout. What
-it is not: the motor answered every upload **200** with no 408 in its log, and every `Graph-Seq`
-matched the `/graph` ETag, so the relay reached the motor and the motor read the whole body inside
-its own 10 s limit.
+**Result: a miss, and a STOP.** The slowest of the five was **8 482 ms**, over the 8 000 ms budget, so
+`scripts/orch/hub-mem.sh upload` exits 1, gate row `hub-upload-timeout` **FAILS**, and this file
+records the numbers rather than a retune (§5.3: "A miss is a stop, not a retune"). Both runs missed on
+the slowest run alone; the median was inside the budget both times (7813 and 7671 ms). Nothing was
+retuned to reach the number.
+
+What the miss is **not**: the motor answered every upload **200**, its log held no 408, and every
+`Graph-Seq` matched the `/graph` ETag. So the relay reached the motor, and the motor read the whole
+64 MiB inside its own 10 s `GRAPH_BODY_TIMEOUT_MS` with roughly 1.5 s to spare. The 64 MiB upload
+takes the hub about 7.8 s of streaming on this host and the motor about 2.1 s of parsing; it is the
+hub's streaming cost that puts the slowest run 482 ms over an 8 s budget, not the motor's timeout.
 
 **The throttled control** (`negctl-throttle-upload`, `GM_HUB_BREAK=throttle-upload`): the relay
 sleeps 2 ms before yielding each record (`relay/body.rs`, `breaks.rs`), which at 745 633 records is
 about 25 minutes of upload. The motor answered **408 at 10 001 ms** — its `GRAPH_BODY_TIMEOUT_MS`
 doing exactly what the un-throttled run stayed inside — and the hub mapped it to **502**
-`MotorBodyTimeout`. The verb exits 1 and `target/hub-mem/upload.txt` names it. So the measurement can
-fail, and it fails differently from the plain miss above: here the motor refuses, there it answers.
+`MotorBodyTimeout`. The verb exits 1, the row (which expects a non-zero exit) **PASSES**, and
+`target/hub-mem/upload.txt` names every clause that failed. So the measurement can fail, and it fails
+differently from the plain miss above: here the motor refuses, there it answers.
 
 **Caveat**: this is loopback between two containers on one host, so it measures the hub's own
 streaming cost and the socket between the two containers, **not a network**. A deployment whose
