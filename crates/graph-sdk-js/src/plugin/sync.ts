@@ -10,14 +10,14 @@
 //     because unbounded is a hot loop against whatever else is writing.
 
 import { textOf } from "../hub/call.ts";
-import { batchOf, chunkOps, deleteOps, desiredOps, opKey, type SyncKey } from "./batch.ts";
+import { batchOf, chunkOps, deleteOps, desiredOps, opKey, type SyncKey, type SyncOp } from "./batch.ts";
 import { pushOnce } from "./push.ts";
 import { formatCursor, parseCursor } from "../hub/cursor.ts";
 import { breaking } from "../hub/wire.ts";
 import { GraphMotorError } from "../errors.ts";
 import { RemoteError } from "../remote/errors.ts";
 import type { HubCaller } from "../hub/call.ts";
-import type { Ingest } from "../adapters/rows.ts";
+import type { Ingest, IngestRecord } from "../adapters/rows.ts";
 import type { AnswerWire, BatchWire } from "../hub/wire.ts";
 
 /** The records route's default page, §5.2's "default 1 000".
@@ -99,9 +99,10 @@ export async function syncOnce(
   // cannot add the same id a second time and earn a 422 (§5.2).
   const wanted = new Set(desired.map(opKey));
   const ops = [...desired, ...deleteOps(first.keys, wanted)];
+  const stale = breaking("sync-via-graph") ? await staleInGraph(caller, workspace, options.plugin, desired) : [];
   const answers: AnswerWire[] = [];
   let expected = first.pluginSeq;
-  for (const chunk of chunkOps(ops, options.maxBatch)) {
+  for (const chunk of [...chunkOps(stale, options.maxBatch), ...chunkOps(ops, options.maxBatch)]) {
     if (chunk.length === 0) continue;
     const answer = await pushChunk(caller, options, workspace, batchOf(chunk), expected);
     answers.push(answer);
@@ -146,6 +147,29 @@ function bareCollection(plugin: string, collection: string): string {
     throw new GraphMotorError(`records of plugin ${plugin} named collection ${collection}, outside ${prefix}*`);
   }
   return collection.slice(prefix.length);
+}
+
+/** The `sync-via-graph` break, `hub-sync`'s negative control: what to replace is read from
+ * `/graph` instead of the plugin's own records. `/graph` prunes a dangling link cell, so a record
+ * holding one never matches its source and is replaced on every sync. A plain re-push would not
+ * show, because an identical upsert is a no-op that takes no seq (graph-store `writer/plan.rs`),
+ * so the replacement is a delete batch before the upserts — two seqs a sync for one record.
+ */
+async function staleInGraph(caller: HubCaller, workspace: string, plugin: string, desired: readonly SyncOp[]): Promise<readonly SyncOp[]> {
+  const route = `/v1/workspaces/${encodeURIComponent(workspace)}/graph`;
+  const answer = await caller.callJson({ method: "GET", route });
+  const graph = JSON.parse(await textOf(answer)) as { readonly records: readonly IngestRecord[] };
+  const shown = new Map<string, object>(graph.records.map((record) => [`${record.collection}\0${record.id}`, record.values]));
+  return desired
+    .filter((op) => {
+      const values = shown.get(`${plugin}.${opKey(op)}`);
+      return values !== undefined && sortedJson(values) !== sortedJson(op.values ?? {});
+    })
+    .map((op) => ({ kind: "delete" as const, collection: op.collection, id: op.id }));
+}
+
+function sortedJson(values: object): string {
+  return JSON.stringify(Object.entries(values).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 async function pushChunk(
