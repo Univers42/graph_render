@@ -1,6 +1,10 @@
 /** Moving from one layout to the next: positions blended in place, no allocation per frame. */
 
-export const TRANSITION_MS = 600;
+/**
+ * 400 ms, down from 600: a layout switch read as slow at 600 (user report, 2026-10-06), and 400 is
+ * still long enough for the eye to follow one node across the screen.
+ */
+export const TRANSITION_MS = 400;
 
 /** The marks a layout-switch measurement reads between the request and the settled frame. */
 export const MOVED_MARK = "gm:transition:moved";
@@ -33,7 +37,7 @@ export function blend(from: Float32Array, to: Float32Array, t: number, out: Floa
  * `settled` on the frame that ends it. Keyed by the tween's own clock rather than by a flag on
  * the view, so the next switch re-arms both without the loop carrying a field for it.
  *
- * A tween the 2D painter snaps over its budget (`TWEEN_BUDGET` in canvas2d/loop.ts) has no
+ * A tween the 2D painter snaps over its budget (`TWEEN_BUDGET` in canvas2d/tween.ts) has no
  * moving frame at all, and marks `settled` alone: the end of that switch is a real time, and a
  * probe waiting for it must not wait for a beginning that never comes.
  *

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { createElement } from "react";
 
 import { DOCK_SECTIONS, studioActions } from "../../src/actions/all.ts";
-import { Dock } from "../../src/ui/Dock.tsx";
+import { Dock, keepsShut } from "../../src/ui/Dock.tsx";
 import { DRAWN, IDLE, fakeBar, markup, studioWith } from "./desk.ts";
 
 function dock(state = DRAWN): string {
@@ -64,4 +64,11 @@ test("the Forces section shows nine labelled sliders, all aria-disabled, with th
   }
   assert.equal(html.match(/type="range"[^>]*aria-disabled="true"/g)?.length, sliders.length);
   assert.equal(html.split("live forces need the motor session (force-wasm)").length - 1, 1);
+});
+
+test("a shut section keeps what it drew; it redraws while open and the moment it opens", () => {
+  const shut = { open: false, name: "Export" };
+  assert.equal(keepsShut(shut, shut), true, "a store change under a shut section draws nothing");
+  assert.equal(keepsShut(shut, { ...shut, open: true }), false, "opening it draws it from the state now");
+  assert.equal(keepsShut({ ...shut, open: true }, { ...shut, open: true }), false, "an open one follows the state");
 });

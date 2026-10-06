@@ -117,6 +117,7 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     setStyle: (style) => void seen.styles.push(style),
     setTheme: (theme) => void seen.themes.push(theme),
     setLabels: (policy) => void seen.policies.push(policy),
+    crossFade: () => undefined,
     setCamera: (camera) => void seen.cameras.push(camera),
     frame: () => held(seen),
     viewport: () => DESK_VIEWPORT,
