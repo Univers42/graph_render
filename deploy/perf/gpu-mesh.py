@@ -32,6 +32,7 @@ are one device's numbers on one driver stack, and a driver update re-measures th
 widening them.
 """
 import contextlib
+import json
 import shutil
 import sys
 import tempfile
@@ -191,6 +192,17 @@ def fixtures(directory, only):
     return [name for name in names if name.split("-")[1] in only]
 
 
+def call_js(name, arm, fault):
+    """`window.gpuMesh(name, arm, fault)` as one expression, with each argument a JS literal.
+
+    `json.dumps`, not `!r`: `None` is written as the letters `None`, and the page answers
+    `ReferenceError: None is not defined` — a harness bug wearing the costume of a kernel
+    failure, on every fixture at once. `json.dumps` writes `null`, and `name`/`arm`/`fault` are
+    plain ASCII strings where its quoting is the same as Python's.
+    """
+    return f"window.gpuMesh({json.dumps(name)}, {json.dumps(arm)}, {json.dumps(fault)})"
+
+
 def run_fixtures(label, sets, url, names, arm, fault):
     """Reopen the browser on the set that gave the adapter and run every fixture there."""
     flags = next(flags for name, flags in sets if name == label)
@@ -201,8 +213,7 @@ def run_fixtures(label, sets, url, names, arm, fault):
         for name in names:
             began = time.monotonic()
             try:
-                report = page.evaluate(
-                    f"window.gpuMesh({name!r}, {arm!r}, {fault!r})", timeout=900)
+                report = page.evaluate(call_js(name, arm, fault), timeout=900)
             except cdp.CdpError as failure:
                 print(f"FAIL {name} the page threw: {failure}")
                 failed = True
