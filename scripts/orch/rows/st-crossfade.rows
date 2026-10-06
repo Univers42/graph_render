@@ -1,0 +1,11 @@
+# st-crossfade: a screen-space cross-fade on restyle and document switch (prompts/jobs/st-crossfade.md).
+# Only packages/graph-render and packages/graph-studio change; the Rust floor is not re-run here.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+studio-only|0|b=$(git merge-base HEAD origin/studio-speed); test -z "$(git diff --name-only "$b" -- crates src harness fixtures server app deploy Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json; git status --porcelain --untracked-files=all -- crates src harness fixtures server app deploy Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json)"
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+crossfade-test|0|git grep -q crossFade -- packages/graph-render/tests && grep -q 'Caveat:' packages/graph-render/src/canvas2d/crossfade.ts
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh

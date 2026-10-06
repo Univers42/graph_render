@@ -41,6 +41,20 @@ test("a relayout filter runs the layout once, and never twice for the same filte
   await relayoutOnce(await scripted());
 });
 
+test("a layout switch under the same look rebuilds no style; a new look does", async () => {
+  const { pipeline, studio, seen } = await scripted();
+  const settings = studio.store.get().settings;
+  // The first switch gives this pipeline its own first style; the second is the one measured.
+  await pipeline.apply({ ...settings, layout: "layout.grid" });
+  const styled = seen.styles.length;
+  await pipeline.apply({ ...studio.store.get().settings, layout: "layout.forceatlas2" });
+  assert.equal(seen.frames.at(-1)?.animate, true, "the control: the nodes were moved");
+  assert.equal(seen.styles.length, styled, "the same six inputs are the same style");
+  const { appearance } = studio.store.get().settings;
+  pipeline.look({ ...studio.store.get().settings, appearance: { ...appearance, nodeScale: appearance.nodeScale + 1 } });
+  assert.equal(seen.styles.length, styled + 1);
+});
+
 test("fitting the results frames what the search highlighted, and needs no wasm", async () => {
   const made = await scripted();
   const empty = made.pipeline.fitResults();

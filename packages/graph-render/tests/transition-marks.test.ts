@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { TWEEN_BUDGET, overBudget } from "../src/canvas2d/loop.ts";
+import { TWEEN_BUDGET, overBudget } from "../src/canvas2d/tween.ts";
 import { MOVED_MARK, SETTLED_MARK, markTween } from "../src/transition.ts";
 
 const marks = (name: string): number[] => performance.getEntriesByName(name).map((entry) => entry.startTime);

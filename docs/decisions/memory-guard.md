@@ -44,8 +44,10 @@ wraps past 65 536 nodes into a wrong, small table.
 4. **Studio limits and releases.** The studio refuses a generated graph past 2 000 000 links and a
    document past 2^28 characters before building anything (`source/limits.ts`; measured in
    `docs/measurements/memory-profile.md`, section "Studio"). A wasm heap only grows, so a new
-   source loads in a new worker and a worker that trapped or threw `RangeError` is retired
-   (`motor/client.ts`). A destroyed view gives its WebGL contexts back with `WEBGL_lose_context`
+   source after one of `RESPAWN_FROM` (50 000) nodes plus edges loads in a new worker, and a worker
+   that trapped or threw `RangeError` is retired (`motor/client.ts`). A smaller source reuses the
+   worker: a fresh one costs a module start, 229 of the 244 ms a 48-node document took to open
+   (Chromium, 2026-10-06). A destroyed view gives its WebGL contexts back with `WEBGL_lose_context`
    instead of waiting for a collection (`webgl2/hook.ts` `releaseBulk`). A page that ended
    uncleanly does not reopen its last source by itself (`state/persist.ts`), and a document past
    1 Mi characters is not stored.
