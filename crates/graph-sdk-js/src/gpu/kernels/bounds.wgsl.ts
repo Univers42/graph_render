@@ -47,7 +47,7 @@
 import { NODES_WGSL, PRELUDE_WGSL } from "./prelude.wgsl.ts";
 
 /** The WGSL for the bounds fold. */
-export const BOUNDS_WGSL = '${PRELUDE_WGSL}
+export const BOUNDS_WGSL = `${PRELUDE_WGSL}
 ${NODES_WGSL}
 @group(0) @binding(2) var<storage, read_write> boxes: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read_write> extent: array<vec4<f32>>;
@@ -130,4 +130,4 @@ fn widen(acc: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
     select(acc.w, b.w, b.w > acc.w),
   );
 }
-';
+`;
