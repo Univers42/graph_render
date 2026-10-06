@@ -21,6 +21,23 @@ INFO_KEYS = ("vendor", "architecture", "device", "description")
 LIMIT_KEYS = ("maxStorageBufferBindingSize", "maxBufferSize", "maxComputeWorkgroupStorageSize",
               "maxComputeInvocationsPerWorkgroup", "maxComputeWorkgroupsPerDimension")
 
+# The harness's readiness question. `navigate` returns on the load event, and a module script is
+# deferred behind that, so `window.gpuMesh !== undefined` is a question about a page that has not
+# finished arming — it answers `false` and the harness then calls a function that is not there.
+# This polls instead, and on a timeout re-imports the module itself: a page whose import failed
+# says so here, rather than as `TypeError: window.gpuMesh is not a function` on every fixture.
+READY_JS = """(async () => {
+  const deadline = Date.now() + 60000;
+  while (typeof window.gpuMesh !== 'function') {
+    if (Date.now() > deadline) {
+      try { await import('/target/gpu-js/gpu/charge.js'); return 'module loaded, gpuMesh absent'; }
+      catch (error) { return 'import failed: ' + error; }
+    }
+    await new Promise((done) => setTimeout(done, 50));
+  }
+  return 'ready';
+})()"""
+
 PAGE = """<!doctype html><meta charset="utf-8"><title>gpu-mesh</title>
 <script type="module">
 import { runCharge } from "/target/gpu-js/gpu/charge.js";

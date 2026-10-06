@@ -44,7 +44,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nav"))
 import nav  # first: it puts the perf gate's CDP client on the path
 import cdp
 import gpu
-from gpu_mesh_page import ASK_JS, PAGE
+from gpu_mesh_page import ASK_JS, PAGE, READY_JS
 
 # The sizes `--only` accepts, as the fixture names' middle word. `1m` is the 1M pair.
 SIZES = ("1k", "10k", "50k", "1m")
@@ -208,7 +208,9 @@ def run_fixtures(label, sets, url, names, arm, fault):
     flags = next(flags for name, flags in sets if name == label)
     with browser_on(flags) as page:
         page.navigate(url)
-        page.evaluate("window.gpuMesh !== undefined", timeout=60)
+        armed = page.evaluate(READY_JS, timeout=90)
+        if armed != "ready":
+            raise OSError(f"the probe page never armed: {armed}")
         failed = False
         for name in names:
             began = time.monotonic()
@@ -259,7 +261,10 @@ def main():
         return 2
     sets = candidates(arm)
     server = nav.serve(".")
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    # The page, not the root: the root is the repository's own index, and a harness that opened
+    # it would be asking a page that never armed — `module loaded, gpuMesh absent` — and reading
+    # that as a kernel failure.
+    url = f"http://127.0.0.1:{server.server_address[1]}/target/gpu-js/probe.html"
     print(f"arm {arm} at {url} over {len(names)} fixture(s)"
           + (f" --only {','.join(only)}" if only else "")
           + (f" --break {fault}" if fault else ""))
