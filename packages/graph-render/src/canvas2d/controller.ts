@@ -16,6 +16,7 @@ import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
 import { currentLimits, safeOf } from "./limits.ts";
+import { morphSource } from "./morph.ts";
 import { newPace } from "./pace.ts";
 export { pickAt } from "./pick.ts";
 import { newRate } from "./rate.ts";
@@ -88,7 +89,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
   return {
     ctx, sprites: createSpriteCache(spriteSurface, theme), onFrame: setup.onFrame, theme, policy, scene,
     camera: fitCamera(null, viewport), get limits() { return currentLimits(this); }, viewport, safe: null, dpr: 1,
-    x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
+    x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1, fromFrame: null, eased: 0,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
     layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),
@@ -195,6 +196,8 @@ function startTransition(state: LoopState, frame: Frame): void {
   state.x = state.fromX.slice();
   state.y = state.fromY.slice();
   state.transitionStart = performance.now();
+  state.fromFrame = morphSource(state.scene.frame, frame);
+  state.eased = 0;
   state.scene = sceneOf(frame, state.scene.style, null);
 }
 
@@ -205,6 +208,7 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
   } else {
     state.scene = sceneOf(frame, state.scene.style, null);
     state.transitionStart = -1;
+    state.fromFrame = null;
     // Nothing is easing, so nothing is there to mix: the layer reads `u_eased` of 1 and a pick
     // reads the grid. A tween cut short by a snap or a resize has to leave both.
     state.bulk.tween = null;

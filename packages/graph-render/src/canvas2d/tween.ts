@@ -26,6 +26,7 @@ export const TWEEN_BUDGET = 32_768;
 /** The frame is where the nodes are now, and the layer has nothing left to mix. */
 function arrive(state: LoopState): void {
   state.transitionStart = -1;
+  state.fromFrame = null;
   state.x = state.scene.frame.x;
   state.y = state.scene.frame.y;
   state.bulk.tween = null;
@@ -60,6 +61,7 @@ export function advance(state: LoopState, now: number): boolean {
     return false;
   }
   const eased = easeInOutCubic(t);
+  state.eased = eased;
   const { frame } = state.scene;
   blend(state.fromX, frame.x, eased, state.x);
   blend(state.fromY, frame.y, eased, state.y);

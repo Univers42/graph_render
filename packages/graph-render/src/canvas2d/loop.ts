@@ -4,6 +4,7 @@
  */
 import { markNeighbourhood } from "../adjacency.ts";
 import type { Bounds, Camera, FitArea, Viewport, ZoomLimits } from "../camera.ts";
+import type { Frame } from "../frame.ts";
 import { dimAt, fadeLevel } from "../fade.ts";
 import { type LabelInput, type LabelPlan, type LabelPolicy, type Occupancy, followLabels, planLabels } from "../labels.ts";
 import type { Scene } from "../scene.ts";
@@ -47,6 +48,10 @@ export interface LoopState {
   fromY: Float32Array;
   /** `performance.now()` when the transition began, or -1. */
   transitionStart: number;
+  /** The routed frame the edges morph from (`morphSource`), or null; released on arrival. */
+  fromFrame: Frame | null;
+  /** The eased fraction of the transition: the edge morph's clock. */
+  eased: number;
   lit: Uint8Array;
   hovered: number;
   /** `performance.now()` when the focus appeared, or -1 while there is none: the fade's clock. */
@@ -179,7 +184,7 @@ function paint(state: LoopState, moving: boolean, settled: boolean): void {
   state.counts = paintFrame({
     ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme, space: drawn,
     frame: scene.frame, style: scene.style, adjacency: scene.adjacency, extent: scene.extent,
-    x: state.x, y: state.y, settled, moving, edgeBudget: state.pace.budget, focus, lit: state.lit, selected: state.selected,
+    x: state.x, y: state.y, settled, tween: settled ? null : { from: state.fromFrame, eased: state.eased }, moving, edgeBudget: state.pace.budget, focus, lit: state.lit, selected: state.selected,
     labels: state.plan, sprites: state.sprites, bulk: (input, counts) => paintBulk(state.bulk, input, counts),
   });
   paintOverlay(state);
