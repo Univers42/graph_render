@@ -166,7 +166,7 @@ def refusal(arm, report):
             f"{', '.join(named) or 'unnameable'}, fallback={report['fallback']}")
 
 
-def run_fixtures(label, sets, url, names, run):
+def run_fixtures(label, sets, url, names, run, ticks=1):
     """Reopen the browser on the set that gave the adapter and run every fixture there.
 
     `run` is `(arm, fault, pass)`, the page call's three arguments after the fixture's name.
@@ -181,7 +181,7 @@ def run_fixtures(label, sets, url, names, run):
         for name in names:
             began = time.monotonic()
             try:
-                report = page.evaluate(call_js(name, *run), timeout=900)
+                report = page.evaluate(call_js(name, *run, ticks), timeout=900)
             except cdp.CdpError as failure:
                 print(f"FAIL {name} the page threw: {failure}")
                 failed = True
@@ -191,7 +191,22 @@ def run_fixtures(label, sets, url, names, run):
             if verdict == "FAIL":
                 failed = True
             print(f"{verdict} {name} {line(report, ms)}")
+            if run[2] == "tick" and report.get("finalPositions"):
+                write_positions(name, report["finalPositions"])
         return failed
+
+
+def write_positions(name, positions):
+    """The tick's final f32 positions, for `gpu-stress` to grade against the CPU mesh.
+
+    Written as raw little-endian f32, `x, y` interleaved — the format `gpu-stress` reads.
+    The page crosses them as a plain array of numbers; this packs them back to f32 bytes.
+    """
+    import array
+    target = Path("target/gpu-tick")
+    target.mkdir(parents=True, exist_ok=True)
+    packed = array.array("f", positions)
+    (target / f"{name}.f32").write_bytes(packed.tobytes())
 
 
 def write_page():
@@ -205,10 +220,11 @@ def main():
     args = parse_args(sys.argv)
     if args is None:
         print("gpu-mesh: usage: gpu-mesh.py software|hardware DIR "
-              "[--only 1k,10k,50k,1m] [--break FAULT] [--pass charge|link|collide]",
+              "[--only 1k,10k,50k,1m] [--break FAULT] [--pass charge|link|collide|tick] "
+              "[--ticks T]",
               file=sys.stderr)
         return 2
-    arm, directory, only, fault, pass_name = args
+    arm, directory, only, fault, pass_name, ticks = args
     names = fixtures(directory, only)
     if not names:
         print(f"gpu-mesh: no mesh-*.gmfx in {directory} that --only keeps", file=sys.stderr)
@@ -222,7 +238,8 @@ def main():
     print(f"arm {arm} at {url} over {len(names)} fixture(s)"
           + (f" --only {','.join(only)}" if only else "")
           + (f" --break {fault}" if fault else "")
-          + (f" --pass {pass_name}" if pass_name != "charge" else ""))
+          + (f" --pass {pass_name}" if pass_name != "charge" else "")
+          + (f" --ticks {ticks}" if pass_name == "tick" else ""))
     try:
         label, report = first_adapter(sets, url)
         if report is None:
@@ -233,7 +250,7 @@ def main():
             print(f"gpu-mesh: {refused}", file=sys.stderr)
             return 3
         write_page()
-        return 3 if run_fixtures(label, sets, url, names, (arm, fault, pass_name)) else 0
+        return 3 if run_fixtures(label, sets, url, names, (arm, fault, pass_name), ticks) else 0
     except (cdp.CdpError, OSError) as failure:
         print(f"gpu-mesh: could not run: {failure}", file=sys.stderr)
         return 2

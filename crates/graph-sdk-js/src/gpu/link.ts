@@ -22,6 +22,14 @@
  * are; the device never rounds a constant the CPU computed exactly.
  * `alpha` is 1 at the fixture's state (`fixtures/gpu/README.md`), so `strength` carries it.
  *
+ * ## The stage, which the tick reuses
+ *
+ * `buildLinkStage` builds the CSR, uploads the positions and the per-edge constants, compiles
+ * the pipeline and binds the group once per graph. The returned stage encodes the gather into
+ * any command encoder, so the probe and the resident tick share one set of dispatches. The
+ * probe runs it twice for `repeatEqual`; the tick runs it once per tick and merges the delta
+ * into the velocities.
+ *
  * ## The whole pass runs twice
  *
  * `repeatEqual` compares the two runs' `delta` columns as bytes. The gather has no atomics and
@@ -38,7 +46,7 @@ import { LINK_FAULT_BIAS, LINK_FRAME_BYTES, LINK_WGSL } from "./kernels/link.wgs
 import type { PassReport } from "./pass-report.ts";
 import { dispatch, groupsFor } from "./pipelines.ts";
 import { GPUBufferUsage, GPUMapMode } from "./types.ts";
-import type { GPUBindGroup, GPUBuffer, GPUComputePipeline, GPUDevice, GpuHost } from "./types.ts";
+import type { GPUBuffer, GPUCommandEncoder, GPUDevice, GpuHost } from "./types.ts";
 
 /** What the link arm needs from the host. No fault knob: the harness passes it separately. */
 export interface LinkRequest {
@@ -56,6 +64,29 @@ export interface LinkCsr {
   readonly edges: Uint32Array;
 }
 
+/** The buffers the link stage reads and writes, built once per graph. */
+export interface LinkBuffers {
+  /** The positions, `x, y` interleaved, `f32`, narrowed from the fixture once. */
+  readonly positions: GPUBuffer;
+  /** The per-node link increment the gather writes, `2n` components. */
+  readonly delta: GPUBuffer;
+  /** The read-back buffer for the probe's two runs. */
+  readonly read: GPUBuffer;
+}
+
+/**
+ * The link stage: built once per graph, encodes the gather into a given encoder.
+ *
+ * The gather reads the positions and the CSR, writes the delta. The tick merges the delta
+ * into the velocities; the probe reads it back for the report.
+ */
+export interface LinkStage {
+  readonly delta: GPUBuffer;
+  /** The link frame uniform, whose `alpha` field the tick updates every tick. */
+  readonly frame: GPUBuffer;
+  encode(encoder: GPUCommandEncoder): void;
+}
+
 /** The frozen `link_distance` and `link_strength_scale` (`params.rs:69-70`). */
 const LINK_DISTANCE = 60;
 const LINK_STRENGTH_SCALE = 0.15;
@@ -63,13 +94,52 @@ const LINK_STRENGTH_SCALE = 0.15;
 /** The `--break` faults this pass knows, by the uniform code each sets. */
 const FAULTS: Readonly<Record<string, number>> = { "link-bias": LINK_FAULT_BIAS };
 
-/** The device's buffers and the one pipeline, built once and used by both runs. */
-interface Rig {
-  readonly buffers: readonly GPUBuffer[];
-  readonly delta: GPUBuffer;
-  readonly read: GPUBuffer;
-  readonly pipeline: GPUComputePipeline;
-  readonly bind: GPUBindGroup;
+/**
+ * Builds the link stage: the CSR, the uploads, the pipeline, the bind group.
+ *
+ * The positions uploaded here are the fixture's own. The tick overwrites them every tick as
+ * the centre shift and the integrate move them; the probe never does.
+ */
+export function buildLinkStage(
+  device: GPUDevice,
+  fixture: Fixture,
+  faultCode: number,
+  buffers: LinkBuffers,
+): LinkStage {
+  const csr = linkCsr(fixture.edgeLo, fixture.edgeHi, fixture.n);
+  const { ends, geometry } = edgeTables(fixture, csr);
+  const positions = new Float32Array(fixture.n * 2);
+  for (let node = 0; node < fixture.n; node += 1) {
+    positions.set([fixture.posX[node] ?? 0, fixture.posY[node] ?? 0], node * 2);
+  }
+  // The link frame: `n`, `fault`, a pad and `alpha`. The probe leaves `alpha` at 1; the tick
+  // rewrites the `alpha` word every tick as it decays.
+  const frameWords = new ArrayBuffer(16);
+  const frameInts = new Uint32Array(frameWords);
+  const frameFloats = new Float32Array(frameWords);
+  frameInts[0] = fixture.n;
+  frameInts[1] = faultCode;
+  frameFloats[3] = 1;
+  const frame = uploaded(device, frameWords, GPUBufferUsage.UNIFORM);
+  const inputs = [frameWords, positions, csr.start, csr.edges, ends, geometry].map((data, binding) =>
+    binding === 0 ? frame : uploaded(device, data, GPUBufferUsage.STORAGE));
+  const module = device.createShaderModule({ label: "link", code: LINK_WGSL });
+  const pipeline = device.createComputePipeline({
+    label: "link",
+    layout: "auto",
+    compute: { module, entryPoint: "link_gather" },
+  });
+  const entries = [...inputs, buffers.delta].map((buffer, binding) => ({ binding, resource: { buffer } }));
+  const bind = device.createBindGroup({ label: "link", layout: pipeline.getBindGroupLayout(0), entries });
+  return {
+    delta: buffers.delta,
+    frame,
+    encode(encoder: GPUCommandEncoder): void {
+      const pass = encoder.beginComputePass();
+      dispatch(pass, pipeline, bind, groupsFor(fixture.n));
+      pass.end();
+    },
+  };
 }
 
 /**
@@ -84,18 +154,38 @@ export async function runLink(request: LinkRequest, fault?: string): Promise<Pas
   const host: GpuHost = request.host ?? navigator;
   const { device, marks, fallback } = await open(host, request.arm ?? "any", fixture);
   try {
-    const rig = build(device, fixture, code);
+    const buffers = createLinkBuffers(device, fixture);
+    const stage = buildLinkStage(device, fixture, code, buffers);
     try {
-      const first = await once(device, rig, fixture.n);
-      const second = await once(device, rig, fixture.n);
+      const first = await runLinkOnce(device, buffers, stage, fixture.n);
+      const second = await runLinkOnce(device, buffers, stage, fixture.n);
       const arm = armOf(request.arm ?? "any", fallback);
       return linkReport(fixture, { first, second, arm, marks, fallback });
     } finally {
-      rig.buffers.forEach((buffer) => buffer.destroy());
+      destroyLinkBuffers(buffers);
     }
   } finally {
     device.destroy();
   }
+}
+
+/** The link buffers: the positions, the delta and the read-back. */
+function createLinkBuffers(device: GPUDevice, fixture: Fixture): LinkBuffers {
+  const bytes = fixture.n * 8;
+  const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
+  const mapped = GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST;
+  return {
+    positions: device.createBuffer({ label: "link-positions", size: bytes, usage: storage }),
+    delta: device.createBuffer({ label: "link-delta", size: bytes, usage: storage }),
+    read: device.createBuffer({ label: "link-read", size: bytes, usage: mapped }),
+  };
+}
+
+/** Destroys the link buffers, for the `finally` of a run. */
+function destroyLinkBuffers(buffers: LinkBuffers): void {
+  buffers.positions.destroy();
+  buffers.delta.destroy();
+  buffers.read.destroy();
 }
 
 /** The fault's uniform code, `0` for none, or a refusal naming the ones that exist. */
@@ -157,40 +247,13 @@ function edgeTables(fixture: Fixture, csr: LinkCsr): { ends: Uint32Array; geomet
   return { ends, geometry };
 }
 
-/** Every buffer filled and the gather bound, once per device. */
-function build(device: GPUDevice, fixture: Fixture, faultCode: number): Rig {
-  const csr = linkCsr(fixture.edgeLo, fixture.edgeHi, fixture.n);
-  const { ends, geometry } = edgeTables(fixture, csr);
-  const positions = new Float32Array(fixture.n * 2);
-  for (let node = 0; node < fixture.n; node += 1) {
-    positions.set([fixture.posX[node] ?? 0, fixture.posY[node] ?? 0], node * 2);
-  }
-  const frame = new Uint32Array([fixture.n, faultCode, 0, 0]);
-  const inputs = [frame, positions, csr.start, csr.edges, ends, geometry].map((data, binding) =>
-    uploaded(device, data, binding === 0 ? GPUBufferUsage.UNIFORM : GPUBufferUsage.STORAGE));
-  const bytes = fixture.n * 8;
-  const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
-  const delta = device.createBuffer({ label: "link-delta", size: bytes, usage: storage });
-  const mapped = GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST;
-  const read = device.createBuffer({ label: "link-read", size: bytes, usage: mapped });
-  const module = device.createShaderModule({ label: "link", code: LINK_WGSL });
-  const pipeline = device.createComputePipeline({
-    label: "link",
-    layout: "auto",
-    compute: { module, entryPoint: "link_gather" },
-  });
-  const entries = [...inputs, delta].map((buffer, binding) => ({ binding, resource: { buffer } }));
-  const bind = device.createBindGroup({ label: "link", layout: pipeline.getBindGroupLayout(0), entries });
-  return { buffers: [...inputs, delta, read], delta, read, pipeline, bind };
-}
-
 /**
  * One buffer holding `data`, `COPY_DST` added for the upload.
  *
  * At least the uniform's 16 bytes, because a zero-length binding is a validation error and a
  * fixture with no edges would otherwise ask for one; the gather never reads past `n`'s rows.
  */
-function uploaded(device: GPUDevice, data: Uint32Array | Float32Array, usage: number): GPUBuffer {
+function uploaded(device: GPUDevice, data: ArrayBuffer | Float32Array | Uint32Array, usage: number): GPUBuffer {
   const size = Math.max(LINK_FRAME_BYTES, data.byteLength);
   const buffer = device.createBuffer({ label: "link-input", size, usage: usage | GPUBufferUsage.COPY_DST });
   device.queue.writeBuffer(buffer, 0, data);
@@ -198,15 +261,18 @@ function uploaded(device: GPUDevice, data: Uint32Array | Float32Array, usage: nu
 }
 
 /** One run: the gather, the copy, the mapped read-back of `2n` components. */
-async function once(device: GPUDevice, rig: Rig, n: number): Promise<Float32Array> {
+async function runLinkOnce(
+  device: GPUDevice,
+  buffers: LinkBuffers,
+  stage: LinkStage,
+  n: number,
+): Promise<Float32Array> {
   const encoder = device.createCommandEncoder();
-  const pass = encoder.beginComputePass();
-  dispatch(pass, rig.pipeline, rig.bind, groupsFor(n));
-  pass.end();
-  encoder.copyBufferToBuffer(rig.delta, 0, rig.read, 0, n * 8);
+  stage.encode(encoder);
+  encoder.copyBufferToBuffer(stage.delta, 0, buffers.read, 0, n * 8);
   device.queue.submit([encoder.finish()]);
-  await rig.read.mapAsync(GPUMapMode.READ);
-  const out = new Float32Array(rig.read.getMappedRange().slice(0, n * 8));
-  rig.read.unmap();
+  await buffers.read.mapAsync(GPUMapMode.READ);
+  const out = new Float32Array(buffers.read.getMappedRange().slice(0, n * 8));
+  buffers.read.unmap();
   return out;
 }

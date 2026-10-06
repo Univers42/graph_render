@@ -47,4 +47,6 @@ export { probeCharge } from "./gpu/charge-api.ts";
 export type { ChargeReport, ChargeRequest } from "./gpu/charge-api.ts";
 export { probeLink } from "./gpu/link-api.ts";
 export type { LinkRequest } from "./gpu/link-api.ts";
+export { probeTick } from "./gpu/tick-api.ts";
+export type { TickReport, TickRequest } from "./gpu/tick-api.ts";
 export { Refusal } from "./gpu/adapter.ts";

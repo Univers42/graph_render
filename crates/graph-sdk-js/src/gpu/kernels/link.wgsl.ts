@@ -31,7 +31,7 @@
 /** The `--break` selector the uniform carries: `link-bias` swaps the two ends' weights. */
 export const LINK_FAULT_BIAS = 1;
 
-/** The uniform's size: `n`, `fault` and two pads, four `u32`, one 16-byte block. */
+/** The uniform's size: `n`, `fault`, a pad and `alpha`, one 16-byte block. */
 export const LINK_FRAME_BYTES = 16;
 
 /** The WGSL for the per-node link gather. */
@@ -40,7 +40,7 @@ struct LinkFrame {
   n: u32,
   fault: u32,
   pad0: u32,
-  pad1: u32,
+  alpha: f32,
 };
 
 @group(0) @binding(0) var<uniform> frame: LinkFrame;
@@ -82,7 +82,10 @@ fn link_gather(@builtin(global_invocation_id) id: vec3<u32>) {
       continue;
     }
     let l = sqrt(d.x * d.x + d.y * d.y);
-    let factor = (l - g.x) / l * g.y;
+    // alpha is the per-tick uniform: the link's strength is alpha * strength
+    // (barnes_hut/link.rs:134), and the probe folded alpha = 1 into its upload. The tick
+    // carries the decaying alpha here, so the same kernel serves both.
+    let factor = (l - g.x) / l * g.y * frame.alpha;
     let f = d * factor;
     sum = sum + f * weight(g, pair.y == i);
   }

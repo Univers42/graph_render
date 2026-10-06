@@ -253,7 +253,7 @@ fn stress_of(topology: &Topology, geometry: &Geometry) -> Option<f64> {
 }
 
 /// Kruskal stress-1 of `x, y` against hop distance over `source`-`target` edges.
-fn stress(x: &[f32], y: &[f32], source: &[u32], target: &[u32]) -> f64 {
+pub(crate) fn stress(x: &[f32], y: &[f32], source: &[u32], target: &[u32]) -> f64 {
     let n = x.len();
     let mut adjacent = vec![Vec::new(); n];
     for (&s, &t) in source.iter().zip(target) {

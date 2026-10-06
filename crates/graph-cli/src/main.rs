@@ -15,6 +15,7 @@ mod exec_native;
 mod fingerprint;
 mod forcecheck;
 mod gpu_fixtures;
+mod gpu_stress;
 mod hashgate;
 mod ingest_cmd;
 mod ink_cmd;
@@ -139,6 +140,7 @@ fn main() -> ExitCode {
         Command::Tick(plan) => bench::tick::run(&plan),
         Command::CapProbe(plan) => bench::cap_probe::run(&plan),
         Command::MbFidelity(plan) => mb_fidelity::run(&plan),
+        Command::GpuStress(plan) => gpu_stress::run(&plan),
         Command::GpuFixtures(command) => command.run(),
     }
 }

@@ -39,16 +39,22 @@ READY_JS = """(async () => {
 })()"""
 
 # The pass dispatch: `gpu/<pass>.js` and its `run<Pass>(request, fault)` export, `runCharge`,
-# `runLink` or `runCollide`. A module without the export is a throw naming it, not a call on
-# `undefined` that reads as a kernel fault.
+# `runLink`, `runCollide` or `runTick`. A module without the export is a throw naming it, not a
+# call on `undefined` that reads as a kernel fault. The tick's report carries the final f32
+# positions, which the harness writes for `gpu-stress`; they cross as a plain array because a
+# Float32Array does not survive the CDP's JSON.
 PAGE = """<!doctype html><meta charset="utf-8"><title>gpu-mesh</title>
 <script type="module">
-window.gpuMesh = async (name, arm, fault, pass = "charge") => {
+window.gpuMesh = async (name, arm, fault, pass = "charge", ticks = 1) => {
   const module = await import("/target/gpu-js/gpu/" + pass + ".js");
   const entry = "run" + pass[0].toUpperCase() + pass.slice(1);
   if (typeof module[entry] !== "function") { throw new Error(pass + ".js has no " + entry); }
   const bytes = await (await fetch("/target/gpu-fixtures/" + name + ".gmfx")).arrayBuffer();
-  return await module[entry]({ fixture: bytes, arm }, fault);
+  const report = await module[entry]({ fixture: bytes, arm, ticks }, fault);
+  if (pass === "tick" && report.finalPositions) {
+    return { ...report, finalPositions: Array.from(report.finalPositions) };
+  }
+  return report;
 };
 </script>"""
 

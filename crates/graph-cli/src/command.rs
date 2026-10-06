@@ -293,6 +293,22 @@ pub enum Command {
     /// every size — decision 2 of `docs/decisions/obsidian-force.md`. See
     /// `docs/measurements/perf-mb-fidelity.md`.
     MbFidelity(crate::mb_fidelity::Plan),
+    /// The GPU tier's layout quality: the GPU tick's own f32 positions against the CPU mesh's
+    /// stress-1 over the same graph, from the same start, for the same tick count. The ratio
+    /// must be in [0.5, 2.0]. See `docs/measurements/gpu-force-tier.md`.
+    GpuStress(crate::gpu_stress::Plan),
+}
+
+/// What one `graph-cli gpu-stress` invocation compares.
+#[derive(clap::Args)]
+pub struct GpuStressPlan {
+    /// The `.gmfx` fixture: the graph's edges and the start positions.
+    pub fixture: PathBuf,
+    /// The GPU tick's final positions, raw f32 x,y interleaved (2n components).
+    pub positions: PathBuf,
+    /// Ticks the CPU mesh is stepped from the fixture's start positions.
+    #[arg(long, default_value_t = 1)]
+    pub ticks: u32,
 }
 
 #[cfg(test)]

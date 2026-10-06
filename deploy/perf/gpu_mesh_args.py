@@ -15,17 +15,18 @@ from pathlib import Path
 # The sizes `--only` accepts, as the fixture names' middle word. `1m` is the 1M pair.
 SIZES = ("1k", "10k", "50k", "1m")
 # The passes `--pass` accepts, each a module `gpu/<pass>.js` with a `run<Pass>` export.
-PASSES = ("charge", "link", "collide")
+PASSES = ("charge", "link", "collide", "tick")
 
 
 def parse_args(argv):
-    """`<arm> <dir> [--only 1k,10k,50k,1m] [--break <fault>] [--pass <pass>]`, or None.
+    """`<arm> <dir> [--only 1k,10k,50k,1m] [--break <fault>] [--pass <pass>] [--ticks T]`, or None.
 
-    Returns `(arm, directory, only, fault, pass_name)`; `pass_name` defaults to `charge`.
+    Returns `(arm, directory, only, fault, pass_name, ticks)`; `pass_name` defaults to `charge`
+    and `ticks` to 1.
     """
     if len(argv) < 3 or argv[1] not in ("software", "hardware"):
         return None
-    flags = {"--only": None, "--break": None, "--pass": "charge"}
+    flags = {"--only": None, "--break": None, "--pass": "charge", "--ticks": "1"}
     rest = argv[3:]
     while rest:
         if rest[0] not in flags or len(rest) < 2:
@@ -37,7 +38,7 @@ def parse_args(argv):
         return None
     if flags["--pass"] not in PASSES:
         return None
-    return argv[1], argv[2], only, flags["--break"], flags["--pass"]
+    return argv[1], argv[2], only, flags["--break"], flags["--pass"], int(flags["--ticks"])
 
 
 def fixtures(directory, only):
@@ -54,15 +55,15 @@ def fixtures(directory, only):
     return [stem for stem in stems if stem.split("-")[1] in only]
 
 
-def call_js(name, arm, fault, pass_name):
-    """`window.gpuMesh(name, arm, fault, pass)` as one expression, each argument a JS literal.
+def call_js(name, arm, fault, pass_name, ticks=1):
+    """`window.gpuMesh(name, arm, fault, pass, ticks)` as one expression, each a JS literal.
 
     `json.dumps`, not `!r`: `!r` writes the five letters `None` and the page answers
     `ReferenceError: None is not defined` — a harness bug in the costume of a kernel failure, on
     every fixture at once.
     """
     return (f"window.gpuMesh({json.dumps(name)}, {json.dumps(arm)}, {fault_js(fault)}, "
-            f"{json.dumps(pass_name)})")
+            f"{json.dumps(pass_name)}, {ticks})")
 
 
 def fault_js(fault):
@@ -73,10 +74,25 @@ def fault_js(fault):
 def line(report, ms):
     """One fixture's line: every report field, and the wall time the harness measured.
 
-    A `ChargeReport` is the one with a `side`; anything else is a `PassReport`.
+    A `ChargeReport` is the one with a `side`; a `TickReport` is the one with `msPerTick`;
+    anything else is a `PassReport`.
     """
-    fields = charge_fields(report, ms) if "side" in report else pass_fields(report, ms)
+    if "side" in report:
+        fields = charge_fields(report, ms)
+    elif "msPerTick" in report:
+        fields = tick_fields(report, ms)
+    else:
+        fields = pass_fields(report, ms)
     return f"{' '.join(report['failures'])} {fields}" if report["failures"] else fields
+
+
+def tick_fields(report, ms):
+    """Every `TickReport` field: the ms/tick the tick measured and the harness's wall time."""
+    return (
+        f"n={report['n']} ticks={report['ticks']} msPerTick={report['msPerTick']:.3f} "
+        f"collide={report['collide']} repeatEqual={report['repeatEqual']} "
+        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} ms={ms:.1f}"
+    )
 
 
 def charge_fields(report, ms):
