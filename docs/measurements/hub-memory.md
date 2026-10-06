@@ -1,9 +1,9 @@
-# graph-hub memory: F_w, the last-seen entry, and the peak at every cap
+# graph-hub memory: F_w, the last-seen entry, the change header, and the peak at every cap
 
 Measured 2026-10-06 for the `hub-memory` row of spec §6 and §8
 (`docs/superpowers/specs/2026-10-05-graph-service-plugins-design.md`). The spec planned two terms of
 the memory budget with borrowed or estimated numbers: `F_w` (graph-server's 18.25, measured on another
-reader) and the last-seen entry (256 B, estimated). Both are measured here on the hub's own code, and
+reader), the last-seen entry and the change header (256 B each, estimated). All three are measured here on the hub's own code, and
 the cases in `server/graph-hub/tests/memory.rs` assert the ceilings below.
 
 ## Ledger
@@ -15,6 +15,7 @@ run that justifies it.
 |---|---|---|---|
 | `f_w_ceiling` | 52 | 50.92 worst of three runs | peak bytes per byte of `MAX_BODY` |
 | `last_seen_entry_ceiling_bytes` | 272 | 263.8 | bytes per entry at `GRAPH_HUB_LAST_SEEN` = 65 536 |
+| `max_header_ceiling_bytes` | 410 | 326.2 worst of two runs | bytes per change header in one SSE read |
 
 ## Conditions
 
@@ -93,21 +94,46 @@ this is left as the upgrade path if a smaller container is ever needed.
 
 The spec planned 256 B. At the default the map is 16.5 MiB rather than 16 MiB.
 
+## The change header
+
+An SSE subscriber holds one page of change headers at a time (`events::page::page`, which reads
+`graph_store::changes::heads`: seq, plugin and timestamp, no operations). The case
+`a_changes_page_holds_at_most_sse_page_headers` (`tests/memory/heads.rs`) seeds one workspace with
+2 050 changes, each one record carrying a 1 KiB note, then reads 1, `SSE_PAGE` (256) and 2 048
+headers from seq 0, each read in its own child. The per-header cost is the slope between the 1 and the
+2 048 read. The 256 read proves the page stops at `SSE_PAGE`, and the 2 048 read proves the 8 MiB
+byte cut did not shorten the measured read.
+
+| Run | Children per size | Peak at 1 | Peak at 256 | Peak at 2 048 | Bytes per header |
+|---|---|---|---|---|---|
+| `~/goinfre/logs/hub-maxheader-b1.out` | 1 | 622 592 | 737 280 | 1 101 824 | 234.1 |
+| `~/goinfre/logs/hub-maxheader-c1.out` | least of 3 | 524 288 | 581 632 | 1 191 936 | 326.2 |
+
+The spec planned 256 B. The ceiling is the worst run plus the noise bound below, rounded up: 410 B.
+Break `sse-full-page` makes the read pull every change's operations, as `/changes` does. Each header
+then carries its 1 KiB note, and the case fails the ceiling (row `negctl-sse-full-page`).
+
+Caveat: the slope is taken over resident pages. One read's peak moved by about 150 KiB from run to run
+(three earlier runs at 256 headers gave 48, 257 and 1 124 B per header, `hub-maxheader-{1,2,3}.out`,
+even under `MALLOC_ARENA_MAX=1`). Over 2 047 headers that is about ±75 B per header, so the figure
+is good to that much. Each child keeps the least of three peaks, because the noise only adds pages.
+
 ## The budget at the defaults, with the measured numbers
 
-Spec §6's formula with `F_w` = 52 and the entry at 272 B; every other term is the spec's.
+Spec §6's formula with `F_w` = 52, the entry at 272 B and `max_header` at 410 B; every other term is
+the spec's.
 
 | Term | Formula at the defaults | MiB |
 |---|---|---|
 | writers | 2 × 4 MiB × 52 | 416 |
 | reads and layouts | (2 + 1) × max(2 × 32 × 1 MiB + 1 MiB × 52, 2 × 8 MiB, 64 × 256 KiB, 1 MiB) | 348 |
 | headers | 256 × 16 KiB | 4 |
-| subscribers | 64 × (256 B + 256 × 256 B) | 4.02 |
+| subscribers | 64 × (256 B + 256 × 410 B) | 6.42 |
 | last-seen map | 65 536 × 272 B | 17 |
 | pool | 8 × 1 MiB (planned `conn_buf`) | 8 |
-| **total** | plus `base` and three `IO_BUF` | **797** |
+| **total** | plus `base` and three `IO_BUF` | **799** |
 
-That leaves 227 MiB of the container's 1 GiB for `base` and the I/O buffers, so no default shrinks on
+That leaves 225 MiB of the container's 1 GiB for `base` and the I/O buffers, so no default shrinks on
 this arithmetic. Caveat: this is arithmetic over a measured `F_w`, not a measurement of the whole
 process; the container run below is.
 
@@ -143,6 +169,7 @@ below writers × the single-body peak. The control is sized to pass the cap even
 | 3 | the same, debug profile (`~/goinfre/logs/hub-mem-debug.out`, 56.16 s) | 0 |
 | 4 | `scripts/orch/hub-mem.sh measure` (`~/goinfre/logs/hub-mem-container-measure.out`) | 0 |
 | 5 | `scripts/orch/hub-mem.sh control` (`~/goinfre/logs/hub-mem-container-control.out`) | 137 |
+| 6 | `scripts/orch/gr -e GM_HUB_PG_URL cargo test --manifest-path server/Cargo.toml -p graph-hub --release --features db-tests --test memory heads:: -- --test-threads=1 --nocapture` (before the ledger row; `hub-maxheader-b1.out` 288 s, `hub-maxheader-c1.out` 460 s) | 101 |
 
 ## Deviations from the plan
 
@@ -156,8 +183,15 @@ below writers × the single-body peak. The control is sized to pass the cap even
   tests do not depend on graph-cli.
 - The container run sets `GRAPH_HUB_WRITERS_PER_KEY` to the writer count so one key can hold every
   writer permit at once; the default is 1.
-- The reads, layouts and subscribers terms are arithmetic only. The records page carries no record
-  values and the hub calls no motor yet, so no route reaches those peaks. The SSE-page case waits on
-  Task 7 and the upload and throttled-upload rows on Task 8.
+- The reads and layouts terms are arithmetic only: no case drives those routes to their peaks. The
+  subscribers term is measured per header (above), not as 64 subscribers at once.
+- The SSE page read operations before this change: `events::page` took a full `/changes` page and
+  kept its headers, so one subscriber could hold `CHANGES_BYTES` of operations rather than
+  `SSE_PAGE × max_header`. It now reads headers only (`graph_store::changes::heads`); break
+  `sse-full-page` restores the old read as the negative control.
+- Seeding the header case costs about 5 minutes. Each batch's commit runs `retention::prune`, whose
+  window over the kept log is O(kept) (its own Caveat). Per-post time grew from 58 ms at 258 changes
+  to 139 ms at 2 050, so filling a log costs O(n²). The upgrade path, a `log_bytes` column on
+  `workspaces`, is named in `retention.rs`.
 - The hub does not migrate its database on start; the container case migrates it
   (`support::db::migrated`) before the first write.

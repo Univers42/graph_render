@@ -565,8 +565,12 @@ M = base
   fragmentation count and 4 KiB rounding and the glibc version both move it, and a musl or jemalloc
   build needs its own run.
 - The `MAX_RECORD_BYTES × F_w` term is one pruned record parsed at a time.
-- `max_header` is one change header row as read (seq, plugin, counts, timestamp), about 256 B.
-  Caveat: estimated, not measured; slice 3's `hub-memory` run measures it.
+- `max_header` is one change header as an SSE read holds it (seq, plugin, timestamp; no operations).
+  Slice 3 replaced the estimate with **`max_header` = 410 B**, the worse of two runs being 326.2 B
+  (`docs/measurements/hub-memory.md`, ledger `max_header_ceiling_bytes`; asserted by
+  `server/graph-hub/tests/memory/heads.rs`, which also proves the read stops at `SSE_PAGE`). Caveat:
+  a slope over 2 047 headers of resident pages; one read's page noise of about 150 KiB is about
+  ±75 B per header, and the ceiling carries that margin.
 - `LAST_SEEN × last_seen_entry` is the last-seen map (an id of at most 63 B, the epoch, `head_seq` and
   the eviction links) plus the one detector read of the same ids at a time: the detector's mutex
   serializes them. Slice 3 replaced the estimate with **`last_seen_entry` = 272 B**, the measured
@@ -577,12 +581,12 @@ M = base
 - The `2 ×` on `FETCH_ROWS` is the second portal, the anti-join (§5.3). `64 × 256 KiB` is
   `GET /plugins`; `MAX_RECORD_BYTES` alone is one record's route. The batch's hash compare
   (at most 320 000 B, §5.1) sits inside `MAX_BODY × F_w`.
-- At the defaults, arithmetic over the two measured values: 416 MiB for writers
+- At the defaults, arithmetic over the three measured values: 416 MiB for writers
   (2 × 4 MiB × 52), 348 MiB for reads and layouts together (3 permits × 116 MiB, the
   `2 × FETCH_ROWS × MAX_RECORD_BYTES + MAX_RECORD_BYTES × F_w` arm at 64 + 52 MiB), 4 MiB for
-  headers (256 × 16 KiB), 4.02 MiB for subscribers (64 × (256 B + 256 × 256 B)), 17 MiB for the
-  last-seen map (65 536 × 272 B), 8 MiB for the pool at a planned 1 MiB `conn_buf`: about 797 MiB
-  plus `base` and the `IO_BUF` terms, which leaves 227 MiB of the container's 1 GiB.
+  headers (256 × 16 KiB), 6.42 MiB for subscribers (64 × (256 B + 256 × 410 B)), 17 MiB for the
+  last-seen map (65 536 × 272 B), 8 MiB for the pool at a planned 1 MiB `conn_buf`: about 799 MiB
+  plus `base` and the `IO_BUF` terms, which leaves 225 MiB of the container's 1 GiB.
 - Slice 3 measured the whole process, not only the terms: `scripts/orch/hub-mem.sh measure` runs the
   hub image under `--memory 1g --memory-swap 1g` with one `MAX_BODY` body parked behind a barrier
   per writer, and reads `VmHWM` (404 580 KiB, 395 MiB) and the cgroup peak. No default had to

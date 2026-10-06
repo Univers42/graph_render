@@ -23,6 +23,9 @@ const CHANGES_BYTES: u64 = 8 << 20;
 /// must be large enough that this noise is a few bytes per header.
 const MEASURED: u64 = 2048;
 
+/// Children per read size; the least peak is kept, since the noise only ever adds pages.
+const TRIES: usize = 3;
+
 /// The note each seeded change carries: large enough that a read of operations shows, small enough
 /// that `MEASURED` of them stay under `CHANGES_BYTES` and the byte cut does not shorten the page.
 const NOTE: usize = 1 << 10;
@@ -31,8 +34,9 @@ const NOTE: usize = 1 << 10;
 /// child, so the connection and runtime both reads open cancel out; an `SSE_PAGE` read in between
 /// proves the read stops at the count it is given.
 ///
-/// Caveat: the slope is taken over resident pages and one run's noise, so it is good to about
-/// 150 KiB / 2047 ≈ 75 B per header either way; the ledger's ceiling carries that margin.
+/// Caveat: the slope is taken over resident pages, the least of `TRIES` children per size, so it
+/// is good to about 150 KiB / 2047 ≈ 75 B per header either way at worst; the ledger's ceiling
+/// carries that margin.
 #[tokio::test]
 async fn a_changes_page_holds_at_most_sse_page_headers() {
     let hub = hub_db(&[]).await;
@@ -52,9 +56,16 @@ async fn a_changes_page_holds_at_most_sse_page_headers() {
     let one = read_in_child(&ws, &epoch, 1).await;
     let page = read_in_child(&ws, &epoch, SSE_PAGE).await;
     let full = read_in_child(&ws, &epoch, MEASURED).await;
-    assert_eq!(one.size, 1, "a one-header read returned {} headers", one.size);
+    assert_eq!(
+        one.size, 1,
+        "a one-header read returned {} headers",
+        one.size
+    );
     assert_eq!(page.size, SSE_PAGE, "the read did not stop at SSE_PAGE");
-    assert_eq!(full.size, MEASURED, "the byte cut shortened the measured read");
+    assert_eq!(
+        full.size, MEASURED,
+        "the byte cut shortened the measured read"
+    );
     let per_header = full.peak.saturating_sub(one.peak) as f64 / (MEASURED - 1) as f64;
     println!(
         "HUB_MEM max_header={per_header:.1} peak_1={} peak_{SSE_PAGE}={} peak_{MEASURED}={}",
@@ -68,6 +79,17 @@ async fn a_changes_page_holds_at_most_sse_page_headers() {
 }
 
 async fn read_in_child(ws: &str, epoch: &str, at_most: u64) -> Measured {
+    let mut least: Option<Measured> = None;
+    for _ in 0..TRIES {
+        let run = one_child(ws, epoch, at_most).await;
+        if least.as_ref().is_none_or(|kept| run.peak < kept.peak) {
+            least = Some(run);
+        }
+    }
+    least.expect("TRIES is not zero")
+}
+
+async fn one_child(ws: &str, epoch: &str, at_most: u64) -> Measured {
     let vars = vec![
         ("HUB_MEM_WS", ws.to_owned()),
         ("HUB_MEM_EPOCH", epoch.to_owned()),
