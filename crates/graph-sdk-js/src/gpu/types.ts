@@ -34,6 +34,11 @@ export interface GPUAdapterInfo {
   readonly architecture?: string;
   readonly device?: string;
   readonly description?: string;
+  /**
+   * Whether this is the browser's software fallback. It sits on `adapter` on some builds and
+   * on `info` on others, so both are read (`adapter.ts`).
+   */
+  readonly isFallbackAdapter?: boolean;
 }
 
 /** The five limits the charge pass queries before it dispatches anything. */

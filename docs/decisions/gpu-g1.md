@@ -70,3 +70,87 @@ agree. It does not prove either read the mesh. The independent check already in 
 `mb_fidelity`, which grades `charge_deltas` against the exact all-pairs sum; run it on the same
 fixtures and let its number, not the probe's self-agreement, be what says the column is the
 mesh's.
+
+## Amendment 1 — the collide guard (orchestrator, 2026-10-06; an independent review is owed)
+
+**Finding.** The plan's collide guard, `rmsRel ≤ 1e-4`, fails on `mesh-1k-settled` on both arms
+(`rmsRel` 5.41e-4 hardware, 5.38e-4 software), while the other five fixtures pass. The kernel is
+not the cause: a JS `f32` reference that follows the kernel op for op gives `rmsRel` 5.379e-4 and
+`maxAbs` 2.637e-5, and the device gives 5.406e-4 and 2.637e-5 (`docs/measurements/gpu-g1.md`, "G1c
+— the collide pass", branch `gpu-g1c-collide`).
+
+**Why the guard is wrong.** The guard is relative to the net delta. At equilibrium the pushes on a
+node nearly cancel: that fixture's `rmsRef` is 0.0072, against 0.67 to 172 on the other five. The
+`f32` rounding error, however, scales with the pushes themselves, not with their net. The bound for
+a rounded sum is `|fl(Σxᵢ) − Σxᵢ| ≤ γₖ·Σ|xᵢ|` (Higham), and that bound is relative to `Σ|xᵢ|`,
+not to `|Σxᵢ|`.
+
+**Ruling.** The collide guard becomes mixed, absolute plus relative, in the form of condition 8:
+
+`rmsAbs ≤ 1e-4 · rmsRef + k_c · 5 · 2⁻²³ · P`
+
+As a relative guard for `compare()`, this is `1e-4 + k_c · 5 · 2⁻²³ · P / rmsRef`.
+
+- `k_c` is the largest number of contacts of any one node: pairs closer than `reach`, the CPU's
+  `d2` test. It is counted in f64 on the host from the fixture's own start positions.
+- `P` bounds one push. The push is `(reach − dist)·0.5` (`collide.rs:254-256`), so its magnitude is
+  at most `reach / 2 = collide_radius`. `P` also carries any strength factor that the
+  `delta_collide` column includes.
+- `5 · 2⁻²³` is condition 8's per-term rounding (`0.5 + 2 + 2.5` ULP for the product, the `sqrt`
+  and the division), with an f32 ULP of `2⁻²³`.
+- Caveat: `k_c` is measured on the fixture's positions. A denser crowd raises it, so the guard is
+  only as good as the fixture's measured crowd, the same limit condition 8 states for link.
+
+**Condition 9 still binds.** `collide-window` must still fail under the new guard on both 1k
+fixtures. On `mesh-1k-settled` its `rmsAbs` is about 0.62 · 0.0072 = 4.5e-3. At `k_c ≤ 55` and
+`P = 16`, the new term is at most 5.2e-4, so the control stays red by about 8.6×.
+
+## Amendment 2 — the 1M charge `maxAbs` guard (orchestrator, 2026-10-06; an independent review is owed)
+
+**Finding.** G1b stopped at the plan's 1M stop. Its `maxAbs` was 2.36e-2 on `mesh-1m-settled`
+against a guard of 4.96e-5, and 8.98e-3 on `mesh-1m-start` against 3.50e-5. Its `rmsRel` stayed
+under 1e-4 on both (3.64e-5 and 7.48e-5).
+
+**The experiment.** The analysis job `g1b-floor` ran a numpy transcription of the charge pass
+against the fixtures' f64 `delta_charge`.
+
+- **(a) f64 throughout** reproduces every fixture to `maxAbs` ~1e-13, so the transcription is
+  right.
+- **(b) the GPU's f32 arithmetic** (the 2⁻¹¹ fixed-point deposit, a radix-2 FFT in complex64 and
+  an f32 read) gives `rmsRel` 3.65e-5 / 7.49e-5 and `maxAbs` 2.97e-2 / 1.01e-2 at 1M.
+  - The GPU matches it to three significant figures in `rmsRel`.
+  - The GPU's `maxAbs` is 21% and 11% lower: the spread of a single maximum.
+- **(c) f64 everything except the quantised deposit** alone gives 2.85e-2 / 9.71e-3. The deposit
+  quantum is the dominant error, as the guard assumed.
+- **(d) the f32 transform alone** gives 1.18e-4 / 5.76e-5.
+
+So no correct f32 implementation meets the old guard. Even a perfect transform over the
+quantised deposit misses it by 277× to 575×. The kernel is not defective.
+
+The script was kept on branch `g1b-floor` under `target/floor/` (untracked); its re-run command
+is in the job's report.
+
+**Why the guard is wrong.** Its deposit term, `2⁻¹¹/√3`, is right: the rms of four CIC weights,
+each rounded over one quantum. Two steps after it are wrong.
+
+1. **The propagation factor.** The field is the convolution of the density error with the
+   sampled kernel `g`, so the field error's rms is `δ_rms · ‖g‖₂`, not `δ_rms / h²`. The kernel
+   `G = −r/l(r)` is a 1/r law. The 2-norm comes from the fixture's own spectrum:
+   `‖g‖₂ = P·‖spectrum‖₂`, which is 0.2085 on the settled fixture and 0.1712 on the start one.
+   `1/h²` is about 100× smaller than that.
+2. **An rms read as a maximum.** The guard has no peak factor over the 2n read components.
+
+**Ruling.** At the two 1M fixtures the guard becomes:
+
+`maxAbs ≤ |charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6`, with `‖g‖₂ = P · ‖spectrum‖₂`
+
+- The factor 6 is `√(2·ln 2n)` = 5.39 at n = 1e6, rounded up.
+- `‖spectrum‖₂` is computed from the fixture's spectrum section, as condition 8 reads `k` from
+  the fixture's own edges.
+- Values: 3.17e-2 settled, 2.61e-2 start. The GPU sits under both, by 1.34× and 2.9×.
+- Below 1M there is still no `maxAbs` guard (`prompts/jobs/gpu-g1b.md:86-88`). `rmsRel ≤ 1e-4`
+  is unchanged everywhere.
+- Caveat: this is a statistical bound, not a strict one. It models the deposit error as white
+  noise and its peak as Gaussian. The fixed-point weights sum to exactly one per node, which makes
+  the true error field slightly smaller than the model. The f32 transcription sits 7% under the
+  settled value. Another seed's 1M maximum could cross it, and that is a stop, not a re-tune.

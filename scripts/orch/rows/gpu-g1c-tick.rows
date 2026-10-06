@@ -1,0 +1,34 @@
+# gpu-g1c-tick — the resident GPU tick, its ms per tick at 1M and its stress against the CPU mesh
+# (prompts/jobs/gpu-g1c-tick.md). Base: gpu-g1c (G1b's tip + the link slice). GPU rows take gpu.lock.
+# scope: a file is the slice's when it differs from both bases (gpu-g1c, and the develop push-once merged in).
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy -p graph-cli --all-targets -- -D warnings
+cli-test|0|scripts/orch/gr cargo test -p graph-cli --no-fail-fast gpu_stress
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-lint|0|scripts/orch/node-slim.sh npm run sdk:lint
+# G1b's two table tests are red until its 1M guard is ruled on; every other case must pass.
+sdk-test|0|scripts/orch/node-slim.sh npm run -s sdk:test > target/gpu-g1c-tick-sdk.log 2>&1; f=$(grep -c '^not ok' target/gpu-g1c-tick-sdk.log); test "$f" -eq 0 || { test "$f" -le 2 && ! grep '^not ok' target/gpu-g1c-tick-sdk.log | grep -v -E 'the_comparator_names_the_failing_case|every_ceiling_sits_under_its_guard' | grep .; }
+named-tests|0|for t in the_pass_order_is_the_meshes the_centre_shift_is_the_cpus_fold the_frame_matches_every_fixture_header; do git grep -q $t -- crates/graph-sdk-js/test || exit 1; done; git grep -q a_gpu_stress_of_the_cpu_s_own_positions_is_one -- crates/graph-cli/src
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/src/gpu
+no-f16|0|! git grep -n -i 'f16' -- crates/graph-sdk-js/src/gpu
+caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/frame.ts && git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/tick.ts
+no-public-surface|0|! git grep -n 'gpu' -- crates/graph-sdk-js/src/index.ts
+scope|0|b1=$(git merge-base HEAD gpu-g1c); b2=$(git merge-base HEAD origin/develop); test -z "$(comm -12 <(git diff --name-only "$b1" | sort) <(git diff --name-only "$b2" | sort) | grep -v -E '^(crates/graph-sdk-js/src/gpu\.ts|crates/graph-sdk-js/src/gpu/[a-z-]+\.ts|crates/graph-sdk-js/src/gpu/kernels/motion\.wgsl\.ts|crates/graph-sdk-js/test/gpu-[a-z-]+(\.test|\.control)?\.mjs|deploy/perf/gpu-mesh\.py|deploy/perf/gpu_mesh_[a-z_]+\.py|crates/graph-cli/src/(gpu_stress\.rs|gpu_stress/.*|bench\.rs|main\.rs|command\.rs)|docs/measurements/gpu-g1\.md)$' | grep -v -E '^crates/graph-sdk-js/src/gpu/(collide|collide-api|bounds-collide)\.ts$|^crates/graph-sdk-js/src/gpu/kernels/collide[a-z-]*\.wgsl\.ts$')" && test -z "$(git diff --name-only "$b1" -- crates/graph-sdk-js/src/gpu/bounds.ts crates/graph-sdk-js/src/gpu/bounds-link.ts crates/graph-core crates/graph-wasm packages app src)"
+file-size|0|! git ls-files crates/graph-sdk-js/src/gpu crates/graph-sdk-js/src/gpu.ts deploy/perf crates/graph-cli/src/gpu_stress.rs | xargs wc -l | grep -v ' total$' | awk '$1 > 300' | grep .
+
+emit|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --out target/gpu-fixtures
+gpu-js|0|scripts/orch/node-slim.sh npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir target/gpu-js
+gpu-js-imports|0|test -s target/gpu-js/gpu/tick.js && ! grep -rn -E "from ['\"][^'\"]*\.ts['\"]" target/gpu-js
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+
+# the per-pass probes are unchanged by the refactor
+link-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass link --only 1k,10k,50k
+charge-hardware-small|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k,10k,50k
+# the tick: one-tick displacement and stress on the small fixtures, speed at 1M alone
+tick-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass tick --ticks 1 --only 1k,10k,50k
+stress|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass tick --ticks 300 --only 10k,50k && for f in mesh-10k-start mesh-50k-start; do scripts/orch/gr cargo run -q -p graph-cli -- gpu-stress target/gpu-fixtures/$f.gmfx target/gpu-tick/$f.f32 --ticks 300 || exit 1; done
+tick-1m|0|test "$(free -g | awk '/^Mem:/{print $7}')" -ge 12 && flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 PERF_MEMORY=12g scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass tick --ticks 21 --only 1m
+negctl-tick-decay|0|sh -c 'flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass tick --ticks 1 --only 1k --break tick-decay > target/gpu-g1c-tick-decay.log 2>&1; test $? -eq 3 && grep -q "^FAIL" target/gpu-g1c-tick-decay.log'
+negctl-tick-order|0|sh -c 'flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass tick --ticks 1 --only 1k --break tick-order > target/gpu-g1c-tick-order.log 2>&1; test $? -eq 3 && grep -q "^FAIL" target/gpu-g1c-tick-order.log'
