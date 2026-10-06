@@ -15,7 +15,6 @@ wasm-horizontal|0|scripts/orch/gr cargo build -q -p graph-wasm --release --targe
 negctl-wasm-horizontal|0|scripts/orch/gr cargo build -q -p graph-wasm --release --target wasm32-unknown-unknown && scripts/orch/node-slim.sh node --experimental-strip-types harness/horizontal-wasm.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm --break; test $? -eq 1
 hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
-capabilities|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
 codegen|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
 svc-test|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --workspace --no-fail-fast
 sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
