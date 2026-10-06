@@ -83,10 +83,10 @@ fn fmix64(k: vec2<u32>) -> vec2<u32> {
   return xor_shift(h);
 }
 
-// rng.rs jiggle(co.seed, co.tick, pass, (i, j)), then jiggle_of's (w * 2^-53 - 0.5) * 1e-6.
-fn jiggle(pass: u32, i: u32, j: u32) -> f32 {
+// rng.rs jiggle(co.seed, co.tick, salt, (i, j)), then jiggle_of's (w * 2^-53 - 0.5) * 1e-6.
+fn jiggle(salt: u32, i: u32, j: u32) -> f32 {
   let a = fmix64(vec2<u32>(co.seed, co.tick));
-  let b = fmix64(vec2<u32>(a.x ^ min(i, j), a.y ^ pass));
+  let b = fmix64(vec2<u32>(a.x ^ min(i, j), a.y ^ salt));
   let h = fmix64(vec2<u32>(b.x ^ a.x, b.y ^ max(i, j) ^ a.y));
   let w_hi = h.y >> 11u;
   var w_lo = (h.x >> 11u) | (h.y << 21u);
