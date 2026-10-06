@@ -6,6 +6,11 @@
 //! cycle-breaking branch, the `EdgeReversed` note path, or the ready heap's `version`
 //! comparison. These four cases are that coverage. `docs/decisions/dag-lanes.md`
 //! conditions 2 and 7.
+//!
+//! It also carries the two shapes that pin rule D (`docs/decisions/dag-lanes-merge.md`
+//! conditions 3 and 4) in numbers: no structural check in the tree tells rule D from rule C,
+//! so a hand-written lane assignment is the only evidence that the `S < lane(v)` guard is
+//! there.
 
 use super::*;
 use crate::index::index_model;
@@ -98,8 +103,9 @@ fn parallel_edges_between_one_pair_leave_nothing_sitting() {
 }
 
 /// A merge of fan-in 50 whose sources sit at 50 different rows, which is what makes the
-/// convergence lanes real: each source carries its own lane down to `sink` and the sink's
-/// own row must find none of them.
+/// convergence lanes real: under rule D every source but the first shares the column already
+/// waiting for `sink`, so the fan-in costs the columns the sources occupy and not one column
+/// per source, and the sink's own row must find none of them running past it.
 #[test]
 fn a_merge_with_a_fifty_way_fan_in_from_different_rows_leaves_nothing_sitting() {
     let mut n: Vec<NodeRecord> = (0..50)
@@ -117,6 +123,93 @@ fn a_merge_with_a_fifty_way_fan_in_from_different_rows_leaves_nothing_sitting() 
         e.push(arc(&format!("h{i}"), "head", &format!("s{i}")));
     }
     assert_nothing_sits_on_an_edge(&n, &e, "fan-in 50");
+}
+
+/// `(lane, carried, width)` straight from the assignment, for the tests that pin *which*
+/// column an edge runs down rather than the polyline it drew. The width is the pool's: one
+/// past the largest lane any vertex or edge used, self-loops (`NONE`) excluded.
+fn assigned(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> (Vec<u32>, Vec<u32>, u32) {
+    let topology = index_model(nodes, edges).expect("fits");
+    let rows = rows::Rows::of(&topology);
+    let drawing = assign::Drawing::of(&topology, &rows);
+    let used = drawing
+        .lane
+        .iter()
+        .chain(drawing.carried.iter())
+        .filter(|&&l| l != assign::NONE)
+        .max()
+        .copied()
+        .unwrap_or(0);
+    (drawing.lane, drawing.carried, used + 1)
+}
+
+/// Rule D, both arms in one vertex (`docs/decisions/dag-lanes-merge.md` condition 3). `d→b`
+/// pushes lane 0, so `a` settles on lane 1 and its **first** edge `a→b` shares the column
+/// already waiting for `b` (`S = 0 < 1`), bending left; `a→c` finds nothing waiting and
+/// pushes `lane(a) = 1`; `a→e` then finds its own lane already carried and opens a fresh
+/// lane 2. Dropping the `S < lane(v)` clause draws `c→e` into lane 2 too — rule C's picture,
+/// width 4 — and that passes every structural check in the tree.
+#[test]
+fn a_line_bends_left_into_a_column_already_waiting_and_keeps_a_fresh_one_for_its_third_edge() {
+    let n = [
+        vertex("a", 1.0),
+        vertex("b", 2.0),
+        vertex("c", 3.0),
+        vertex("d", 4.0),
+        vertex("e", 5.0),
+    ];
+    let e = [
+        arc("ab", "a", "b"),
+        arc("ac", "a", "c"),
+        arc("ae", "a", "e"),
+        arc("ce", "c", "e"),
+        arc("db", "d", "b"),
+    ];
+    let (x, y, paths, notes) = drawn(&n, &e);
+    let (lane, carried, width) = assigned(&n, &e);
+    assert_eq!(x, [1.0, 0.0, 1.0, 0.0, 1.0], "a, b, c, d, e");
+    assert_eq!(y, [1.0, 4.0, 2.0, 0.0, 3.0], "a, b, c, d, e");
+    assert_eq!(
+        carried,
+        [0, 1, 2, 1, 0],
+        "ab shares 0, ae opens 2, ce joins 1"
+    );
+    assert_eq!(width, 3);
+    assert_eq!(paths.offsets, [0, 1, 1, 3, 3, 3]);
+    assert_eq!(paths.pts, [0.0, 1.5, 2.0, 1.5, 2.0, 2.5]);
+    assert!(notes.is_empty());
+    assert_eq!(lane[0], 1, "a holds the lane no edge took");
+}
+
+/// Rule D on the converging case the spec describes (`condition 4`): three lines forked
+/// separately off one base, the second and third of which find a column already waiting for
+/// it. Each shares it, so the base settles in one lane and the drawing is width 2.
+#[test]
+fn three_lines_forked_from_one_base_share_the_column_waiting_for_it() {
+    let n = [
+        vertex("a", 1.0),
+        vertex("b", 2.0),
+        vertex("c", 3.0),
+        vertex("d", 4.0),
+    ];
+    let e = [
+        arc("da", "d", "a"),
+        arc("ca", "c", "a"),
+        arc("ba", "b", "a"),
+    ];
+    let (x, y, paths, notes) = drawn(&n, &e);
+    let (_, carried, width) = assigned(&n, &e);
+    assert_eq!(x, [0.0, 1.0, 1.0, 0.0], "a, b, c, d");
+    assert_eq!(y, [3.0, 2.0, 1.0, 0.0], "a, b, c, d");
+    assert_eq!(
+        carried,
+        [0, 0, 0],
+        "all three forks share the base's column"
+    );
+    assert_eq!(width, 2);
+    assert_eq!(paths.offsets, [0, 0, 1, 2]);
+    assert_eq!(paths.pts, [0.0, 1.5, 0.0, 2.5]);
+    assert!(notes.is_empty());
 }
 
 /// A reversed (head-to-tail) edge spanning several rows: the shape the seeded gate model

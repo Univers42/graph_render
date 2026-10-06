@@ -1,0 +1,34 @@
+# gpu-g1b — the WGSL charge pass against G1a's fixtures: bounds, deposit, FFT with the kernel,
+# field read, and the guards and measured ceilings each is held to (prompts/jobs/gpu-g1b.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-lint|0|scripts/orch/node-slim.sh npm run sdk:lint
+sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
+negctl-workgroup|nonzero|scripts/orch/node-slim.sh bash -c 'node --experimental-strip-types crates/graph-sdk-js/test/gpu-wgsl.control.mjs; test $? -ne 0'
+named-tests|0|git grep -q every_kernel_is_256_wide_and_f32 -- crates/graph-sdk-js/test && git grep -q the_comparator_names_the_failing_case -- crates/graph-sdk-js/test && git grep -q every_ceiling_sits_under_its_guard -- crates/graph-sdk-js/test
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/src/gpu
+no-f16|0|! git grep -n -i 'f16' -- crates/graph-sdk-js/src/gpu
+no-wrong-bounds|0|! git grep -n -E '8e-7|k = 4|√2 · 2⁻¹¹' -- crates/graph-sdk-js/src/gpu
+caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/bounds.ts
+no-public-surface|0|! git grep -n 'gpu' -- crates/graph-sdk-js/src/index.ts
+scope|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" -- crates/graph-core crates/graph-cli fixtures app packages src package.json package-lock.json deploy/serve.py)"
+
+# The fixtures (all eight; only the 1k pair is committed) and the page's JS.
+emit|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --out target/gpu-fixtures
+gpu-js|0|scripts/orch/node-slim.sh npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir target/gpu-js
+gpu-js-imports|0|test -s target/gpu-js/gpu/charge.js && ! grep -rn -E "from ['\"][^'\"]*\.ts['\"]" target/gpu-js
+
+# studio-probe.sh refuses to start without app/dist (scripts/orch/rows/force-warm.rows:28-30).
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+
+charge-hardware|0|GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures
+charge-software|0|scripts/studio-probe.sh gpu-mesh software target/gpu-fixtures --only 1k,10k,50k
+
+# Each control must be caught by its own check (exit 3 and the named failure), not by a crash.
+negctl-butterfly|0|sh -c 'GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k --break butterfly > target/gpu-g1b-butterfly.log 2>&1; test $? -eq 3 && grep -q "^FAIL .*rms" target/gpu-g1b-butterfly.log'
+negctl-deposit|0|sh -c 'GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k --break deposit > target/gpu-g1b-deposit.log 2>&1; test $? -eq 3 && grep -q "^FAIL .*rms" target/gpu-g1b-deposit.log'
+negctl-repeat|0|sh -c 'GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k --break repeat > target/gpu-g1b-repeat.log 2>&1; test $? -eq 3 && grep -q "^FAIL .*repeat" target/gpu-g1b-repeat.log'
+negctl-weight|0|sh -c 'GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k --break weight > target/gpu-g1b-weight.log 2>&1; test $? -eq 3 && grep -q "^FAIL .*deposit" target/gpu-g1b-weight.log'
+negctl-bounds|0|sh -c 'GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k --break bounds > target/gpu-g1b-bounds.log 2>&1; test $? -eq 3 && grep -q "^FAIL .*bounds" target/gpu-g1b-bounds.log'
+negctl-no-device|nonzero|sh -c 'GM_GPU=1 GM_GPU_BREAK=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k; test $? -eq 0'
