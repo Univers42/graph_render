@@ -1,0 +1,19 @@
+# render-sparse-cells: graph-render's spacing estimate is capped by the nearest neighbours
+# (prompts/jobs/render-sparse-cells.md). Only spacing.ts and its test change; the Rust floor is not re-run here.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+scope|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" | grep -v -E '^packages/graph-render/(src/spacing\.ts|tests/spacing\.test\.ts)$'; git status --porcelain --untracked-files=all | grep -v -E ' packages/graph-render/(src/spacing\.ts|tests/spacing\.test\.ts)$')"
+named-tests|0|git grep -q 'a lanes drawing is capped by the pitch of its lines' -- packages/graph-render/tests/spacing.test.ts && git grep -q 'a layered drawing is capped by the pitch inside its layers' -- packages/graph-render/tests/spacing.test.ts
+old-tests-kept|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff "$b" -- packages/graph-render/tests/spacing.test.ts | grep -E '^-[^-]')"
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
+nav|0|scripts/studio-nav.sh
+negctl-nav|nonzero|STUDIO_NAV_BREAK=1 scripts/studio-nav.sh
+parity|0|scripts/studio-parity.sh
+negctl-parity|nonzero|STUDIO_PARITY_BREAK=1 scripts/studio-parity.sh
+interact|0|scripts/studio-interact.sh
+negctl-interact|nonzero|STUDIO_INTERACT_BREAK=1 scripts/studio-interact.sh
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- packages/graph-render/src/spacing.ts packages/graph-render/tests/spacing.test.ts
