@@ -151,3 +151,4 @@ gpu-g1a|build|prompts/jobs/gpu-g1a.md|scripts/orch/rows/gpu-g1a.rows|no
 lanes-merge-d-verdict|devil|prompts/jobs/lanes-merge-d-verdict.md|scripts/orch/rows/docs.rows|no
 git-plugin-ct|build|prompts/jobs/git-plugin-ct.md|scripts/orch/rows/git-plugin-ct.rows|no
 lanes-merge|build|prompts/jobs/lanes-merge.md|scripts/orch/rows/lanes-merge.rows|no
+gpu-g1b|build|prompts/jobs/gpu-g1b.md|scripts/orch/rows/gpu-g1b.rows|no
