@@ -47,6 +47,14 @@ impl Sub for C {
     }
 }
 
+impl C {
+    /// This sample's two words, as the pair of `f64` columns a wire carries: one read of
+    /// the plan's twiddles and the kernel's spectrum, split without re-interpreting either.
+    pub(super) fn parts(&self) -> (f64, f64) {
+        (self.re, self.im)
+    }
+}
+
 impl Mul for C {
     type Output = C;
     fn mul(self, o: C) -> C {
@@ -112,6 +120,13 @@ impl Plan {
 
     pub(super) fn side(&self) -> usize {
         self.side
+    }
+
+    /// The forward twiddle table whole, `side` of it: stage `half` reads the contiguous
+    /// run `forward[half..2 * half]`, so a reader of the probe's own table indexes it the
+    /// same way rather than rebuilding it from `libm`.
+    pub(super) fn twiddles(&self) -> &[C] {
+        &self.forward
     }
 
     /// One line of `side` samples, in place. The first stage's twiddle is 1, so it is a
