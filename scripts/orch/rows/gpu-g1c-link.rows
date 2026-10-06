@@ -1,0 +1,26 @@
+# gpu-g1c-link — the link pass in WGSL against the fixtures' delta_link, and the harness's --pass
+# switch (prompts/jobs/gpu-g1c-link.md). Base: gpu-g1c (G1b's tip). GPU rows take gpu.lock; no 1M.
+# scope: a file is the slice's when it differs from both bases (gpu-g1c, and the develop push-once merged in).
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-lint|0|scripts/orch/node-slim.sh npm run sdk:lint
+sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
+named-tests|0|git grep -q the_link_guard_reads_the_measured_degree -- crates/graph-sdk-js/test && git grep -q every_link_ceiling_sits_under_its_guard -- crates/graph-sdk-js/test && git grep -q the_link_csr_lists_each_node_s_edges_in_ascending_order -- crates/graph-sdk-js/test
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/src/gpu
+no-f16|0|! git grep -n -i 'f16' -- crates/graph-sdk-js/src/gpu
+no-wrong-bounds|0|! git grep -n -E '8e-7|k = 4' -- crates/graph-sdk-js/src/gpu/link.ts crates/graph-sdk-js/src/gpu/bounds-link.ts crates/graph-sdk-js/src/gpu/kernels/link.wgsl.ts
+caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/bounds-link.ts
+no-public-surface|0|! git grep -n 'gpu' -- crates/graph-sdk-js/src/index.ts
+pass-report-shared|0|test "$(git hash-object crates/graph-sdk-js/src/gpu/pass-report.ts)" = "$(sed -n '/^   ```ts$/,/^   ```$/p' /home/dlesieur/Documents/graph_render/prompts/jobs/gpu-g1c-link.md | sed '1d;$d' | sed 's/^   //' | git hash-object --stdin)"
+scope|0|b1=$(git merge-base HEAD gpu-g1c); b2=$(git merge-base HEAD origin/develop); test -z "$(comm -12 <(git diff --name-only "$b1" | sort) <(git diff --name-only "$b2" | sort) | grep -v -E '^(crates/graph-sdk-js/src/gpu\.ts|crates/graph-sdk-js/src/gpu/(link|link-api|bounds-link|pass-report)\.ts|crates/graph-sdk-js/src/gpu/kernels/link\.wgsl\.ts|crates/graph-sdk-js/test/gpu-(link[^/]*|wgsl\.test)\.mjs|deploy/perf/gpu-mesh\.py|deploy/perf/gpu_mesh_[a-z_]+\.py|docs/measurements/gpu-g1\.md)$')"
+file-size|0|! git ls-files crates/graph-sdk-js/src/gpu crates/graph-sdk-js/src/gpu.ts deploy/perf/gpu-mesh.py deploy/perf/gpu_mesh_page.py | xargs wc -l | grep -v ' total$' | awk '$1 > 300' | grep .
+
+emit|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --out target/gpu-fixtures
+gpu-js|0|scripts/orch/node-slim.sh npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir target/gpu-js
+gpu-js-imports|0|test -s target/gpu-js/gpu/link.js && ! grep -rn -E "from ['\"][^'\"]*\.ts['\"]" target/gpu-js
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+
+link-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass link --only 1k,10k,50k
+link-software|0|scripts/studio-probe.sh gpu-mesh software target/gpu-fixtures --pass link --only 1k,10k,50k
+negctl-link-bias|0|sh -c 'flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass link --only 1k --break link-bias > target/gpu-g1c-link-bias.log 2>&1; test $? -eq 3 && grep -q -E "^FAIL .*(rms|guard)" target/gpu-g1c-link-bias.log'
