@@ -304,10 +304,10 @@ is in `.gitignore:35` (`scratch/stress.mjs` is still tracked).
   2026-10-04, tree `43ab3af6`).
 
 **Studio**
-- `perf-fps` has **never passed**: 45.5 fps against a floor of 54 at 120 nodes, 2.4 fps against a
-  floor of 14 at 2000 (`docs/measurements/studio-s7.md:13,31`); `perf-idle`/`perf-block` are red
-  (`studio-perf-baseline.md:49-50`). Every edge-gradient and perf run exits 1 on this row
-  (`studio-edge-gradient.md:51,57-62`), so its negative control proves nothing.
+- `perf-fps` passes since 2026-10-06: 60 fps at 120 nodes and 24.1 fps at 2000 (floors 54 and 14).
+  Before that it had never passed: a stroke wider than one device pixel was rasterised as one path
+  (`docs/measurements/studio-thick-edges.md`). Every row of that run passed, so the gate's exit code
+  now carries its negative control.
 - Studio perf is software raster on one machine class, 20k nodes never measured
   (`studio-perf-baseline.md:14-16,38`).
 - 3D above 5 000 nodes is unmeasured: the studio settles on the 2D mesh, so the probe refuses with

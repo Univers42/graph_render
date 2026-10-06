@@ -28,6 +28,6 @@ copy that stays put.
 | Layout switch, 2 000 nodes (`studio-probe.sh transition 2000 canvas2d`) | — | 24 frames in 406 ms, gap p95 16.67 ms |
 | Layout switch, 20 000 nodes | — | 24 frames in 434 ms, gap p95 16.67 ms |
 
-`perf-fps` fails at 2 000 nodes at DPR 2 on both commits (5.5 and 5.6 fps against a floor of 14).
-That row rasterises in software, on a shared host. It is not a result of this branch, and this branch
-does not fix it.
+`perf-fps` failed at 2 000 nodes at DPR 2 on both commits (5.5 and 5.6 fps against a floor of 14).
+That was not a result of this branch. The cause was thick edge strokes drawn as one path; with that
+fixed, the row passes at 24.1 fps (`docs/measurements/studio-thick-edges.md`).

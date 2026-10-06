@@ -4,7 +4,8 @@
  * frame in the rasteriser (docs/measurements/studio-perf-baseline.md). One unbounded path
  * per style was slower still under software raster: 2000 nodes at DPR 2 fell from 2.4 to
  * 1.4 fps (docs/measurements/studio-s7.md). Gate row `perf-edge-batch` holds the stroke
- * count to the chunks each style needs.
+ * count to the chunks each style needs. That holds for a hairline only: a stroke wider than
+ * one device pixel is one per edge (`chunkOf`).
  *
  * Ponytail: an edge is culled by its two endpoints, so a routed or curved edge whose ends
  * are both off one side of the screen is dropped even when its bend would have reached
@@ -35,9 +36,27 @@ export function edgeWidth(scale: number, dpr: number): number {
   return Math.max(1 / dpr, Math.min(1.5, scale * 0.6));
 }
 
+/** The widest stroke, in device pixels, drawn as a hairline; the hair over 1 absorbs 1/dpr × dpr. */
+const HAIRLINE = 1.001;
+
+/**
+ * Segments per stroke. Skia draws a stroke at most one device pixel wide as a hairline, at a
+ * cost that grows with the segments' length, so a CHUNK of them shares one stroke. A wider one
+ * is outlined and scan-converted as one path, and long crossing segments in one path cost far
+ * more than one stroke each: 2000 nodes zoomed in at DPR 2 drew 5.3 fps as one path and 32.5
+ * fps as one stroke per edge (docs/measurements/studio-thick-edges.md).
+ *
+ * Caveat: measured on Chromium's software rasteriser (SwiftShader host). A GPU rasteriser may
+ * prefer the shared path; GM_GPU=1 scripts/studio-perf.sh is the arm that would show it.
+ */
+function chunkOf(input: PaintInput, width: number): number {
+  return width * input.dpr > HAIRLINE ? 1 : CHUNK;
+}
+
 interface Tracer {
   readonly input: PaintInput;
   readonly counts: PaintCounts;
+  readonly chunk: number;
   pending: number;
 }
 
@@ -111,7 +130,7 @@ function traceEdge(tracer: Tracer, edge: number): void {
   else traceMorph(input, edge, ends);
   tracer.counts.edges += 1;
   tracer.pending += 1;
-  if (tracer.pending >= CHUNK) flush(tracer);
+  if (tracer.pending >= tracer.chunk) flush(tracer);
 }
 
 function paintAll(tracer: Tracer): void {
@@ -213,14 +232,16 @@ export function strokeWidth(input: PaintInput): number {
 
 /** The focus's own edges alone, over a GPU layer that drew every edge dimmed. */
 export function paintLitEdges(input: PaintInput, counts: PaintCounts): void {
-  input.ctx.lineWidth = strokeWidth(input);
-  paintLit({ input, counts, pending: 0 });
+  const width = strokeWidth(input);
+  input.ctx.lineWidth = width;
+  paintLit({ input, counts, chunk: chunkOf(input, width), pending: 0 });
   input.ctx.globalAlpha = 1;
 }
 
 export function paintEdges(input: PaintInput, counts: PaintCounts): void {
-  const tracer: Tracer = { input, counts, pending: 0 };
-  input.ctx.lineWidth = strokeWidth(input);
+  const width = strokeWidth(input);
+  const tracer: Tracer = { input, counts, chunk: chunkOf(input, width), pending: 0 };
+  input.ctx.lineWidth = width;
   counts.stroke = input.ctx.lineWidth;
   const plan = planOf(input);
   if (plan === null) paintAll(tracer);
