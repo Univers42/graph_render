@@ -11,8 +11,9 @@
 # says; a slider dragged by hand changes the value, the run's digest and the pixels, and costs
 # exactly one run however far the pointer walked; `layoutset <param> <value>` reaches the same
 # place in one run; `layoutreset` gives back the published defaults, digest and all; a value
-# outside the published range is refused by name with the drawing untouched; and a layered
-# layout's own parameter redraws its own layers.
+# outside the published range is refused by name with the drawing untouched; a layered
+# layout's own parameter redraws its own layers; and a published bool is a switch and turns the
+# layered drawing on its side.
 #
 # Exit: 0 every row PASS · 1 a row FAIL or NOT-RUN · 2 could not run.
 # Build first: scripts/studio.sh build. Never takes the host gate lock.

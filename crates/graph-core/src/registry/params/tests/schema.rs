@@ -139,6 +139,32 @@ fn every_f32_backed_bound_survives_the_f32_round_trip() {
     every_published!(f32_bounds_are_exact);
 }
 
+/// `horizontal` is the first published `Bool`, and it is appended last: a caller that reads
+/// the schema at run time finds it at the end of both layered layouts' lists, and the field
+/// order is the buffer order. `docs/decisions/dag-horizontal.md` condition 5.
+#[test]
+fn horizontal_is_published_last_as_a_bool_defaulting_to_false() {
+    for (id, specs) in [
+        ("layout.dag.sugiyama", SugiyamaParams::PARAMS),
+        ("layout.dag.lanes", LanesParams::PARAMS),
+    ] {
+        let last = specs.last().expect("publishes at least one parameter");
+        assert_eq!(
+            last.name, "horizontal",
+            "{id}: the last spec is not `horizontal`"
+        );
+        assert_eq!(
+            last.kind,
+            ParamKind::Bool,
+            "{id}: `horizontal` is not a Bool"
+        );
+        assert_eq!(
+            last.default, 0.0,
+            "{id}: `horizontal` does not default to false"
+        );
+    }
+}
+
 /// A published integer travels in an `f64`, so a bound past `2^53` could not be checked
 /// against what the struct holds. Every one today is a `u32`.
 #[test]
