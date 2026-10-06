@@ -1,4 +1,14 @@
-"""Scratch: Canvas2D stroke raster cost by width and batch size on a 3840x2160 canvas (not committed)."""
+"""Canvas2D stroke raster time by stroke width and segments per stroke, on a 3840x2160 canvas.
+
+    scripts/studio-probe.sh stroke-batch
+
+Needs no build: the page is about:blank. Prints one line per (width, segments per stroke), the mean
+of 6 frames after 2 warm-up frames, over 1242 seeded segments up to 5760 px long. The table in
+docs/measurements/studio-thick-edges.md is its output; canvas2d/edges.ts `chunkOf` is the decision.
+
+Caveat: the browser's own rasteriser, on whatever host runs it. SwiftShader here, so a GPU host can
+rank the batch sizes differently; the segments are random, not a graph's.
+"""
 import sys
 import tempfile
 from pathlib import Path
@@ -27,13 +37,6 @@ async () => {
       ctx.beginPath(); let n = 0;
       for (const [a, b, c, d] of seg) { ctx.moveTo(a, b); ctx.lineTo(c, d); n += 1; if (n >= chunk) { ctx.stroke(); ctx.beginPath(); n = 0; } }
       if (n) ctx.stroke();
-    } else if (mode === "quads") {
-      ctx.fillStyle = "rgba(80,80,80,0.6)"; ctx.beginPath(); let n = 0;
-      for (const [a, b, c, d] of seg) {
-        const dx = c - a, dy = d - b, l = Math.hypot(dx, dy) || 1, nx = -dy / l * width / 2, ny = dx / l * width / 2;
-        ctx.moveTo(a + nx, b + ny); ctx.lineTo(c + nx, d + ny); ctx.lineTo(c - nx, d - ny); ctx.lineTo(a - nx, b - ny); ctx.closePath();
-        n += 1; if (n >= chunk) { ctx.fill(); ctx.beginPath(); n = 0; } }
-      if (n) ctx.fill();
     }
   };
   const time = async (width, chunk, mode) => {
@@ -43,7 +46,9 @@ async () => {
     return +((performance.now() - t0) / 6).toFixed(1);
   };
   const out = [];
-  for (const [width, chunk, mode] of [[0, 1, "none"], [1, 2048, "path"], [1, 1, "path"], [1.2, 2048, "path"], [1.2, 1, "path"], [1.2, 4, "path"], [1.5, 2048, "path"], [1.5, 1, "path"], [1.5, 4, "path"], [1.5, 16, "path"], [2, 1, "path"], [2, 4, "path"], [2, 16, "path"], [3, 1, "path"], [3, 4, "path"], [3, 16, "path"]]) {
+  const runs = [[0, 1, "none"]];
+  for (const width of [1, 1.2, 1.5, 2, 3]) for (const chunk of [2048, 16, 4, 1]) runs.push([width, chunk, "path"]);
+  for (const [width, chunk, mode] of runs) {
     out.push(`${mode} width ${width} chunk ${chunk}: ${await time(width, chunk, mode)} ms/frame`);
   }
   return out.join("\n");

@@ -1,4 +1,15 @@
-"""Scratch: where a zoomed-in frame at 2000 nodes, DPR 2 spends its time (not committed)."""
+"""Which 2D drawing a wheel zoom waits on: the zoom timed with one context method made a no-op.
+
+    scripts/studio-probe.sh noop-zoom 2000 2
+
+Build first (scripts/studio.sh build). Opens N nodes at DPR D with the perf gate's driver and layout,
+then zooms 40 wheel steps in and 40 out once per variant: nothing replaced, `stroke`, `fill`,
+`drawImage`, and `perEdge` (a stroke after every lineTo while the stroke is wider than one device
+pixel, which is what canvas2d/edges.ts `chunkOf` now does). One JSON line per variant.
+
+Caveat: a no-op also skips that method's share of the JS, and `perEdge` also strokes the lines an
+arrow head traces; the fps is wall time on a shared host.
+"""
 import json
 import os
 import sys
@@ -65,7 +76,7 @@ def main():
             page.evaluate(open("deploy/perf/drivers/hook.js").read())
             page.evaluate(f"window.__perf.open({nodes}, 'layout.forceatlas2.barnes_hut')", timeout=300)
             print("backend", page.evaluate("document.querySelector('graph-studio').view.stats().backend"))
-            for skip in ([], ["perEdge"], [], ["perEdge"]):
+            for skip in ([], ["stroke"], ["fill"], ["drawImage"], ["perEdge"]):
                 print(page.evaluate(f"({PROBE})({json.dumps(skip)})", timeout=600), flush=True)
         finally:
             browser.terminate()
