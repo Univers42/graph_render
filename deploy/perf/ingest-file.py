@@ -41,9 +41,10 @@ STATE = """(() => {
   const s = document.querySelector('graph-studio')?.studio?.store.get();
   if (!s) return 'no-studio';
   const m = performance.memory;
-  return JSON.stringify({ heap: m ? Math.round(m.usedJSHeapSize / 1048576) : null,
+  return JSON.stringify({ coi: crossOriginIsolated, hc: navigator.hardwareConcurrency, heap: m ? Math.round(m.usedJSHeapSize / 1048576) : null,
     busy: s.busy.map((b) => b.command ?? b.id ?? b.kind ?? JSON.stringify(b).slice(0, 40)),
     error: s.error ? `${s.error.title}: ${String(s.error.detail).slice(0, 200)}` : null,
+    canvases: [...document.querySelectorAll('canvas'), ...(document.querySelector('graph-studio')?.shadowRoot?.querySelectorAll('canvas') ?? [])].map((c) => c.width + 'x' + c.height),
     nodes: s.graph?.nodeCount ?? null, run: s.run?.layoutId ?? s.run?.layout ?? null,
     hud: [...(document.querySelector('graph-studio')?.shadowRoot?.querySelectorAll('*') ?? [])]
       .find((e) => e.childElementCount === 0 && / n · /.test(e.textContent ?? ''))?.textContent ?? null });
@@ -98,7 +99,7 @@ class Sampler(threading.Thread):
                 kind = key.split(":")[0]
                 self.peak_by_type[kind] = max(self.peak_by_type.get(kind, 0), mb)
             self.last = {"procs": procs, "cg": cgroup()}
-            time.sleep(0.5)
+            time.sleep(0.2)
 
 
 def wasm_sizes(page, session):
@@ -114,6 +115,65 @@ def wasm_sizes(page, session):
         return got["result"].get("value")
     except (cdp.CdpError, smokecdp.Detached, OSError, KeyError) as error:
         return f"unreadable: {str(error)[:80]}"
+
+
+def usage_of(reply):
+    mb = lambda v: round(v / 1048576)  # noqa: E731
+    return f"{mb(reply.get('usedSize', 0))}/{mb(reply.get('totalSize', 0))}+bs{mb(reply.get('backingStorageSize', 0))}+emb{mb(reply.get('embedderHeapUsedSize', 0))}"
+
+
+def heap_usage(page):
+    """Runtime.getHeapUsage of the page and of each attached worker: used/total + ArrayBuffer backing stores."""
+    out = []
+    try:
+        out.append("page " + usage_of(page.call("Runtime.getHeapUsage", timeout=20)))
+    except (cdp.CdpError, OSError) as error:
+        out.append(f"page ? {str(error)[:40]}")
+    for session, kind in sessions_of(page):
+        try:
+            out.append(f"{kind}:{session[:4]} " + usage_of(page.session_call(session, "Runtime.getHeapUsage", timeout=20)))
+        except (cdp.CdpError, smokecdp.Detached, OSError):
+            pass
+    return out
+
+
+def memory_dump(page):
+    """Chromium's memory-infra dump: each process's allocators (malloc, partition_alloc, v8, gpu, ...)."""
+    page.call("Tracing.start", {"transferMode": "ReturnAsStream", "traceConfig": {
+        "includedCategories": ["disabled-by-default-memory-infra"], "recordMode": "recordAsMuchAsPossible",
+        "memoryDumpConfig": {"triggers": []}}})
+    print("memory dump requested:", page.call("Tracing.requestMemoryDump", {"deterministic": True, "levelOfDetail": "detailed"}, timeout=120), flush=True)
+    page.call("Tracing.end")
+    handle = None
+    for _ in range(600):
+        done = [e for e in page.events if e["method"] == "Tracing.tracingComplete"]
+        if done:
+            handle = done[-1]["params"]["stream"]
+            break
+        page.evaluate("1")
+        time.sleep(0.1)
+    chunks = []
+    while handle:
+        part = page.call("IO.read", {"handle": handle, "size": 1 << 20})
+        chunks.append(part.get("data", ""))
+        if part.get("eof"):
+            break
+    trace = json.loads("".join(chunks))
+    events = trace["traceEvents"] if isinstance(trace, dict) else trace
+    for event in events:
+        dumps = event.get("args", {}).get("dumps", {})
+        allocators = dumps.get("allocators")
+        if event.get("ph") != "v" or not allocators:
+            continue
+        sizes = {}
+        for name, node in allocators.items():
+            size = node.get("attrs", {}).get("size", {}).get("value")
+            if size is not None and name.count("/") <= 1:
+                sizes[name] = round(int(size, 16) / 1048576)
+        top = sorted(sizes.items(), key=lambda kv: -kv[1])[:14]
+        totals = dumps.get("process_totals", {})
+        rss = totals.get("resident_set_bytes")
+        print(f"MEMDUMP pid={event.get('pid')} rss={round(int(rss, 16) / 1048576) if rss else None} top={top}", flush=True)
 
 
 def sessions_of(page):
@@ -134,20 +194,66 @@ def crashes(page):
 def tick(page, sampler, began, n):
     sample = sampler.last
     procs = sorted(sample.get("procs", {}).items(), key=lambda kv: -kv[1])[:4]
+    if procs:
+        try:
+            procs[0] = (procs[0][0], procs[0][1], f"threads={len(list(Path('/proc', procs[0][0].split(':')[1], 'task').iterdir()))}")
+        except OSError:
+            pass
     try:
         state = page.evaluate(STATE, timeout=20)
     except (cdp.CdpError, OSError) as error:
         state = f"EVAL FAILED: {str(error)[:100]}"
     line = f"t={time.monotonic() - began:6.1f}s state={state} cg={sample.get('cg')} top={procs}"
-    if n % 5 == 0:
+    line += f" heaps={heap_usage(page)}"
+    try:
+        line += f" dom={page.call('Memory.getDOMCounters', timeout=20)}"
+    except (cdp.CdpError, OSError):
+        pass
+    if n % 10 == 0:
         sizes = [(s[:6], k, wasm_sizes(page, s)) for s, k in sessions_of(page) if k == "worker"]
         line += f" wasm={sizes}"
     print(line, flush=True)
     return state
 
 
+# The dock's own "Open a file" input, its sections opened the way a user opens them.
+FILE_INPUT = """(() => {
+  const root = document.querySelector('graph-studio').shadowRoot;
+  const open = (title) => {
+    const button = [...root.querySelectorAll('button')].find((b) => b.textContent.trim().startsWith(title));
+    if (button && button.getAttribute('aria-expanded') !== 'true') button.click();
+  };
+  open('Controls');
+  open('Source');
+  const action = [...root.querySelectorAll('.gs-action')].find((a) => a.querySelector('.gs-action-title')?.textContent === 'Open a file');
+  return action?.querySelector('input[type=file]') ?? null;
+})()"""
+UPLOAD_SETTLED = """(() => {
+  const s = document.querySelector('graph-studio').studio.store.get();
+  if (s.busy.length > 0) return 'running';
+  return s.settings.source.kind === 'document' && s.settings.source.name === %s ? 'loaded ' + s.graph?.nodeCount : (s.error ? 'error ' + s.error.title : 'running');
+})()"""
+
+
+def upload(page, name):
+    """The file through the real <input type=file>: change event, file.text(), onCommit."""
+    for _ in range(50):
+        found = page.call("Runtime.evaluate", {"expression": FILE_INPUT})["result"]
+        if found.get("objectId"):
+            break
+        time.sleep(0.1)
+    page.call("DOM.enable")
+    page.call("DOM.setFileInputFiles", {"files": [f"/w/{name}"], "objectId": found["objectId"]})
+
+
 def watch(page, sampler, name, url, seconds):
-    page.evaluate(f"void (window.__gmOpen = {OPEN_DOCUMENT}({json.dumps(name)}, {json.dumps(url)}).catch({CAUGHT}))")
+    uploaded = os.environ.get("UPLOAD") == "1"
+    if uploaded:
+        upload(page, name)
+        settled_js = UPLOAD_SETTLED % json.dumps(Path(name).name)
+    else:
+        page.evaluate(f"void (window.__gmOpen = {OPEN_DOCUMENT}({json.dumps(name)}, {json.dumps(url)}).catch({CAUGHT}))")
+        settled_js = SETTLED
     began, settled_at, n, failures = time.monotonic(), None, 0, 0
     while True:
         n += 1
@@ -160,7 +266,7 @@ def watch(page, sampler, name, url, seconds):
                     pass
         if settled_at is None:
             try:
-                answer = page.evaluate(SETTLED, timeout=20)
+                answer = page.evaluate(settled_js, timeout=20)
                 if answer != "running":
                     settled_at = time.monotonic()
                     print(f"OPEN SETTLED after {settled_at - began:.1f} s: {answer}", flush=True)
@@ -172,12 +278,15 @@ def watch(page, sampler, name, url, seconds):
             print("TAB GONE:", crashes(page), flush=True)
             return False
         if settled_at is not None and time.monotonic() - settled_at > seconds:
+            if os.environ.get("MEMDUMP") == "1":
+                memory_dump(page)
             return True
-        time.sleep(1)
+        time.sleep(float(os.environ.get("TICK_S", "1")))
 
 
 def run(page, served, name, url, layout, seconds, sampler):
-    page.set_viewport(1920, 1080, 1)
+    width, height = (int(v) for v in os.environ.get("VIEWPORT", "1920x1080").split("x"))
+    page.set_viewport(width, height, 1)
     for domain in ("Runtime", "Log", "Inspector"):
         page.call(f"{domain}.enable")
     page.navigate(served)
