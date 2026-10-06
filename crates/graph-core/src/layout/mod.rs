@@ -33,6 +33,7 @@ pub mod spiral;
 pub mod sugiyama;
 #[cfg(test)]
 mod tests;
+mod transpose;
 
 pub mod tidy_tree;
 pub mod treemap;

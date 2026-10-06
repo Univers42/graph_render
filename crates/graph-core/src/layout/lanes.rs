@@ -31,10 +31,15 @@ pub struct Lanes;
 /// The lanes stage's parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LanesParams {
-    /// X distance between adjacent lanes. Finite and above 0.
+    /// Distance between adjacent lanes, along x, or along y when `horizontal`. Finite and
+    /// above 0.
     pub lane_spacing: f32,
-    /// Y distance between adjacent rows. Finite and above 0.
+    /// Distance between adjacent rows, along y, or along x when `horizontal`. Finite and
+    /// above 0.
     pub row_spacing: f32,
+    /// Lays the layers (rows) out along x, left to right, instead of along y. `false` is the
+    /// vertical drawing, bit for bit.
+    pub horizontal: bool,
 }
 
 impl Default for LanesParams {
@@ -42,6 +47,7 @@ impl Default for LanesParams {
         Self {
             lane_spacing: 1.0,
             row_spacing: 1.0,
+            horizontal: false,
         }
     }
 }
@@ -66,11 +72,16 @@ pub fn run(topology: &Topology, params: &LanesParams) -> Result<Geometry, StageE
     let drawing = assign::Drawing::of(topology, &rows);
     let (x, y) = geometry::positions(&drawing, &rows, params);
     let paths = geometry::paths(&drawing, topology, &rows, params);
-    Ok(Geometry::planar(
+    let drawing = Geometry::planar(
         NodeGeometry::Point { x, y },
         EdgeGeometry::Polyline(paths),
         rows.notes(topology),
-    ))
+    );
+    Ok(if params.horizontal {
+        drawing.transposed()
+    } else {
+        drawing
+    })
 }
 
 /// Whether `n` rows still draw: the half-row bend is exact in `f32` below [`MAX_ROWS`] and
