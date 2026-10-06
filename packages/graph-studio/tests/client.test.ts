@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CancelledError, MotorFailure, createClient } from "../src/motor/client.ts";
+import { CancelledError, MotorFailure, RESPAWN_FROM, createClient } from "../src/motor/client.ts";
 import type { Envelope, Port, Request, Result } from "../src/motor/protocol.ts";
 
 const CATALOG = { layouts: ["layout.grid"], posts: [], analyses: [] };
 const GRAPH = { name: "g", nodeCount: 2, edgeCount: 1, notes: [], buildMs: 1 };
+/** Just at the size from which a new source is loaded in a new worker. */
+const LARGE = { ...GRAPH, nodeCount: RESPAWN_FROM - 1, edgeCount: 1 };
 const ASSETS = { wasmUrl: "/graph_wasm.wasm", fixturesUrl: "/fixtures/" };
 const SOURCE = { kind: "fixture", path: "dag/chain.json" } as const;
 
@@ -39,13 +41,13 @@ function fakePort(): FakePort {
   return port;
 }
 
-function resultFor(request: Request): Result {
+function resultFor(request: Request, graph: typeof GRAPH): Result {
   if (request.type === "open") return { type: "opened", catalog: CATALOG };
-  if (request.type === "load") return { type: "loaded", graph: GRAPH };
+  if (request.type === "load") return { type: "loaded", graph };
   return { type: "failed", error: { title: "RunRefusedError", code: "code 8 (LayoutFailed)", detail: "refused", hint: "" } };
 }
 
-function rig(): Rig {
+function rig(graph = GRAPH): Rig {
   const ports: FakePort[] = [];
   const answered = new Set<Envelope<Request>>();
   return {
@@ -59,7 +61,7 @@ function rig(): Rig {
       for (const message of port.sent) {
         if (answered.has(message)) continue;
         answered.add(message);
-        port.reply(message.seq, resultFor(message.body));
+        port.reply(message.seq, resultFor(message.body, graph));
       }
     },
   };
@@ -230,8 +232,8 @@ async function serve(rigged: Rig, index: number, rounds = 3): Promise<void> {
   }
 }
 
-test("a new source is loaded in a new worker, and the worker that held the old one is closed", async () => {
-  const rigged = rig();
+test("after a large graph a new source is loaded in a new worker, and the old one is closed", async () => {
+  const rigged = rig(LARGE);
   const client = await loadedClient(rigged);
   const pushed: Result[] = [];
   client.onForce?.((result) => void pushed.push(result));
@@ -239,10 +241,21 @@ test("a new source is loaded in a new worker, and the worker that held the old o
   assert.equal(first(rigged.ports).closed, true);
   assert.deepEqual(pushed.map((result) => result.type), ["force-state"]);
   await serve(rigged, 1);
-  assert.deepEqual(await next, GRAPH);
+  assert.deepEqual(await next, LARGE);
   assert.deepEqual(first(rigged.ports, 1).sent.map((message) => message.body), [
     { type: "open", wasmUrl: ASSETS.wasmUrl }, { type: "load", source: OTHER, fixturesUrl: ASSETS.fixturesUrl },
   ]);
+});
+
+test("after a small graph a new source is loaded in the same worker, with no module start", async () => {
+  const rigged = rig();
+  const client = await loadedClient(rigged);
+  const next = client.load(OTHER);
+  await serve(rigged, 0);
+  assert.deepEqual(await next, GRAPH);
+  assert.equal(rigged.ports.length, 1);
+  assert.equal(first(rigged.ports).closed, false);
+  assert.deepEqual(first(rigged.ports).sent.map((message) => message.body.type), ["open", "load", "load"]);
 });
 
 for (const title of ["MotorTrapError", "RangeError"]) {
@@ -262,7 +275,7 @@ for (const title of ["MotorTrapError", "RangeError"]) {
 }
 
 test("a load that fails closes its worker, and the next one is given the graph loaded before", async () => {
-  const rigged = rig();
+  const rigged = rig(LARGE);
   const client = await loadedClient(rigged);
   const next = client.load(OTHER);
   await serve(rigged, 1, 1);
