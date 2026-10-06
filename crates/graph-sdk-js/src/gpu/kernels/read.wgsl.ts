@@ -7,8 +7,16 @@
  * same `f32` positions and the same frame uniform the deposit used. Both therefore read the
  * *same* four cells with the *same* four weights — the recomputation is not a second stencil,
  * it is the identical expression `cell`/`split` evaluated once per stage instead of stored
- * between them, and the plan's `deposit` fault is what proves it: it moves every node's cell
- * and the read follows, because both stages take their `at` from the same fault.
+ * between them.
+ *
+ * **The read does not follow the deposit fault, and that is the control.** `--break deposit`
+ * moves every node's charge one cell along x and leaves the weights alone, so the field is the
+ * true field of a density shifted one cell right. A read that shifted with it would sample the
+ * shifted field at the shifted position and recover almost exactly what it would have read
+ * anyway — the fault would be invisible, and a control that cannot go red proves nothing. A read
+ * that stays at the node's own position samples a field one cell off, which is an O(1) error in
+ * the increment and is what the comparator is there to see. The two stages agree on the stencil
+ * in a clean run, which is the property the fault tests.
  *
  * **The four samples in the CPU's fixed order `(at, at+1, at+P, at+P+1)`**, zipped with
  * `weights(fx, fy)` in the order `(x,y), (x+1,y), (x,y+1), (x+1,y+1)` (`mesh.rs:280-282`,
