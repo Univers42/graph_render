@@ -108,7 +108,7 @@ fn lanes_declares_point_nodes_polyline_edges_and_its_two_spacings() {
     assert_eq!(lanes.meta.nodes, NodeGeometryKind::Point);
     assert_eq!(lanes.meta.edges, EdgeGeometryKind::Polyline);
     let names: Vec<_> = lanes.params.specs.iter().map(|spec| spec.name).collect();
-    assert_eq!(names, ["lane_spacing", "row_spacing"]);
+    assert_eq!(names, ["lane_spacing", "row_spacing", "horizontal"]);
     assert_eq!(
         LAYOUTS.last().map(|c| c.id),
         Some("layout.dag.lanes"),

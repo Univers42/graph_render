@@ -19,6 +19,7 @@ FORCE = "layout.force.spring"
 LAYERED = "layout.dag.sugiyama"
 THRESHOLD = "threshold"
 SPACING = "layer_spacing"
+HORIZONTAL = "horizontal"
 # Where on the track a hand puts the pointer, as a fraction of its width: the far end is the
 # largest value the schema publishes for `threshold`, which is a visibly different drawing.
 FAR = 0.9
@@ -202,14 +203,58 @@ def row_layered(studio, broken):
     after = page.state(studio)
     now = page.still(studio)
     held = after["params"].get(LAYERED, {}).get(SPACING)
-    passed = shown["labels"] == [SPACING] and held is not None and held != moved["before"] \
+    passed = shown["labels"] == [SPACING, HORIZONTAL] and held is not None and held != moved["before"] \
         and after["digest"] != before["digest"] and now != was
-    return row("params-layered", f"on {LAYERED} the panel shows only {SPACING}, and moving it redraws the layers",
+    return row("params-layered", f"on {LAYERED} the panel shows {SPACING} and {HORIZONTAL}, and moving the "
+                                 f"former redraws the layers",
                f"panel {shown['labels']}, {SPACING} {moved['before']} → {held}, digest "
                f"{(before['digest'] or '')[:8]} → {(after['digest'] or '')[:8]}, pixels {was} → {now}", passed)
 
 
-ROWS = (row_panel, row_slider, row_one_run, row_console, row_reset, row_refused, row_layered)
+def _on_its_side(flat, turned):
+    """Whether the drawn width and height exchanged, within 1e-3 relative."""
+    for (was, now) in ((flat["width"], turned["height"]), (flat["height"], turned["width"])):
+        if abs(was - now) > 1e-3 * max(abs(was), abs(now)):
+            return False
+    return True
+
+
+def row_horizontal(studio, broken):
+    """A published bool is a switch, and it turns the layered drawing on its side.
+
+    The switch is the first one the panel has ever drawn — every parameter before it was an
+    `Int` or a `Float` — so this row is the only evidence the bool→switch path works at all
+    (`docs/decisions/dag-horizontal.md` condition 8). The drawn width and height are read from
+    the view's own bounds, in world units: the canvas fills its box either way, so its CSS size
+    is the one measurement that cannot see the change.
+    """
+    gap = _ready(studio, LAYERED)
+    if gap is not None:
+        return judged("params-horizontal", "a published bool is a switch", "nothing was driven", False, gap)
+    before = page.state(studio)
+    was = page.still(studio)
+    flat = page.drawn(studio)
+    at = page.switch_at(studio, HORIZONTAL)
+    if at is None:
+        return judged("params-horizontal", "a published bool is a switch", "the panel has no such switch", False,
+                      f"the panel draws no switch labelled `{HORIZONTAL}`")
+    if not broken:
+        page.click(studio, at)
+        page.settled(studio)
+    after = page.state(studio)
+    now = page.still(studio)
+    turned = page.drawn(studio)
+    held = after["params"].get(LAYERED, {}).get(HORIZONTAL)
+    passed = held is True and after["digest"] != before["digest"] and now != was \
+        and flat is not None and turned is not None and _on_its_side(flat, turned)
+    return row("params-horizontal",
+               f"a published bool is a switch and turns the layered drawing on its side",
+               f"{HORIZONTAL} → {held}, digest {(before['digest'] or '')[:8]} → {(after['digest'] or '')[:8]}, "
+               f"drawn {flat['width']:.1f}×{flat['height']:.1f} → "
+               f"{turned['width']:.1f}×{turned['height']:.1f}, pixels {was} → {now}", passed)
+
+
+ROWS = (row_panel, row_slider, row_one_run, row_console, row_reset, row_refused, row_layered, row_horizontal)
 
 
 def run_rows(studio, broken=False):

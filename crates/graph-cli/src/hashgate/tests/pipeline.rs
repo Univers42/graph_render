@@ -114,14 +114,20 @@ fn per_stage_claims(seed: u32) {
 #[test]
 fn the_layer_spacing_knob_moves_only_the_layered_drawing_and_zero_is_refused() {
     let flat = Setting {
-        sugiyama: SugiyamaParams { layer_spacing: 0.0 },
+        sugiyama: SugiyamaParams {
+            layer_spacing: 0.0,
+            horizontal: false,
+        },
         ..honest()
     };
     for &seed in &SEEDS {
         let honest_run = stage_bytes(seed, &honest()).expect("runs");
         assert_eq!(honest_run[dag()].0, "layout.dag.sugiyama");
         let layers = Setting {
-            sugiyama: SugiyamaParams { layer_spacing: 2.0 },
+            sugiyama: SugiyamaParams {
+                layer_spacing: 2.0,
+                horizontal: false,
+            },
             ..honest()
         };
         let moved = stage_bytes(seed, &layers).expect("runs");
