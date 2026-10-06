@@ -1,0 +1,14 @@
+# studio-nav-pointer: the HUD's camera buttons take a real pointer click (prompts/jobs/studio-nav-pointer.md).
+# Only packages/graph-studio's CSS and the interact gate change; the Rust floor is not re-run here.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+studio-only|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" -- crates src harness fixtures server app packages/graph-render Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json; git status --porcelain --untracked-files=all -- crates src harness fixtures server app packages/graph-render Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json)"
+nav-css|0|git grep -q -E '^\.gs-nav \{[^}]*pointer-events: auto' -- packages/graph-studio/src/styles/studio.css.ts
+named-row|0|git grep -q 'def row_camera_buttons' -- deploy/nav/interactrows.py
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+interact|0|scripts/studio-interact.sh
+negctl-interact|0|sh -c 'STUDIO_INTERACT_BREAK=1 scripts/studio-interact.sh; test $? -eq 1 && python3 -c "import json,sys; r={x[\"row\"]:x[\"verdict\"] for x in json.load(open(\"target/studio-interact/current/report.json\"))[\"rows\"]}; sys.exit(0 if r.get(\"camera buttons\")==\"FAIL\" else 1)"'
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
