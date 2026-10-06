@@ -57,6 +57,61 @@ pub(in crate::layout::force) fn charge_pass<R: Runner>(
     charge::apply(sim, mesh, how);
 }
 
+/// Which of the mesh's three gathered passes a probe asks for. Crate-internal: the probe
+/// hands back three separate columns, so nothing outside this module names a pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::layout::force) enum MeshPass {
+    Link,
+    Charge,
+    Collide,
+}
+
+/// The link pass's own increment, merged the way the tick merges it ([`motion::merge`]
+/// with no slot), against a copy whose velocities are at rest.
+fn link_pass<R: Runner>(sim: &mut Sim, how: &mut How<'_, R>) {
+    link::pass_with(sim, how.runner, how.workers, how.deltas);
+    let gathered = Gathered {
+        deltas: how.deltas,
+        slot: None,
+        split: how.split.splits(Split::Link),
+    };
+    motion::merge(sim, gathered, (how.runner, how.workers));
+}
+
+/// Collide's own increment, merged through the grid's slot map the way the tick's integrate
+/// merges it — but **without** the velocity decay, which belongs to the integrate and not to
+/// the pass. `decay: None` is what [`motion::merge`] already passes, so the returned
+/// `vx`/`vy` is the push and nothing else.
+fn collide_pass<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_, R>) {
+    if !collide::apply(sim, &mut mesh.grid, how) {
+        return;
+    }
+    let gathered = Gathered {
+        deltas: how.deltas,
+        slot: Some(&mesh.grid.slot),
+        split: how.split.splits(Split::Collide),
+    };
+    motion::merge(sim, gathered, (how.runner, how.workers));
+}
+
+/// Any one of the mesh's three passes against a copy of `sim` with the velocities at rest.
+///
+/// The twin of [`charge_pass`], and for its reason: each pass stays private to the module
+/// that owns it and the probe names the pass once here rather than widening two private
+/// functions for one caller.
+pub(in crate::layout::force) fn pass<R: Runner>(
+    sim: &mut Sim,
+    mesh: &mut Mesh,
+    how: &mut How<'_, R>,
+    which: MeshPass,
+) {
+    match which {
+        MeshPass::Link => link_pass(sim, how),
+        MeshPass::Charge => charge::apply(sim, mesh, how),
+        MeshPass::Collide => collide_pass(sim, mesh, how),
+    }
+}
+
 pub(in crate::layout::force) use mesh::Mesh;
 use motion::Gathered;
 
