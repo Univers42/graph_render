@@ -139,3 +139,22 @@ pub async fn ready(hub: &Hub, ws: &str, plugin: &str) {
         manifest.message()
     );
 }
+
+/// The workspace's own epoch, as `GET /v1/workspaces` publishes it.
+///
+/// WHY the listing and not `/graph`: an epoch is drawn by the database's clock (`hub_next_epoch`,
+/// microseconds), so a fixture cannot name one and must read it. The listing answers from the
+/// workspace row alone, where `/graph` reads the change log — which matters for
+/// `changes_returns_410_for_a_cursor_below_what_is_kept`, which has just emptied that log.
+pub async fn epoch_of(hub: &Hub, ws: &str) -> String {
+    let reply = hub.get_with("/v1/workspaces").await;
+    assert_eq!(reply.code(), 200, "{}", reply.body());
+    let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON list");
+    let row = value["workspaces"]
+        .as_array()
+        .expect("a workspaces array")
+        .iter()
+        .find(|row| row["id"] == ws)
+        .unwrap_or_else(|| panic!("the listing holds {ws}"));
+    row["epoch"].as_u64().expect("an epoch").to_string()
+}

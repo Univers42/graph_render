@@ -8,19 +8,61 @@
 //! the layer — see `docs/decisions/graph-hub.md` (round 2, Task 5).
 //!
 //! [`write_fault`] is the one place a [`StoreError`] becomes a status, so a store's own decision
-//! (409, 412, 413, 422) keeps its status and the hub never re-derives the class.
+//! (409, 412, 413, 422) keeps its status and the hub never re-derives the class. [`query_of`] is the
+//! one place a query string is read, so two routes cannot disagree about what `?cursor=` means.
 
 pub mod batches;
+pub mod changes;
+pub mod document;
 pub mod early_ack;
+pub mod graph;
+pub mod meta;
 pub mod plugins;
 pub mod scan;
 pub mod workspaces;
 
+use axum::http::Uri;
 use graph_contract::hub::{HubError, Limits};
 use graph_store::StoreError;
+use std::collections::BTreeMap;
 
 use crate::app::App;
 use crate::error::HubApiError;
+
+/// The request's own query string, percent-decoded, first value per name.
+///
+/// WHY not `axum::extract::Query`: it is behind a feature the hub's edge deliberately does not
+/// carry (plan fact 1), and this is the whole of the query reader the hub needs.
+///
+/// Caveat: a repeated parameter keeps the **first** value, because every parameter the hub reads
+/// (`since`, `limit`, `cursor`) is read once per page and a caller that sent two sent a request the
+/// page cannot honour. Taking the last would let a proxy's appended parameter override the client's.
+pub(crate) fn query_of(uri: &Uri) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for pair in uri
+        .query()
+        .unwrap_or("")
+        .split('&')
+        .filter(|p| !p.is_empty())
+    {
+        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let name = decode(name);
+        if out.contains_key(&name) {
+            continue;
+        }
+        out.insert(name, decode(value));
+    }
+    out
+}
+
+/// One percent-decoded query token; an undecodable one is left as it arrived, because the only
+/// parameters the hub reads are then refused as malformed rather than silently dropped.
+fn decode(text: &str) -> String {
+    let replaced = text.replace('+', " ");
+    percent_encoding::percent_decode_str(&replaced)
+        .decode_utf8_lossy()
+        .into_owned()
+}
 
 /// The contract's own `Limits`, built from §6's three numbers, for the readers that take one.
 ///

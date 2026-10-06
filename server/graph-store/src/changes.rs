@@ -8,11 +8,14 @@
 //!
 //! The change text is graph-contract's: `change_json` and `manifest_change_json` rebuild it from the
 //! stored operations, so the store is never a second producer of canonical change text.
+//!
+//! [`heads`] is the same page with the headers only, for the notice stream: a subscriber holds
+//! §6's `SSE_PAGE × max_header`, never a page of operations it would throw away.
 
 mod cursor;
 mod page;
 
-use graph_contract::hub::Cursor;
+use graph_contract::hub::{ChangeHead, Cursor};
 
 use crate::error::StoreError;
 use crate::store::Store;
@@ -47,6 +50,42 @@ pub struct ChangePage {
     pub changes: Vec<Change>,
     /// The total length of the changes' texts.
     pub bytes: u64,
+}
+
+/// One page of change headers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadPage {
+    /// The workspace's epoch.
+    pub epoch: u64,
+    /// The workspace's `head_seq` in the page's snapshot.
+    pub head_seq: u64,
+    /// The cursor to ask from next: the last header's seq, or `since` when the page is empty.
+    pub next: Cursor,
+    /// The headers, in seq order.
+    pub heads: Vec<Head>,
+}
+
+/// One change header: the whole of what a notice says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Head {
+    /// The change's seq, which is also the notice's `id:`.
+    pub seq: u64,
+    /// The plugin the change belongs to.
+    pub plugin: String,
+    /// When it was applied, in the wire's spelling.
+    pub at: String,
+}
+
+impl Head {
+    /// This header as graph-contract's `ChangeHead`, so graph-contract stays the only producer of
+    /// the change and notice texts.
+    pub fn as_change_head(&self) -> ChangeHead<'_> {
+        ChangeHead {
+            seq: self.seq,
+            plugin: &self.plugin,
+            at: &self.at,
+        }
+    }
 }
 
 /// What a change did.
@@ -105,6 +144,12 @@ pub enum CursorState {
 /// workspace; `Db` for a header whose operation count does not match its rows.
 pub async fn page(store: &Store, req: &ChangesReq) -> Result<ChangePage, StoreError> {
     page::read(store, req).await
+}
+
+/// [`page`] with the headers only: the same snapshot, cursor check and cuts — at most `req.limit`,
+/// and the stored `bytes` against `req.max_bytes` — without reading one operation.
+pub async fn heads(store: &Store, req: &ChangesReq) -> Result<HeadPage, StoreError> {
+    page::read_heads(store, req).await
 }
 
 /// Whether `since` can be served for `ws`: valid iff it is in the workspace's epoch and

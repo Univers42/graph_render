@@ -5,11 +5,12 @@
 //! interprets either, and the store is what enforces §5.1's 128-byte cap, its one-replay rule and
 //! its 412.
 
+pub mod page;
+
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use graph_contract::hub::batch::read_batch;
@@ -20,7 +21,8 @@ use graph_store::writer::{BatchWrite, Idempotency};
 use crate::app::App;
 use crate::auth::Credential;
 use crate::error::HubApiError;
-use crate::routes::{limits, plugins::head_of, scan, write_fault};
+use crate::routes::batches::page::{cursor_pair, encode_cursor, limit};
+use crate::routes::{limits, plugins::head_of, query_of, scan, write_fault};
 
 /// `POST /v1/workspaces/{ws}/plugins/{plugin}/batches`: `answer_json` and a `Graph-Seq` header.
 ///
@@ -217,106 +219,6 @@ fn if_match(headers: &HeaderMap) -> Result<Option<Cursor>, HubApiError> {
     Cursor::parse(text)
         .map(Some)
         .map_err(|_| HubApiError::BadRequest("If-Match is not <epoch>.<seq>"))
-}
-
-/// The request's own query string as a map, percent-decoded.
-///
-/// Caveat: a repeated parameter keeps the **first** value, because the records page reads one
-/// `cursor` and one `limit` and a caller that sent two sent a request the page cannot honour.
-/// `axum::extract::Query` would have needed a feature the hub's edge deliberately does not carry
-/// (plan fact 1), so this is the whole of the query reader the hub has.
-fn query_of(uri: &Uri) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    for pair in uri
-        .query()
-        .unwrap_or("")
-        .split('&')
-        .filter(|p| !p.is_empty())
-    {
-        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let name = decode(name);
-        if out.contains_key(&name) {
-            continue;
-        }
-        out.insert(name, decode(value));
-    }
-    out
-}
-
-/// One percent-decoded query token; an undecodable one is left as it arrived, because the only two
-/// parameters the page reads are then refused as malformed rather than silently dropped.
-fn decode(text: &str) -> String {
-    let replaced = text.replace('+', " ");
-    percent_encoding::percent_decode_str(&replaced)
-        .decode_utf8_lossy()
-        .into_owned()
-}
-
-/// The `cursor` query parameter as the records page's `(collection, id)` pair.
-///
-/// Caveat: the page's cursor is **opaque** on the wire and is the pair joined by a `\u{1f}` no
-/// collection or record id can hold (`check_collection_id` and `check_record_id` both refuse it),
-/// percent-encoded by [`encode_cursor`] so it survives a URL unquoted. The SDK passes it back
-/// without reading it, which is what "opaque" means.
-fn cursor_pair(query: &BTreeMap<String, String>) -> Result<Option<(String, String)>, HubApiError> {
-    let Some(cursor) = query.get("cursor") else {
-        return Ok(None);
-    };
-    if cursor.is_empty() {
-        return Ok(None);
-    }
-    let (collection, id) = cursor
-        .split_once('\u{1f}')
-        .ok_or(HubApiError::BadRequest("the cursor is not this page's own"))?;
-    Ok(Some((collection.to_owned(), id.to_owned())))
-}
-
-/// The `limit` query parameter: default 1 000, at most 10 000, and never zero.
-fn limit(query: &BTreeMap<String, String>) -> Result<u64, HubApiError> {
-    const DEFAULT_LIMIT: u64 = 1_000;
-    const MAX_LIMIT: u64 = 10_000;
-    let Some(raw) = query.get("limit") else {
-        return Ok(crate::config::capped(DEFAULT_LIMIT));
-    };
-    let asked: u64 = raw
-        .parse()
-        .map_err(|_| HubApiError::BadRequest("limit is not a number"))?;
-    if asked == 0 {
-        return Err(HubApiError::BadRequest("limit is at least 1"));
-    }
-    Ok(crate::config::capped(asked.min(MAX_LIMIT)))
-}
-
-/// The characters a `next` token is percent-encoded over: the unit separator itself, plus every
-/// byte that could end a query value or begin a header, so the token is safe in a URL unquoted.
-///
-/// Caveat: the encoding is the hub's own and not `base64url`, because the token is opaque to the
-/// SDK either way and percent-encoding keeps it readable in a log line without decoding it.
-const CURSOR_SET: &percent_encoding::AsciiSet = &percent_encoding::CONTROLS
-    .add(b' ')
-    .add(b'"')
-    .add(b'%')
-    .add(b'&')
-    .add(b'/')
-    .add(b':')
-    .add(b'<')
-    .add(b'=')
-    .add(b'>')
-    .add(b'?')
-    .add(b'@')
-    .add(b'[')
-    .add(b'\\')
-    .add(b']')
-    .add(b'^')
-    .add(b'`')
-    .add(b'{')
-    .add(b'|')
-    .add(b'}');
-
-/// The opaque `next` token for a page ending at `(collection, id)`.
-fn encode_cursor(collection: &str, id: &str) -> String {
-    percent_encoding::utf8_percent_encode(&format!("{collection}\u{1f}{id}"), CURSOR_SET)
-        .to_string()
 }
 
 /// A JSON answer under 200.
