@@ -43,26 +43,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nav"))
 import nav  # first: it puts the perf gate's CDP client on the path
 import cdp
 import gpu
+from gpu_mesh_page import ASK_JS, PAGE
 
 # The sizes `--only` accepts, as the fixture names' middle word. `1m` is the 1M pair.
 SIZES = ("1k", "10k", "50k", "1m")
 # A renderer that names one of these computed on the CPU, whatever else the info says. lavapipe
 # is Mesa's software Vulkan and llvmpipe its software GL; SwiftShader is the browser's own.
 SOFTWARE_MARKS = gpu.SOFTWARE_NAMES + ("lavapipe",)
-INFO_KEYS = ("vendor", "architecture", "device", "description")
-LIMIT_KEYS = ("maxStorageBufferBindingSize", "maxBufferSize", "maxComputeWorkgroupStorageSize",
-              "maxComputeInvocationsPerWorkGroup", "maxComputeWorkgroupsPerDimension")
-
-# The page's own script, one line, which imports the compiled charge pass and exposes a runner
-# the harness can call per fixture. The fixture crosses by fetch over this origin.
-PAGE = """<!doctype html><meta charset="utf-8"><title>gpu-mesh</title>
-<script type="module">
-import { runCharge } from "/target/gpu-js/gpu/charge.js";
-window.gpuMesh = async (name, arm, fault) => {
-  const bytes = await (await fetch("/target/gpu-fixtures/" + name + ".gmfx")).arrayBuffer();
-  return await runCharge({ fixture: bytes, arm }, fault);
-};
-</script>"""
 
 
 def with_gl(extra, gl=None):
@@ -191,6 +178,8 @@ def parse_args(argv):
             rest = rest[2:]
         else:
             return None
+    if only is not None and not all(size in SIZES for size in only):
+        return None
     return arm, directory, only, fault
 
 
@@ -239,36 +228,11 @@ def line(report, ms):
     return f"{' '.join(report['failures'])} {fields}" if report["failures"] else fields
 
 
-def json_array(keys):
-    """The tuple as a JavaScript array literal, for the expressions interpolated below."""
-    return "[" + ", ".join(f'"{key}"' for key in keys) + "]"
-
-
-ASK_JS = """(async () => {
-  const out = {present: ('gpu' in navigator), adapter: false, fallback: false, marks: ''};
-  if (!out.present) { out.why = "no navigator.gpu"; return out; }
-  let adapter = null;
-  try { adapter = await navigator.gpu.requestAdapter({powerPreference: 'high-performance'}); }
-  catch (error) { out.why = 'requestAdapter threw: ' + error; return out; }
-  if (!adapter) { out.why = 'adapter none'; return out; }
-  out.adapter = true;
-  const info = adapter.info || {};
-  const parts = [];
-  for (const key of %s) {
-    const value = info[key];
-    parts.push(key + ' ' + (value === undefined || value === '' ? '(absent)' : value));
-    if (value) { out.marks = out.marks + ' ' + value; }
-  }
-  out.lines = parts;
-  const fallback = adapter.isFallbackAdapter !== undefined
-    ? adapter.isFallbackAdapter : info.isFallbackAdapter;
-  out.fallback = fallback === true;
-  out.lines.push('isFallbackAdapter ' + fallback);
-  for (const key of %s) { out.lines.push('limit ' + key + ' ' + adapter.limits[key]); }
-  out.features = Array.from(adapter.features).sort();
-  out.lines.push('features ' + out.features.join(','));
-  return out;
-})()""" % (json_array(INFO_KEYS), json_array(LIMIT_KEYS))
+def write_page():
+    """The probe page, written next to the compiled charge pass it imports."""
+    target = Path("target/gpu-js")
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "probe.html").write_text(PAGE)
 
 
 def main():
@@ -297,9 +261,7 @@ def main():
         if refused:
             print(f"gpu-mesh: {refused}", file=sys.stderr)
             return 3
-        target = Path("target/gpu-js")
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "probe.html").write_text(PAGE)
+        write_page()
         return 3 if run_fixtures(label, sets, url, names, arm, fault) else 0
     except (cdp.CdpError, OSError) as failure:
         print(f"gpu-mesh: could not run: {failure}", file=sys.stderr)

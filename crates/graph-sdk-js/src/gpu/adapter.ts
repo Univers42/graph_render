@@ -13,10 +13,11 @@
  * | `maxComputeWorkgroupsPerDimension` | `⌈n/256⌉` | 3 907 at 1M, against 65 535 on both arms |
  * | `maxStorageBufferBindingSize` | 8 MB · `⌈n/10⁶⌉` | positions, density, spectrum and scratch; 4 GiB hardware, 1 GiB software |
  *
- * **No `shader-f16` is required and none may be used.** The software arm has no such feature
- * (`gpu-adapter.md:130-131`), so an f16 path would be a hardware-only path by construction.
- * That is enforced on the *source*, by `every_kernel_is_256_wide_and_f32` and the `no-f16` row,
- * and enforced on the *types* by `types.ts` declaring no f16 type at all.
+ * **The half-precision shader feature is not required and may not be used.** The software arm
+ * has no such feature (`gpu-adapter.md:130-131`), so a 16-bit-float path would be a
+ * hardware-only path by construction. That is enforced on the *source*, by
+ * `every_kernel_is_256_wide_and_f32` and by the gate row that greps the sources for the token,
+ * and enforced on the *types* by `types.ts` declaring no such type at all.
  *
  * The limits check needs the fixture's `n` and `P`, so `open` takes the loaded fixture rather
  * than only a `ChargeRequest`. That is also why it is not part of `probeCharge`'s public shape:
