@@ -39,6 +39,12 @@ export interface Grid {
   readonly rows: Uint32Array;
 }
 
+/** The scan's workgroups: `blocks` for its first and third dispatch, `chunk` sums each in its second. */
+export function scanPlan(buckets: number): { readonly blocks: number; readonly chunk: number } {
+  const blocks = Math.ceil(buckets / 256);
+  return { blocks, chunk: Math.ceil(blocks / 256) };
+}
+
 /** The grid over one fixture's positions. */
 export function gridFor(posX: Float64Array, posY: Float64Array): Grid {
   const n = posX.length;
