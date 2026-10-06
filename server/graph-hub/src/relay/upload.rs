@@ -5,7 +5,7 @@
 //! graph-server's `GRAPH_BODY_TIMEOUT_MS` (Decision 4), and the measurement reads **six** of them
 //! per run: one warm-up and five timed. So the line counts bytes and records as the walk yields
 //! them rather than deriving either from a chunk count, and `upload_ms` runs from the first poll of
-//! the body stream to the yield of the tail — the instant the last chunk is handed to the socket,
+//! the body stream to the production of the tail — the instant the walk has nothing left to read,
 //! not the motor's answer.
 //!
 //! Caveat: the instant is taken when the walk is first polled, not when `send` is called, so it
@@ -13,6 +13,10 @@
 //! containers that is small beside the 64 MiB the walk writes, and it is the honest end of "the
 //! hub's streaming cost" — a start earlier than the first poll would measure a socket the walk
 //! never used.
+//!
+//! Caveat: it stops when the walk has produced the tail, which is a hair before hyper hands that
+//! tail to the socket. The gap is the walk's own return, not a flush the hub waits on, so the line
+//! is the relay's cost and not the socket's; the measurement's Caveat says so too.
 //!
 //! Caveat: a stream dropped before its tail is over — a motor that answered 408 mid-upload, or a
 //! caller that hung up — writes **no** line, because there is no completed upload to name. A

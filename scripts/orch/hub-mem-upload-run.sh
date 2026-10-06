@@ -70,7 +70,10 @@ report() {
     printf 'upload_ms=%s\n' "${ms_line:-no uploads read}"
     printf 'median_upload_ms=%s slowest_upload_ms=%s\n' "${median_ms:-unknown}" "${slowest_ms:-unknown}"
     printf 'chunks=%s chunk_bytes=%s\n' "${chunks:-unknown}" "${chunk_bytes:-unknown}"
-    printf 'motor_408=%s graph_seq_matched=%s\n' "${motor_408:-unknown}" "${seq_line:-unknown}"
+    # `graph_seq` is the ETag every run's `Graph-Seq` equalled, and `no-run-line` when the case
+    # never reached its first `/layout`: the client case asserts the equality itself and panics on a
+    # mismatch, so the presence of this line **is** the assertion having held.
+    printf 'motor_408=%s graph_seq=%s\n' "${motor_408:-unknown}" "${seq_line:-no-run-line}"
     printf 'test_exit=%s verdict=%s\n' "${test_rc:-2}" "${verdict:-could not run}"
     printf 'failed=%s\n' "${why:-could not run}"
   } >"$out/upload.txt"
@@ -179,7 +182,7 @@ else
   why="${why:+$why; }the hub's log holds $n completed uploads, not 5 (the relay writes a line only for an upload that reached its tail)"
 fi
 [ "$motor_408" = 0 ] || why="${why:+$why; }the motor logged $motor_408 408"
-[ -n "$seq_line" ] || why="${why:+$why; }no Graph-Seq line: not every run matched the /graph ETag"
+[ -n "$seq_line" ] || why="${why:+$why; }no Graph-Seq line: the case did not confirm every run against the /graph ETag"
 [ "$count" = 6 ] || why="${why:+$why; }the hub's log holds $count layout-upload lines, not 6"
 if [ -z "$why" ]; then
   verdict=pass

@@ -5,7 +5,7 @@
 //! record the contract admits**, because the record count is then the highest the cap allows and
 //! the per-record overhead the lowest: the upload is as many chunks as it can be, which is the
 //! relay's worst case rather than its best. The plan's "one-character id" is not reachable — ids
-//! must be distinct, and a document of this size holds ~880 000 of them — so the ids are the
+//! must be distinct, and a document of this size holds ~745 000 of them — so the ids are the
 //! shortest distinct ones of a **fixed** width, and the case prints the record size and the count it
 //! actually wrote so `docs/measurements/hub-memory.md` records the real figures rather than the
 //! plan's estimate.
@@ -23,6 +23,10 @@ use std::time::Duration;
 use crate::ledger;
 use crate::support::db;
 use crate::support::wire::Remote;
+use records::{ID_WIDTH, batch_body};
+
+#[path = "upload/records.rs"]
+mod records;
 
 /// The workspace this case fills.
 const WS: &str = "upload-cap";
@@ -36,7 +40,7 @@ const WS: &str = "upload-cap";
 /// Every name is the same length on purpose: the stored record spells its collection qualified
 /// (`p0.task`, `p1.task`, …, `crates/graph-contract/src/hub/ids.rs:67`), so names of equal length
 /// make every record in the document the same size — which is what lets one measured `record_bytes`
-/// stand for all ~880 000 of them.
+/// stand for all ~745 000 of them.
 const PLUGINS: usize = 8;
 
 /// Plugin `i`'s name: `p0` … `p7`, two characters each.
@@ -62,20 +66,20 @@ const RUNS: usize = 5;
 /// Records per batch.
 ///
 /// `max_batch` is 10 000 operations (graph-contract's `Limits::DEFAULT`), and a body of that many
-/// smallest records is ~760 kB, well under `max_body`'s 4 MiB — so the operation cap, not the body
-/// cap, is what bounds a batch here, and taking the whole of it is what keeps the fill to ~88
-/// round trips.
+/// smallest records is ~890 kB, well under `max_body`'s 4 MiB — so the operation cap, not the body
+/// cap, is what bounds a batch here, and taking the whole of it is what keeps the fill to 75 round
+/// trips.
 const BATCH: usize = 10_000;
 
 /// The id width, and why it is not one character.
 ///
-/// A document at the cap holds ~880 000 records and ids must be distinct across all of them, so one
+/// A document at the cap holds ~745 000 records and ids must be distinct across all of them, so one
 /// character (36 of them) is arithmetically impossible. `id` admits `[a-z0-9-]`, so 36^5 = 60 466 176
 /// five-character ids cover the count with room to spare, and a **fixed** width is what makes "one
 /// record costs the same as every other" a fact rather than an average — a mixed-width document
 /// would give the fill a range of per-record costs and the measurement one number to name.
-const ID_WIDTH: usize = 5;
-
+/// [`records::ID_WIDTH`] is the width itself; this is why it is that.
+///
 /// What the fill wrote, read back off the store rather than predicted.
 struct Filled {
     /// The workspace's `doc_bytes`, the number the cap is enforced on.
@@ -209,58 +213,6 @@ async fn post(remote: &Remote, from: u64, take: usize, batch: u64) {
         reply.code(),
         reply.body()
     );
-}
-
-/// One batch body of `take` records whose ids are `from`, `from + 1`, … in base 36, zero-padded to
-/// [`ID_WIDTH`].
-///
-/// The record is the smallest the contract admits: the four members `read_batch` requires
-/// (`collection`, `id`, `updatedAt`, `values`) and one scalar cell. The manifest declares a `title`
-/// field and `check_title` runs on the **manifest**, so a record need not carry it
-/// (`crates/graph-contract/src/ingest/validate.rs:155`) — which is what lets the record stop at one
-/// scalar. `values` is not empty because `Role::Scalar` accepts any JSON (`batch/cells.rs:74`) and a
-/// document of no cells is not a document any real workspace holds.
-///
-/// The collection is written **unqualified** (`task`), which is what a batch spells and what
-/// `qualify` (`crates/graph-contract/src/hub/ids.rs:67`) turns into the plugin's own `p0.task` at
-/// write time. So one body serves every plugin, and the fill's `record_bytes` — read back off the
-/// store rather than computed here — is the qualified length.
-///
-/// Caveat: `updatedAt` is fixed at 0 rather than incremented per record. D6 says a `u32`, and every
-/// record here is a distinct id rather than a distinct version of one, so the value is not what the
-/// upload's byte count turns on — but it does mean the fill never exercises a store that has to
-/// resolve two versions of one id, which is a different question from this one.
-fn batch_body(from: u64, take: usize) -> String {
-    let mut out = String::with_capacity(take * (ID_WIDTH + 72));
-    out.push_str(r#"{"upserts":["#);
-    for i in 0..take {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str(&format!(
-            r#"{{"collection":"task","id":"{}","updatedAt":0,"values":{{"note":"x"}}}}"#,
-            base36(from + i as u64, ID_WIDTH)
-        ));
-    }
-    out.push_str(r#"],"deletes":[]}"#);
-    out
-}
-
-/// `n` in base 36, lowercased and zero-padded to exactly `width` bytes.
-///
-/// Lowercase and digits only, because `check_record_id` takes what `id` admits and the store's
-/// records page orders ids under the `C` collation. The assertion is what makes the width a promise:
-/// a count that outgrew `width` digits would otherwise silently repeat an id and rewrite an earlier
-/// record, which would shrink the document instead of filling it.
-fn base36(mut n: u64, width: usize) -> String {
-    const DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let mut out = vec![b'0'; width];
-    for slot in out.iter_mut().rev() {
-        *slot = DIGITS[(n % 36) as usize];
-        n /= 36;
-    }
-    assert_eq!(n, 0, "record {n} needs more than {width} base-36 digits");
-    String::from_utf8(out).expect("ASCII digits")
 }
 
 /// The workspace's own `doc_bytes`, the number the cap is enforced on.

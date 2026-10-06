@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# hub-mem-upload.sh — sourced by scripts/orch/hub-mem.sh; its `upload` verb (Decision 4).
+# hub-mem-upload.sh — the motor-side helpers for `hub-mem.sh upload` (Decision 4).
 #
-# Starts a real graph-server as the motor beside the hub, runs the client case that fills one
-# workspace to GRAPH_HUB_MAX_DOC_BYTES, and reads the six `layout-upload` lines the relay wrote.
+# Sourced by scripts/orch/hub-mem-upload-run.sh, which owns the run: this file names the motor's
+# container, its key material, its bridge address, its readiness probe and the reading of its log, so
+# that file stays under the 300-line limit while the reasoning about a second container stays in one
+# place.
 #
 # The motor is the graph-motor image (scripts/service.sh), one container named
 # gm-hub-motor-<worktree dir>, started detached with SERVICE_PORT=0 so nothing is published to a

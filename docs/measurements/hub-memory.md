@@ -233,9 +233,10 @@ streaming cost and the socket between the two containers, **not a network**. A d
 motor is a hop and a queue away has a different number, and the 2 s of headroom §5.3 asks for is
 headroom against graph-server's timeout, not against a network.
 
-**Caveat**: `upload_ms` runs from the first poll of the body stream to the yield of the tail
-(`relay/upload.rs`), so it includes the hub's own scheduling before the first chunk and excludes the
-motor's answer entirely. It is the relay's cost, not the exchange's.
+**Caveat**: `upload_ms` runs from the first poll of the body stream to the production of the tail
+(`relay/upload.rs`), so it includes the hub's own scheduling before the first chunk, stops a hair
+before hyper hands the tail to the socket, and excludes the motor's answer entirely. It is the
+relay's cost, not the exchange's.
 
 ### Deviation: a test-case client plus the relay's log event, not a `graph-hub upload-measurement` subcommand
 
@@ -262,8 +263,8 @@ own `layout-upload` log line (`relay/upload.rs`) for the timing. Two reasons, bo
 | 3 | the same, debug profile (`~/goinfre/logs/hub-mem-debug.out`, 56.16 s) | 0 |
 | 4 | `scripts/orch/hub-mem.sh measure` (`~/goinfre/logs/hub-mem-container-measure.out`) | 0 |
 | 5 | `scripts/orch/hub-mem.sh control` (`~/goinfre/logs/hub-mem-container-control.out`) | 137 |
-| 6 | `scripts/orch/hub-mem.sh upload` (Decision 4; `target/gate-hub-upload/hub-upload-timeout.log`) | 1 |
-| 7 | the same with `GM_HUB_BREAK=throttle-upload` (the control) | 1 |
+| 6 | `scripts/orch/hub-mem.sh upload` (Decision 4; `target/gate-hub-upload/hub-upload-timeout.log`, `upload_ms` 7847 · 8482 · 7773 · 7737 · 7813) | 1 |
+| 7 | the same with `GM_HUB_BREAK=throttle-upload` (the control; the motor answers 408 at 10 001 ms) | 1 |
 
 ## Deviations from the plan
 
@@ -293,3 +294,14 @@ own `layout-upload` log line (`relay/upload.rs`) for the timing. Two reasons, bo
   10001, and a 0600 file owned by the host user is unreadable to it: the relay's `bearer()` turned
   the unreadable file into `MotorUnavailable`, so every `/layout` answered 502 in 6 ms. The host user
   cannot `chown` to 10001, which is why a container creates it.
+- **`hub-upload-timeout` FAILS and that is the recorded result.** The measurement misses §5.3's
+  8 000 ms budget on the slowest of five runs (8 482 ms, and 8 133 ms on an earlier run of the same
+  input), so §5.3's "a miss is a stop, not a retune" applies: the numbers are recorded above and
+  nothing — the chunk size, a cap, a timeout — was changed to reach the budget. Resolving it is a
+  decision about graph-store's walk (one record per `Document::next()` is the chunking this measures)
+  and is out of this slice's paths.
+- The throttled control produces **zero** `layout-upload` lines, not six, because the motor's body
+  timeout answers 408 before any upload reaches its tail and the relay writes a line only for an
+  upload that did. `scripts/orch/hub-mem-upload-run.sh` treats that count as a **verdict** (exit 1,
+  with the clause named) rather than as "could not run" (exit 2): measured, an earlier `bail` there
+  made the control exit 2 and name nothing.
