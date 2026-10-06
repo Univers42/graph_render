@@ -1,0 +1,8 @@
+# The `hub-sync` LIVE rows (graph-hub plan Task 18): `sync` against a real hub and PostgreSQL that
+# scripts/orch/hub-live.sh starts fresh for each row and removes after it. No motor.
+# Run: scripts/orch/gate.sh <logdir> scripts/orch/rows/hub-sync.rows
+#
+# The negative control reads the stored records through `/graph` (GM_HUB_SDK_BREAK=sync-via-graph),
+# which must turn test 2 red by name: a dangling link then looks like a missing record every sync.
+hub-sync|0|scripts/orch/hub-live.sh scripts/orch/node-slim.sh node --test --test-force-exit --experimental-strip-types crates/graph-sdk-js/test/live/hub-sync.live.mjs
+negctl-hub-sync-via-graph|0|scripts/orch/hub-live.sh scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=sync-via-graph node --test --test-force-exit --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/live/hub-sync.live.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "^not ok 2 - a dangling link does not move the seq on a second sync" <<<"$out"'

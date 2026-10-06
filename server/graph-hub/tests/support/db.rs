@@ -199,11 +199,7 @@ async fn create(name: &str, options: &str) -> String {
 /// Caveat: the role is named in this file rather than read from the URL, so it is the hub-pg.sh
 /// spelling; a container with another role name would need this and `admin_url` changed together.
 pub async fn fresh_migrated(name: &str) -> String {
-    let url = owned(
-        name,
-        "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'",
-    )
-    .await;
+    let url = fresh_owned(name).await;
     let store = store_on(&url).await;
     let mut client = store
         .client()
@@ -213,6 +209,15 @@ pub async fn fresh_migrated(name: &str) -> String {
         .await
         .expect("the store's migrations");
     url
+}
+
+/// `fresh_migrated` without the migration: what a hub meets on its first start.
+pub async fn fresh_owned(name: &str) -> String {
+    owned(
+        name,
+        "TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'",
+    )
+    .await
 }
 
 /// A URL of a database of this test's own that **belongs to `hub`**, so the store's own role may
