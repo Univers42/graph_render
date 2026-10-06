@@ -76,7 +76,7 @@ fn write_all(dir: &std::path::Path) -> ExitCode {
         for state in State::all() {
             let name = settle::file_name(n, state);
             match one(n, state, &mut knobs) {
-                Ok(Case { bytes, line }) => match std::fs::write(dir.join(&name), &bytes) {
+                Ok(Written { bytes, line }) => match std::fs::write(dir.join(&name), &bytes) {
                     Ok(()) => println!("emit-gpu-fixtures: {name}  {line}"),
                     Err(err) => {
                         eprintln!("emit-gpu-fixtures: writing {name}: {err}");
@@ -93,22 +93,28 @@ fn write_all(dir: &std::path::Path) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// One case's bytes and the one line of numbers the run prints for it.
-struct Case {
+/// One case's bytes and the one line of numbers the run prints for it. Named apart from
+/// [`emit::Case`], which is the borrowed input to the writer: this one is what comes back.
+struct Written {
     bytes: Vec<u8>,
     line: String,
 }
 
 /// One case: settle to its state, probe it, write it.
-fn one(n: u32, state: State, knobs: &mut emit::Knobs) -> Result<Case, String> {
+fn one(n: u32, state: State, knobs: &mut emit::Knobs) -> Result<Written, String> {
     let (session, probe) = settle::case(n, state)?;
-    let bytes = emit::write(&probe, session.xs(), session.ys(), state, knobs)?;
-    let m = probe.lo.len();
+    let case = emit::Case {
+        probe: &probe,
+        xs: session.xs(),
+        ys: session.ys(),
+        state,
+    };
+    let bytes = emit::write(&case, knobs)?;
     let line = format!(
         "{} bytes  P={}  m={}  step={}  h={}  origin=({}, {})  cells={}  reach={}  scale={:?}",
         bytes.len(),
         probe.side,
-        m,
+        probe.lo.len(),
         probe.step,
         probe.h,
         probe.origin_x,
@@ -117,5 +123,5 @@ fn one(n: u32, state: State, knobs: &mut emit::Knobs) -> Result<Case, String> {
         probe.reach,
         emit::scale_for(n)
     );
-    Ok(Case { bytes, line })
+    Ok(Written { bytes, line })
 }

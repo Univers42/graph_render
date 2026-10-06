@@ -37,11 +37,11 @@ use crate::layout::force::particle_mesh::{self, Mesh};
 
 /// The runner the probe divides nothing by: a probe's answer is a number a report prints,
 /// not a tick, so there is no tier to choose and one worker is the only honest schedule.
-const WORKERS: u32 = 1;
-
-/// The worker count a probe's serial `How` names, as a free function for the same reason
-/// [`charge_probe_on`] is: one value, read in one place, by both probes.
-pub(super) const PROBE_WORKERS: u32 = WORKERS;
+///
+/// `pub(super)` because the mesh probe builds its own `How` from the same value: both probes
+/// must run the same schedule or their columns are not comparable bit for bit, and one
+/// constant is what says so.
+pub(super) const WORKERS: u32 = 1;
 
 impl ForceSession {
     /// This session's engine's many-body force at this session's positions, at `alpha` 1

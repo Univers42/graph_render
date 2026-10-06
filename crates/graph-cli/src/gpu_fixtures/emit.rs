@@ -90,49 +90,37 @@ pub fn scale_for(n: u32) -> Option<u32> {
     Some(1u32 << (31 - (32 - n.leading_zeros() as i32)))
 }
 
+/// One case as the writer sees it: the probe's columns, the session's own positions, and
+/// which state they are at. Everything that describes *what* is written, and nothing that
+/// describes how — so `write` and `header` each stay inside the house limits without
+/// either taking five arguments.
+pub struct Case<'a> {
+    /// The mesh's own columns at this state.
+    pub probe: &'a MeshProbe,
+    /// The session's `x` column, which the payload carries before the probe's own.
+    pub xs: &'a [f64],
+    /// The session's `y` column.
+    pub ys: &'a [f64],
+    /// Which of the two position sets these are.
+    pub state: State,
+}
+
 /// One case's bytes: the 64-byte header, then every payload section in the wire order
 /// `fixtures/gpu/README.md` states. Refuses rather than writes if any column holds a
 /// non-finite value (D9).
-pub fn write(
-    probe: &MeshProbe,
-    xs: &[f64],
-    ys: &[f64],
-    state: State,
-    knobs: &mut Knobs,
-) -> Result<Vec<u8>, String> {
+pub fn write(case: &Case<'_>, knobs: &mut Knobs) -> Result<Vec<u8>, String> {
+    let probe = case.probe;
     let (dx, dy) = columns(probe, knobs.pass);
-    finite("positions", xs.iter().chain(ys))?;
-    for (name, column) in [
-        ("strength", &probe.strength),
-        ("twiddles", &probe.twiddle_re),
-        ("twiddles", &probe.twiddle_im),
-        ("spectrum", &probe.spectrum_re),
-        ("spectrum", &probe.spectrum_im),
-        ("link", &probe.link_dx),
-        ("link", &probe.link_dy),
-        ("charge", &dx),
-        ("charge", &dy),
-        ("collide", &probe.collide_dx),
-        ("collide", &probe.collide_dy),
-    ] {
-        finite(name, column.iter())?;
-    }
+    check_finite(case, &dx, &dy)?;
     let mut out = Vec::new();
-    header(
-        &mut out,
-        probe,
-        xs.len() as u32,
-        probe.lo.len() as u32,
-        state,
-        knobs,
-    );
+    header(&mut out, case, knobs);
     put_u32(&mut out, probe.cells);
     put_u32(&mut out, probe.reach);
     put_u32s(&mut out, &probe.lo);
     put_u32s(&mut out, &probe.hi);
     put_f64s(&mut out, &probe.strength);
-    put_f64s(&mut out, xs);
-    put_f64s(&mut out, ys);
+    put_f64s(&mut out, case.xs);
+    put_f64s(&mut out, case.ys);
     put_f64s(&mut out, &probe.twiddle_re);
     put_f64s(&mut out, &probe.twiddle_im);
     put_f64s(&mut out, &probe.spectrum_re);
@@ -144,6 +132,31 @@ pub fn write(
     put_f64s(&mut out, &probe.collide_dx);
     put_f64s(&mut out, &probe.collide_dy);
     Ok(out)
+}
+
+/// Every column this case would write, checked for finiteness before the first byte is put:
+/// D9 says a fixture never carries a non-finite value, and one that did would be a silent
+/// `NaN` in the arm's readback rather than a load error. `dx`/`dy` are the charge columns as
+/// written, which under the `pass` control may be another pass's pair.
+fn check_finite(case: &Case<'_>, dx: &[f64], dy: &[f64]) -> Result<(), String> {
+    let probe = case.probe;
+    finite("positions", case.xs.iter().chain(case.ys))?;
+    for (name, column) in [
+        ("strength", &probe.strength),
+        ("twiddles", &probe.twiddle_re),
+        ("twiddles", &probe.twiddle_im),
+        ("spectrum", &probe.spectrum_re),
+        ("spectrum", &probe.spectrum_im),
+        ("link", &probe.link_dx),
+        ("link", &probe.link_dy),
+        ("charge", dx),
+        ("charge", dy),
+        ("collide", &probe.collide_dx),
+        ("collide", &probe.collide_dy),
+    ] {
+        finite(name, column.iter())?;
+    }
+    Ok(())
 }
 
 /// The columns written where the **charge** pair belongs: the charge pair, or — under the
@@ -160,15 +173,16 @@ fn columns(probe: &MeshProbe, pass: Option<&'static str>) -> (Vec<f64>, Vec<f64>
 /// The 64-byte header: thirteen explicit words in wire order and no `#[repr(C)]`, because D6
 /// makes a repr-C header a place a machine word can creep in, and the test
 /// `every_integer_on_the_wire_is_u32` is a grep rather than a compile error.
-fn header(out: &mut Vec<u8>, probe: &MeshProbe, n: u32, m: u32, state: State, knobs: &Knobs) {
+fn header(out: &mut Vec<u8>, case: &Case<'_>, knobs: &Knobs) {
+    let probe = case.probe;
     out.extend_from_slice(&MAGIC);
     put_u32(out, 1);
     put_u32(out, 0);
-    put_u32(out, n);
-    put_u32(out, m);
+    put_u32(out, case.xs.len() as u32);
+    put_u32(out, probe.lo.len() as u32);
     put_u32(out, probe.side);
-    put_u32(out, state.word());
-    put_u32(out, state.word());
+    put_u32(out, case.state.word());
+    put_u32(out, case.state.word());
     put_u32(out, rung_word(probe.step, knobs.rung));
     put_u32(out, 0);
     put_f64(out, probe.h);

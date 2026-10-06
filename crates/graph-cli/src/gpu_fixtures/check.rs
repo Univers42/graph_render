@@ -85,16 +85,26 @@ fn named(name: &str) -> Result<(String, u32, State), String> {
     }
 }
 
+/// One case to compare against, as the file name carries it: the three things `compare_one`
+/// needs and the two it must not be handed separately, so a case cannot be compared under a
+/// name that disagrees with the size and state it was derived from.
+struct Wanted<'a> {
+    dir: &'a Path,
+    name: &'a str,
+    n: u32,
+    state: State,
+}
+
 /// One case: re-emit, read, compare. `0` up to date, `1` stale, `2` unreadable.
-fn compare_one(dir: &Path, name: &str, n: u32, state: State, knobs: &mut Knobs) -> u8 {
-    let produced = match produced(n, state, knobs) {
+fn compare_one(want: Wanted<'_>, knobs: &mut Knobs) -> u8 {
+    let produced = match produced(want.n, want.state, knobs) {
         Ok(bytes) => bytes,
         Err(err) => {
-            eprintln!("emit-gpu-fixtures --check: {name}: {err}");
+            eprintln!("emit-gpu-fixtures --check: {}: {err}", want.name);
             return 2;
         }
     };
-    let path = dir.join(name);
+    let path = want.dir.join(want.name);
     let stored = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(err) => {

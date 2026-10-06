@@ -283,13 +283,6 @@ impl ForceSession {
     pub(crate) fn mesh_side(&self) -> Option<usize> {
         self.mesh.as_ref().map(Mesh::side)
     }
-
-    /// The tick number the tick loop counts, for the probe's tests: the property they pin
-    /// is that asking the session a question leaves this where it was.
-    #[cfg(test)]
-    pub(crate) fn tick_no(&self) -> u32 {
-        self.sim.tick_no
-    }
 }
 
 /// The one tier a session that chose no host runner runs under: [`Serial`], one worker,

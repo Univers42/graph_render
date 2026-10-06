@@ -22,7 +22,7 @@
 //! frames, different `h` and different kernel spectra. One probe is one state.
 
 use super::ForceSession;
-use super::fidelity::{PROBE_WORKERS, charge_probe_on};
+use super::fidelity::{WORKERS, charge_probe_on};
 use crate::exec::Serial;
 use crate::layout::force::Split;
 use crate::layout::force::barnes_hut::sim::{How, Sim};
@@ -142,12 +142,25 @@ impl ForceSession {
         let mut deltas = Vec::with_capacity(sim.rows() as usize);
         let mut how = How {
             runner: &runner,
-            workers: PROBE_WORKERS,
+            workers: WORKERS,
             deltas: &mut deltas,
             split: Split::None,
         };
         particle_mesh::pass(&mut sim, &mut mesh, &mut how, pass);
         Run { sim, mesh }
+    }
+}
+
+#[cfg(test)]
+impl ForceSession {
+    /// The tick number the tick loop counts, for this module's tests: the property they
+    /// pin is that asking the session a question leaves this where it was.
+    ///
+    /// It lives here rather than in `session.rs` because that file is at the house limit,
+    /// and a child module reads `self.sim` directly — which is why this needs no accessor
+    /// on the session's own surface at all.
+    pub(crate) fn tick_no(&self) -> u32 {
+        self.sim.tick_no
     }
 }
 
