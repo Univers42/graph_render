@@ -28,7 +28,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Reads the settings, refuses what §6 refuses, opens the store, checks the database and serves.
+/// Reads the settings, refuses what §6 refuses, opens the store, checks and migrates the database,
+/// and serves.
 ///
 /// The order is fixed and is the whole of §6's "start checks": nothing is bound before every check
 /// has passed, so a hub that fails one never answers a request. A refusal is exit 2 with
@@ -56,7 +57,7 @@ fn serve_from_env() -> ExitCode {
     }
 }
 
-/// The store, the start checks and the listener, in that order.
+/// The store, the start checks, the migrations and the listener, in that order.
 async fn start(settings: Settings, log: graph_hub::LogSink) -> Result<(), String> {
     let mut store = settings.store.clone();
     store.url = settings.db_url.clone();
@@ -70,6 +71,10 @@ async fn start(settings: Settings, log: graph_hub::LogSink) -> Result<(), String
         .check(&db)
         .await
         .map_err(|refused| refused.to_string())?;
+    let applied = graph_hub::config::migrate_database(&db)
+        .await
+        .map_err(|refused| refused.to_string())?;
+    log(&serde_json::json!({ "event": "migrated", "applied": applied }).to_string());
     let addr = SocketAddr::new(settings.bind, settings.port);
     let app = App::from_settings(&settings, log)?;
     // The store the start checks already used is the one every handler reads, so a shipped hub never

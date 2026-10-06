@@ -14,13 +14,14 @@ const MANIFEST = {
   ],
 };
 
-/** `GET .../records`, §5.2: `{collection, id, rev}` in byte order, an opaque `next` until the
- * last page, and `plugin_seq` on every page. */
-function recordsPage(ids, pluginSeq, next) {
+/** `GET .../records`, §5.2 as graph-hub sends it: `{collection, id, rev}` in byte order with the
+ * collection qualified as `<plugin>.<collection>`, an opaque `next` that is `null` on the last
+ * page, and `plugin_seq` on every page. */
+function recordsPage(ids, pluginSeq, next = null) {
   return {
     plugin_seq: pluginSeq,
-    records: ids.map((id) => ({ collection: "issue", id, rev: 1 })),
-    ...(next === undefined ? {} : { next }),
+    records: ids.map((id) => ({ collection: `${PLUGIN}.issue`, id, rev: 1 })),
+    next,
   };
 }
 
