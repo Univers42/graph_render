@@ -169,9 +169,12 @@ boot() {
 stop() { docker stop -t "${HUB_RUN_STOP_SECS:-40}" "$name" >/dev/null 2>&1; return 0; }
 kill9() { docker kill "$name" >/dev/null 2>&1; return 0; }
 restart() { stop && start; }
+# WHY the fallback through gr: the store's tests (hub-pg.sh run) write their step files into
+# target/hub-steps as root, and the host user cannot remove those (hub.rows after hub-store.rows).
+clear_dirs() { rm -rf "$@" 2>/dev/null || "$here/gr" rm -rf "$@"; }
 reset() {
   docker rm -f "$name" >/dev/null 2>&1
-  rm -rf "$state" "$steps"
+  clear_dirs "$state" "$steps"
 }
 
 act() {
@@ -201,6 +204,7 @@ serve_requests() {
 # and a directory it made would refuse the runner's acks.
 run() {
   [ $# -gt 0 ] || die "run needs a command"
+  { [ ! -e "$steps" ] || [ -w "$steps" ] || clear_dirs "$steps"; } || return 1
   mkdir -p "$steps" && rm -f "$steps"/*.req "$steps"/*.ack "$steps"/*.ack.tmp || return 1
   "$@" &
   local pid=$! rc req
