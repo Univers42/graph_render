@@ -259,7 +259,9 @@ Neither is fixed in this slice; both are §6 rows. Line numbers are at `fbd696f7
 route table (`:252-266`, unchanged since `c202527f`) has `GET /v1/workspaces` and
 `PUT /v1/workspaces/{ws}`, and no `POST` on either path. The doc comment at `lib.rs:105-110` calls it
 "a route of §5.2's table whose handler its own task has not written yet", which is false: no task
-writes it. A `POST` there should be a 405, which axum gives on its own once the method is removed.
+writes it. A `POST` there should be the JSON 404 `NotFound` every other wrong method gets
+(`lib.rs:83`, `.method_not_allowed_fallback(not_found)`; `docs/contract/hub-api.md:57`), which the
+router gives on its own once the method is removed.
 No SDK call or row sends that request, so nothing observable to a plugin changes.
 
 **(d) `hub-run.sh`'s reset cannot remove root-owned step files.** `hub-store.rows` runs its cargo
@@ -657,7 +659,7 @@ that the item is refused.
 | Live studio integration | not attempted | spec `:690-691`; it needs `packages/graph-studio/src/host/*`, which graph-render-4f owns, so it is a later slice agreed with them |
 | `motor-alone` | not run | spec `:672-674`; no rows file defines it (`git grep -n motor-alone -- scripts/orch/rows` prints nothing, exit 1), and this report claims `motor-lock` (`hub-contract.rows:16`) instead |
 | Slice 1's measurement cell (§1 row 1) | not measured | slice 1 is the contract crate and computes no number the spec asks to measure |
-| `POST /v1/workspaces` answers 501, not 405 (deviation (c) in §3) | not attempted | `server/graph-hub/src/lib.rs:58`, `:111`; a follow-up branch removes `.post(not_ready)`, `not_ready` and the `NotImplemented` variant, gated by `hub.rows` |
+| `POST /v1/workspaces` answers 501, not the JSON 404 (deviation (c) in §3) | not attempted | `server/graph-hub/src/lib.rs:58`, `:111`; a follow-up branch removes `.post(not_ready)`, `not_ready` and the `NotImplemented` variant, gated by `hub.rows` |
 | `hub-run.sh` reset and root-owned step files (deviation (d) in §3) | not attempted | `scripts/orch/hub-run.sh:174`, `:202`; a follow-up branch removes the step directory through `scripts/orch/gr` as `hub-store.rows:81` does, gated by `hub-store.rows` then `hub.rows` in one worktree with no chown between them |
 
 ### Verdict
