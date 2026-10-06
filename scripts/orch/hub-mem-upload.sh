@@ -64,15 +64,16 @@ motor_credentials() {
 # cannot `chown` to a uid it does not hold. A container as that uid can create it.
 #
 # The key arrives on the container's **stdin** and is written from there, so it never reaches a command
-# line and `ps` on the host never shows it. `--group-add` plus a group-writable `target/hub-mem` is
-# what lets uid 10001 create the file there at all; the directory is this script's own under
-# `target/`, and `hub-mem.sh reset` removes it. drun, like every container here.
+# line and `ps` on the host never shows it. `-i` is what attaches that stdin: drun does not pass it,
+# and without it `cat` reads nothing and the file comes out empty — measured, not assumed.
+# `--group-add` plus a group-writable `target/hub-mem` is what lets uid 10001 create the file there
+# at all; the directory is this script's own under `target/`. drun, like every container here.
 write_as_the_hub() {
   local image
   image=$(cat target/hub-image/name) || return 1
   chmod g+w "$out" || return 1
   printf '%s\n' "$1" \
-    | "$here/drun" --rm --network none -u 10001 --group-add "$(id -g)" --entrypoint /bin/sh \
+    | "$here/drun" --rm -i --network none -u 10001 --group-add "$(id -g)" --entrypoint /bin/sh \
       -v "$root/$out:/run/keys" "$image" \
       -c 'umask 077; cat > /run/keys/motor-key' >/dev/null 2>&1
 }
