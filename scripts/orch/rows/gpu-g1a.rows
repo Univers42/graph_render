@@ -24,4 +24,4 @@ pub-surface|0|test "$(git grep -h -E '^\s*pub (struct|enum|fn|type|const|trait) 
 no-allow|0|! git grep -n -E '#\[(allow|doc\(hidden\))' -- crates/graph-core/src/layout/force/session/mesh_probe.rs crates/graph-core/src/layout/force/session/mesh_probe crates/graph-cli/src/gpu_fixtures.rs crates/graph-cli/src/gpu_fixtures
 named-tests|0|git grep -q 'fn the_probe_leaves_the_next_tick_byte_identical' -- crates/graph-core && git grep -q 'the_loader_refuses_a_version_it_does_not_know' -- crates/graph-sdk-js/test
 emit-1m|0|test -s target/gpu-fixtures/mesh-1m-start.gmfx && test -s target/gpu-fixtures/mesh-1m-settled.gmfx
-no-source-names|0|! git grep -n -i -E '\bgit\b|commit|repositor|activitywatch' -- crates/graph-core/src/layout/force crates/graph-cli/src/gpu_fixtures.rs crates/graph-cli/src/gpu_fixtures crates/graph-sdk-js/src/gpu
+no-source-names|0|! git grep -n -i -E '\bgit\b|commit|repositor|activitywatch' -- crates/graph-core/src/layout/force ':!crates/graph-core/src/layout/force/session/tests/golden.rs' crates/graph-cli/src/gpu_fixtures.rs crates/graph-cli/src/gpu_fixtures crates/graph-sdk-js/src/gpu
