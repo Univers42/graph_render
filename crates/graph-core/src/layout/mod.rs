@@ -31,9 +31,9 @@ pub mod spectral;
 pub mod spectral_stage;
 pub mod spiral;
 pub mod sugiyama;
-mod transpose;
 #[cfg(test)]
 mod tests;
+mod transpose;
 
 pub mod tidy_tree;
 pub mod treemap;

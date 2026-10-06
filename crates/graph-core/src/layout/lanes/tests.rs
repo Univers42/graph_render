@@ -266,10 +266,23 @@ fn horizontal_draws_the_rows_along_x_bit_for_bit() {
         !straight.pts.is_empty(),
         "the merge bends the paths, so they carry interior points"
     );
-    assert_eq!(turned.offsets, straight.offsets, "the CSR shape is not a coordinate");
+    assert_eq!(
+        turned.offsets, straight.offsets,
+        "the CSR shape is not a coordinate"
+    );
     assert_eq!(turned.pts.len(), straight.pts.len());
-    for (pair, plain) in turned.pts.chunks_exact(2).zip(straight.pts.chunks_exact(2)) {
-        assert_eq!(bits(pair), bits(&[plain[1], plain[0]]), "x takes y and y takes x");
+    for (pair, plain) in turned
+        .pts
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .zip(straight.pts.as_chunks::<2>().0)
+    {
+        assert_eq!(
+            bits(pair),
+            bits(&[plain[1], plain[0]]),
+            "x takes y and y takes x"
+        );
     }
 }
 

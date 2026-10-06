@@ -149,9 +149,19 @@ fn horizontal_is_published_last_as_a_bool_defaulting_to_false() {
         ("layout.dag.lanes", LanesParams::PARAMS),
     ] {
         let last = specs.last().expect("publishes at least one parameter");
-        assert_eq!(last.name, "horizontal", "{id}: the last spec is not `horizontal`");
-        assert_eq!(last.kind, ParamKind::Bool, "{id}: `horizontal` is not a Bool");
-        assert_eq!(last.default, 0.0, "{id}: `horizontal` does not default to false");
+        assert_eq!(
+            last.name, "horizontal",
+            "{id}: the last spec is not `horizontal`"
+        );
+        assert_eq!(
+            last.kind,
+            ParamKind::Bool,
+            "{id}: `horizontal` is not a Bool"
+        );
+        assert_eq!(
+            last.default, 0.0,
+            "{id}: `horizontal` does not default to false"
+        );
     }
 }
 

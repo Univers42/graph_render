@@ -34,8 +34,15 @@ fn a_transpose_swaps_centres_sizes_and_every_path_point() {
     let EdgeGeometry::Polyline(paths) = turned.edges else {
         panic!("a polyline stays a polyline");
     };
-    assert_eq!(paths.offsets, [0, 1, 3], "offsets are the CSR shape, not coordinates");
-    assert_eq!(bits(&paths.pts), bits(&[11.0, 10.0, 13.0, 12.0, 15.0, 14.0]));
+    assert_eq!(
+        paths.offsets,
+        [0, 1, 3],
+        "offsets are the CSR shape, not coordinates"
+    );
+    assert_eq!(
+        bits(&paths.pts),
+        bits(&[11.0, 10.0, 13.0, 12.0, 15.0, 14.0])
+    );
 }
 
 #[test]

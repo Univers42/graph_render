@@ -24,7 +24,12 @@ fn transposed_nodes(nodes: NodeGeometry) -> NodeGeometry {
     match nodes {
         NodeGeometry::Point { x, y } => NodeGeometry::Point { x: y, y: x },
         NodeGeometry::Circle { x, y, r } => NodeGeometry::Circle { x: y, y: x, r },
-        NodeGeometry::Box { x, y, w, h } => NodeGeometry::Box { x: y, y: x, w: h, h: w },
+        NodeGeometry::Box { x, y, w, h } => NodeGeometry::Box {
+            x: y,
+            y: x,
+            w: h,
+            h: w,
+        },
     }
 }
 
@@ -32,12 +37,15 @@ fn transposed_edges(edges: EdgeGeometry) -> EdgeGeometry {
     match edges {
         EdgeGeometry::Line => EdgeGeometry::Line,
         EdgeGeometry::Polyline(paths) => EdgeGeometry::Polyline(swapped(paths)),
-        EdgeGeometry::Curve { degree, paths } => EdgeGeometry::Curve { degree, paths: swapped(paths) },
+        EdgeGeometry::Curve { degree, paths } => EdgeGeometry::Curve {
+            degree,
+            paths: swapped(paths),
+        },
     }
 }
 
 fn swapped(mut paths: Paths) -> Paths {
-    for point in paths.pts.chunks_exact_mut(2) {
+    for point in paths.pts.as_chunks_mut::<2>().0 {
         point.swap(0, 1);
     }
     paths
