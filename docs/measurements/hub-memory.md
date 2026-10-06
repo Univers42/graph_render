@@ -189,8 +189,9 @@ two seconds under graph-server's `GRAPH_BODY_TIMEOUT_MS` default of 10 000
 equal to the `/graph` ETag at the same cursor. One warm-up precedes the five and is excluded. A miss
 is a **stop**, not a retune.
 
-**The five numbers and the median**, from the run gate row `hub-upload-timeout` recorded
-(`target/gate-hub-upload/hub-upload-timeout.log`):
+**The five numbers and the median**, from the first run of gate row `hub-upload-timeout`
+(`target/gate-hub-upload3/hub-upload-timeout.log`'s predecessor, the run that completed all six
+uploads):
 
 | # | Quantity | Value |
 |---|---|---|
@@ -198,35 +199,48 @@ is a **stop**, not a retune.
 | `upload_median_ms` | their median | 7813 |
 | `upload_slowest_ms` | the slowest, which is what the condition is over | 8482 |
 
-A second run of the same row, minutes earlier, gave **7410 · 7492 · 7671 · 7708 · 8133** (median
-7671, slowest 8133) on the identical input — the figures above are the gate's, and the two runs are
-both recorded because the spread is part of the result: the run-to-run range here is about 800 ms,
-which is the same order as the 2 s of headroom §5.3 asks for.
+**Three runs, three misses**, all on the identical input (`doc_bytes` 67 108 842, 745 633 records,
+89 B each, 75 batches — the case asserts every one of those against this file, so the input was
+provably the same each time):
+
+| Run | `upload_ms` | median | slowest | 408 at the motor |
+|---|---|---|---|---|
+| 1 | 7410 · 7492 · 7671 · 7708 · 8133 | 7671 | 8133 | 0 |
+| 2 | 7847 · 8482 · 7773 · 7737 · 7813 | 7813 | 8482 | 0 |
+| 3 | 8726 · 9392 · 9868 · *(the 4th never finished)* | — | 9868 | **1** |
+
+Run 3 is the informative one: its first three uploads all cleared **9 s**, and the fourth ran past
+graph-server's own 10 s `GRAPH_BODY_TIMEOUT_MS`, so the motor answered **408**, the hub returned
+**502** `MotorBodyTimeout`, and only three `layout-upload` lines were written. So on a loaded host
+the miss is not merely "over an 8 s budget" — it reaches the motor's hard 10 s limit. Run 3 was run
+while cargo builds were competing for the same 20 cores, which is why it is recorded rather than
+discarded: the spread between run 1 and run 3 is ~2 s, and §5.3 asks for 2 s of headroom.
 
 **Chunk size**, the knob a miss names: the walk yields one record per chunk plus a head and a tail,
 so one upload is **745 635** chunks and the mean chunk is **90 bytes**. A miss is this number that
 grows — the relay's chunking is one record per `Document::next()` (`relay/body.rs`), and a larger
 chunk would be a change to graph-store's walk, not to the hub.
 
-**Result: a miss, and a STOP.** The slowest of the five was **8 482 ms**, over the 8 000 ms budget, so
-`scripts/orch/hub-mem.sh upload` exits 1, gate row `hub-upload-timeout` **FAILS**, and this file
-records the numbers rather than a retune (§5.3: "A miss is a stop, not a retune"). Both runs missed on
-the slowest run alone; the median was inside the budget both times (7813 and 7671 ms). Nothing was
-retuned to reach the number.
+**Result: a miss, and a STOP.** All three runs missed §5.3's 8 000 ms budget on the slowest run
+(8133, 8482 and 9868 ms), so `scripts/orch/hub-mem.sh upload` exits 1, gate row `hub-upload-timeout`
+**FAILS**, and this file records the numbers rather than a retune (§5.3: "A miss is a stop, not a
+retune"). Nothing was retuned to reach the budget: not the chunk size, not a cap, not a timeout.
 
-What the miss is **not**: the motor answered every upload **200**, its log held no 408, and every
-`Graph-Seq` matched the `/graph` ETag. So the relay reached the motor, and the motor read the whole
-64 MiB inside its own 10 s `GRAPH_BODY_TIMEOUT_MS` with roughly 1.5 s to spare. The 64 MiB upload
-takes the hub about 7.8 s of streaming on this host and the motor about 2.1 s of parsing; it is the
-hub's streaming cost that puts the slowest run 482 ms over an 8 s budget, not the motor's timeout.
+What the miss is **not**, in runs 1 and 2: the motor answered every upload **200**, its log held no
+408, and every `Graph-Seq` matched the `/graph` ETag. The relay reached the motor, and the motor read
+the whole 64 MiB inside its own 10 s limit with roughly 1.5 s to spare. The 64 MiB upload takes the
+hub about 7.8 s of streaming on an idle host and the motor about 2.1 s of parsing, so it is the hub's
+streaming cost — 745 635 socket writes of 90 bytes each — that puts the slowest run over budget, not
+the motor's timeout. In run 3, under load, the same cost reached the motor's limit too.
 
 **The throttled control** (`negctl-throttle-upload`, `GM_HUB_BREAK=throttle-upload`): the relay
 sleeps 2 ms before yielding each record (`relay/body.rs`, `breaks.rs`), which at 745 633 records is
 about 25 minutes of upload. The motor answered **408 at 10 001 ms** — its `GRAPH_BODY_TIMEOUT_MS`
-doing exactly what the un-throttled run stayed inside — and the hub mapped it to **502**
+doing exactly what the un-throttled runs 1 and 2 stayed inside — and the hub mapped it to **502**
 `MotorBodyTimeout`. The verb exits 1, the row (which expects a non-zero exit) **PASSES**, and
 `target/hub-mem/upload.txt` names every clause that failed. So the measurement can fail, and it fails
-differently from the plain miss above: here the motor refuses, there it answers.
+differently from the plain miss above: here the motor refuses on the first upload, there it answers
+three to five of them.
 
 **Caveat**: this is loopback between two containers on one host, so it measures the hub's own
 streaming cost and the socket between the two containers, **not a network**. A deployment whose
@@ -263,7 +277,7 @@ own `layout-upload` log line (`relay/upload.rs`) for the timing. Two reasons, bo
 | 3 | the same, debug profile (`~/goinfre/logs/hub-mem-debug.out`, 56.16 s) | 0 |
 | 4 | `scripts/orch/hub-mem.sh measure` (`~/goinfre/logs/hub-mem-container-measure.out`) | 0 |
 | 5 | `scripts/orch/hub-mem.sh control` (`~/goinfre/logs/hub-mem-container-control.out`) | 137 |
-| 6 | `scripts/orch/hub-mem.sh upload` (Decision 4; `target/gate-hub-upload/hub-upload-timeout.log`, `upload_ms` 7847 · 8482 · 7773 · 7737 · 7813) | 1 |
+| 6 | `scripts/orch/hub-mem.sh upload` (Decision 4, three runs: slowest 8133, 8482 and 9868 ms against an 8000 ms budget) | 1 |
 | 7 | the same with `GM_HUB_BREAK=throttle-upload` (the control; the motor answers 408 at 10 001 ms) | 1 |
 
 ## Deviations from the plan
@@ -295,11 +309,12 @@ own `layout-upload` log line (`relay/upload.rs`) for the timing. Two reasons, bo
   the unreadable file into `MotorUnavailable`, so every `/layout` answered 502 in 6 ms. The host user
   cannot `chown` to 10001, which is why a container creates it.
 - **`hub-upload-timeout` FAILS and that is the recorded result.** The measurement misses §5.3's
-  8 000 ms budget on the slowest of five runs (8 482 ms, and 8 133 ms on an earlier run of the same
-  input), so §5.3's "a miss is a stop, not a retune" applies: the numbers are recorded above and
-  nothing — the chunk size, a cap, a timeout — was changed to reach the budget. Resolving it is a
-  decision about graph-store's walk (one record per `Document::next()` is the chunking this measures)
-  and is out of this slice's paths.
+  8 000 ms budget on the slowest of five runs in **three runs out of three** (8133, 8482 and 9868 ms),
+  and in the third run the upload also reached graph-server's own 10 s body timeout (408). So §5.3's
+  "a miss is a stop, not a retune" applies: the numbers are recorded above and nothing — the chunk
+  size, a cap, a timeout — was changed to reach the budget. Resolving it is a decision about
+  graph-store's walk (one record per `Document::next()` is the chunking this measures, 745 635 socket
+  writes for one document) and is out of this slice's paths.
 - The throttled control produces **zero** `layout-upload` lines, not six, because the motor's body
   timeout answers 408 before any upload reaches its tail and the relay writes a line only for an
   upload that did. `scripts/orch/hub-mem-upload-run.sh` treats that count as a **verdict** (exit 1,
