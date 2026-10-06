@@ -125,7 +125,7 @@ function focusApi(controller: Controller, state: LoopState): Pick<CameraApi, "fo
       // Mid-tween this aims at the frame's column, the position the node *settles* at, and not at
 // the eased pose the tween is passing through. A camera placed there stays there — `moveTo`
 // cuts, and no camera tween exists to override it — so the node walks into the middle of the
-// frame instead of the middle chasing it for 600 ms, and the focus the user asked for is the
+// frame instead of the middle chasing it for the whole tween, and the focus the user asked for is the
 // focus they end up with. Aiming at the eased pose instead would mean re-aiming on every frame
 // of the tween to land anywhere at all.
 const world = { x: state.scene.frame.x[node] ?? 0, y: state.scene.frame.y[node] ?? 0 };

@@ -100,7 +100,7 @@ version of this bench fitted the camera and reported 0.090 ms at every size, inc
 nodes, which would have called the line free at every size. The expensive end is zoomed *in*.
 
 **The 200 000 and 1 000 000 rows are over the 3% line and are not a Canvas2D tween frame anyway.**
-Above `TWEEN_BUDGET` (32 768, `canvas2d/loop.ts`) the 2D painter snaps instead of easing, so a
+Above `TWEEN_BUDGET` (32 768, `canvas2d/tween.ts`) the 2D painter snaps instead of easing, so a
 tween on the 2D painter at those sizes does not exist; on WebGL2 the GPU layer has the frame and
 `overBudget` returns false, so the tween runs but the loop is not what paces it. The zoomed-in
 ×32 column is also the pathological case — 1.6% of the screen is covered by the drawing, which is
