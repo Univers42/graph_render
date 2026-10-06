@@ -42,6 +42,24 @@ INSTALL = """
         reason: (body.querySelector('.gs-reason') || {}).textContent || '',
       };
     },
+    /** Where a switch sits on screen, or null. */
+    switch: (name) => {
+      const body = window.__p.section();
+      const label = Array.from(body.querySelectorAll('.gs-field-label')).find((node) => node.textContent === name);
+      if (label === undefined) return null;
+      const input = label.parentElement.querySelector('input.gs-check');
+      if (input === null) return null;
+      // The dock scrolls, and a hand scrolls it to the control first (see `track`).
+      input.scrollIntoView({ block: 'center' });
+      const box = input.getBoundingClientRect();
+      return [box.left + box.width / 2, box.top + box.height / 2];
+    },
+    /** The drawing's own width and height in world units, or null for an empty canvas. */
+    drawn: () => {
+      const bounds = window.__p.view.frame().bounds;
+      if (bounds === null) return null;
+      return { width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY };
+    },
     /** Where a slider sits on screen, and how wide its track is, or null. */
     track: (name) => {
       const body = window.__p.section();
@@ -167,6 +185,16 @@ def open_section(studio):
         click(studio, at)
         time.sleep(0.2)
     return True
+
+
+def switch_at(studio, name):
+    """Where `name`'s switch sits on screen, or `None` when the panel draws none."""
+    return studio.page.evaluate(f"window.__p.switch({name!r})")
+
+
+def drawn(studio):
+    """The drawing's own width and height in world units, or `None` for an empty canvas."""
+    return studio.page.evaluate("window.__p.drawn()")
 
 
 def drag_slider(studio, name, fraction, broken=False, steps=20):

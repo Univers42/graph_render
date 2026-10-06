@@ -7,6 +7,7 @@
 //! and 7 of `docs/decisions/dag-lanes.md`.
 
 mod history;
+mod horizontal;
 
 use super::*;
 use crate::index::index_model;
@@ -183,6 +184,7 @@ fn spacing_scales_both_axes_and_a_bad_one_is_refused() {
     let wide = LanesParams {
         lane_spacing: 2.0,
         row_spacing: 3.0,
+        horizontal: false,
     };
     let NodeGeometry::Point { x, y } = run(&t, &wide).expect("legal").nodes else {
         panic!()
@@ -194,7 +196,8 @@ fn spacing_scales_both_axes_and_a_bad_one_is_refused() {
                 &t,
                 &LanesParams {
                     lane_spacing: bad,
-                    row_spacing: 1.0
+                    row_spacing: 1.0,
+                    horizontal: false
                 }
             )
             .is_err()
@@ -204,7 +207,8 @@ fn spacing_scales_both_axes_and_a_bad_one_is_refused() {
                 &t,
                 &LanesParams {
                     lane_spacing: 1.0,
-                    row_spacing: bad
+                    row_spacing: bad,
+                    horizontal: false
                 }
             )
             .is_err()
