@@ -322,12 +322,14 @@ otherwise.
   document from it, so the document is exactly the state at its ETag. The manifests' collection
   declarations are streamed in qualified-id order from the same transaction, holding one plugin's
   dropped-field set at a time.
-- Order: the head; the collections, sorted by qualified id; the records, from one portal scan
-  ordered by `(qcoll COLLATE "C", id COLLATE "C")` with a fixed fetch size
-  (`GRAPH_HUB_FETCH_ROWS`, through `client.bind` and `query_portal`); the tail.
-- The unresolved `(qcoll, id, field, target)` tuples come from an anti-join of `links` against
-  the records, in the same order, read through a second portal with the same
-  `GRAPH_HUB_FETCH_ROWS`, and are merged into the scan.
+- Order: the head; the collections, sorted by qualified id; the records, read in keyset pages
+  ordered by `(qcoll COLLATE "C", id COLLATE "C")`; the tail. A page holds at most
+  `GRAPH_HUB_FETCH_ROWS` rows and at most `GRAPH_HUB_CHANGES_BYTES` of row cost (text, keys and
+  512 B per row); its first row is always kept, so the walk always moves, and only an empty page
+  ends it. (Changed in implementation, 2026-10-06: the pinned driver has no portal, and 32-row pages took
+  about 23 000 round trips on the upload workspace, `docs/measurements/hub-memory.md`.)
+- Each row carries its unresolved `(qcoll, id, field, target)` tuples from an anti-join of
+  `links` against the records, inside the same page query.
 - A record with no unresolved cell and no dropped field is copied verbatim from its stored
   text. Any other record is parsed, pruned (H12; a cell left empty is removed) and rewritten
   with the record piece of the canonical writer.
@@ -506,7 +508,7 @@ derived where marked.
 | `GRAPH_HUB_MAX_CONNECTIONS` | 256 | the next connection waits in the backlog |
 | `GRAPH_HUB_HEADER_TIMEOUT_MS` | 5 000 | the connection is closed |
 | `GRAPH_HUB_MAX_HEADER_BYTES` | 16 384 | 431 |
-| `GRAPH_HUB_FETCH_ROWS` (portal page) | 32 records | |
+| `GRAPH_HUB_FETCH_ROWS` (document page, rows) | 4096 records | the page is also cut at `GRAPH_HUB_CHANGES_BYTES` |
 | `GRAPH_HUB_MAX_SUBSCRIBERS` / `GRAPH_HUB_MAX_SUBSCRIBERS_PER_KEY` | 64 / 8 | 429 |
 | `GRAPH_HUB_SSE_PAGE` (change headers per stream read) | 256 | the page ends; the next read continues from the last seq sent |
 | `GRAPH_HUB_LAST_SEEN` (last-seen map entries, §5.3) | 65 536 | the least recently used entry is evicted |
@@ -548,8 +550,8 @@ connection, the first one included (§5.3), so a hub whose database is in recove
 ```
 M = base
   + WRITERS × MAX_BODY × F_w
-  + (READS + LAYOUTS) × (max(2 × FETCH_ROWS × MAX_RECORD_BYTES + MAX_RECORD_BYTES × F_w,
-                             2 × CHANGES_BYTES, 64 × 256 KiB, MAX_RECORD_BYTES) + IO_BUF)
+  + (READS + LAYOUTS) × (max(2 × CHANGES_BYTES + MAX_RECORD_BYTES × F_w,
+                             64 × 256 KiB, MAX_RECORD_BYTES) + IO_BUF)
   + MAX_CONNECTIONS × MAX_HEADER_BYTES
   + MAX_SUBSCRIBERS × (256 B + SSE_PAGE × max_header)
   + LAST_SEEN × last_seen_entry
@@ -578,15 +580,17 @@ M = base
   (`docs/measurements/hub-memory.md`, ledger `last_seen_entry_ceiling_bytes`; asserted by
   `server/graph-hub/tests/memory/ledger.rs`). Caveat: same measurement as `F_w`, and the ids were
   made before the baseline, so the figure is the steady state and not the fill.
-- The `2 ×` on `FETCH_ROWS` is the second portal, the anti-join (§5.3). `64 × 256 KiB` is
+- The `2 × CHANGES_BYTES` is one document page held twice, as the driver's rows and as the
+  decoded page (§5.3), or one `/changes` page. `64 × 256 KiB` is
   `GET /plugins`; `MAX_RECORD_BYTES` alone is one record's route. The batch's hash compare
   (at most 320 000 B, §5.1) sits inside `MAX_BODY × F_w`.
 - At the defaults, arithmetic over the three measured values: 416 MiB for writers
-  (2 × 4 MiB × 52), 348 MiB for reads and layouts together (3 permits × 116 MiB, the
-  `2 × FETCH_ROWS × MAX_RECORD_BYTES + MAX_RECORD_BYTES × F_w` arm at 64 + 52 MiB), 4 MiB for
+  (2 × 4 MiB × 52), 204 MiB for reads and layouts together (3 permits × 68 MiB, the
+  `2 × CHANGES_BYTES + MAX_RECORD_BYTES × F_w` arm at 16 + 52 MiB), 4 MiB for
   headers (256 × 16 KiB), 6.42 MiB for subscribers (64 × (256 B + 256 × 410 B)), 17 MiB for the
-  last-seen map (65 536 × 272 B), 8 MiB for the pool at a planned 1 MiB `conn_buf`: about 799 MiB
-  plus `base` and the `IO_BUF` terms, which leaves 225 MiB of the container's 1 GiB.
+  last-seen map (65 536 × 272 B), 8 MiB for the pool at a planned 1 MiB `conn_buf`: about 655 MiB
+  plus `base` and the `IO_BUF` terms, which leaves 369 MiB of the container's 1 GiB. (Before
+  the §5.3 page change the reads arm was 116 MiB per permit and the total 799 MiB.)
 - Slice 3 measured the whole process, not only the terms: `scripts/orch/hub-mem.sh measure` runs the
   hub image under `--memory 1g --memory-swap 1g` with one `MAX_BODY` body parked behind a barrier
   per writer, and reads `VmHWM` (404 580 KiB, 395 MiB) and the cgroup peak. No default had to

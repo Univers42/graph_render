@@ -37,7 +37,7 @@ async fn config_defaults_match_section_6() {
     assert_eq!(cfg.retain, 100_000);
     assert_eq!(cfg.retain_bytes, 512 * 1024 * 1024);
     assert_eq!(cfg.changes_bytes, 8 * 1024 * 1024);
-    assert_eq!(cfg.fetch_rows, 32);
+    assert_eq!(cfg.fetch_rows, 4096);
     assert_eq!(cfg.max_batch, 10_000);
     assert_eq!(cfg.max_body, 4 * 1024 * 1024);
     assert_eq!(cfg.max_record_bytes, 1024 * 1024);

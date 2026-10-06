@@ -10,22 +10,41 @@ use super::declared::{Dangling, Declared};
 use crate::error::StoreError;
 
 /// One page of records after `($2, $3)` in `(qcoll, id)` byte order, each with the references it
-/// holds that the snapshot does not resolve.
+/// holds that the snapshot does not resolve: at most `$4` rows, and only as many as fit `$5` bytes
+/// of row cost, except that the first row is always kept so the walk always moves.
 ///
 /// `links` is in the default collation and `records` in `"C"`, so every comparison between them
 /// names the collation it means: Postgres refuses an implicit mix of the two.
-const PAGE: &str = "SELECT r.qcoll, r.id, r.text, \
+///
+/// Caveat: a page cut by bytes still scans `$4` keys and their lengths (not their texts, which
+/// stay toasted), so a workspace of 1 MiB records reads about 512 keys for each one it returns.
+/// The unresolved-reference arrays are not costed; they name only targets the record's own text
+/// names, so a page can exceed `$5` by about its texts again when every reference dangles.
+const PAGE: &str = "SELECT p.qcoll, p.id, p.text, \
        COALESCE(d.tq, '{}'::text[]), COALESCE(d.tid, '{}'::text[]) \
-     FROM records r \
+     FROM (SELECT s.ws, s.qcoll, s.id, s.text, row_number() OVER w n, sum(s.c) OVER w cost \
+       FROM (SELECT r.ws, r.qcoll, r.id, r.text, \
+               octet_length(r.text) + octet_length(r.qcoll) + octet_length(r.id) + $6 c \
+             FROM records r \
+             WHERE r.ws = $1 AND (r.qcoll, r.id) > ($2::text COLLATE \"C\", $3::text COLLATE \"C\") \
+             ORDER BY r.qcoll, r.id LIMIT $4) s \
+       WINDOW w AS (ORDER BY s.qcoll, s.id ROWS UNBOUNDED PRECEDING)) p \
      LEFT JOIN LATERAL ( \
        SELECT array_agg(l.target_qcoll) tq, array_agg(l.target_id) tid FROM links l \
-       WHERE l.ws = r.ws AND l.src_qcoll = (r.qcoll COLLATE \"default\") \
-         AND l.src_id = (r.id COLLATE \"default\") \
+       WHERE l.ws = p.ws AND l.src_qcoll = (p.qcoll COLLATE \"default\") \
+         AND l.src_id = (p.id COLLATE \"default\") \
          AND NOT EXISTS (SELECT 1 FROM records t WHERE t.ws = l.ws \
            AND t.qcoll = (l.target_qcoll COLLATE \"C\") AND t.id = (l.target_id COLLATE \"C\")) \
      ) d ON true \
-     WHERE r.ws = $1 AND (r.qcoll, r.id) > ($2::text COLLATE \"C\", $3::text COLLATE \"C\") \
-     ORDER BY r.qcoll, r.id LIMIT $4";
+     WHERE p.n = 1 OR p.cost <= $5 \
+     ORDER BY p.qcoll, p.id";
+
+/// Bytes a row costs on top of its three strings: the driver's row and its column ranges, the
+/// `VecDeque` entry and the two key copies.
+///
+/// Caveat: estimated from the types' sizes, not measured; a page of tiny records is under-costed
+/// when the allocator rounds each string up, and `hub-memory` measures the whole read instead.
+const ROW_COST: i32 = 512;
 
 /// What `open` read before the first record.
 pub(crate) struct Opened {
@@ -37,6 +56,8 @@ pub(crate) struct Opened {
     pub(crate) doc_bytes: u64,
     /// Rows one page reads, at least 1.
     pub(crate) fetch_rows: i64,
+    /// Row cost one page reads beyond its first row.
+    pub(crate) page_bytes: i64,
 }
 
 /// One record row of a page.
@@ -128,10 +149,13 @@ impl Document {
                     &self.after.0,
                     &self.after.1,
                     &self.opened.fetch_rows,
+                    &self.opened.page_bytes,
+                    &ROW_COST,
                 ],
             )
             .await?;
-        self.exhausted = (rows.len() as i64) < self.opened.fetch_rows;
+        // A short page may be a byte cut, so only an empty one ends the walk.
+        self.exhausted = rows.is_empty();
         for row in rows {
             let targets: Vec<String> = row.get(3);
             let ids: Vec<String> = row.get(4);
