@@ -49,6 +49,7 @@ mod fidelity;
 pub(in crate::layout::force) mod gravity;
 mod grow;
 mod live_params;
+mod mesh_probe;
 mod pin;
 mod warm;
 
@@ -57,6 +58,7 @@ mod tests;
 
 pub use error::SessionError;
 pub use live_params::LiveParams;
+pub use mesh_probe::MeshProbe;
 pub use pin::NodeRow;
 
 use self::live_params::{ALPHA, ALPHA_TARGET};
