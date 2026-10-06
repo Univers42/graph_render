@@ -31,6 +31,7 @@ pub mod spectral;
 pub mod spectral_stage;
 pub mod spiral;
 pub mod sugiyama;
+mod transpose;
 #[cfg(test)]
 mod tests;
 
