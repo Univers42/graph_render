@@ -53,10 +53,7 @@ pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/v1/meta", get(routes::meta::meta))
-        .route(
-            "/v1/workspaces",
-            get(routes::workspaces::list).post(not_ready),
-        )
+        .route("/v1/workspaces", get(routes::workspaces::list))
         .route("/v1/workspaces/{ws}", put(routes::workspaces::put))
         .route("/v1/workspaces/{ws}/plugins", get(routes::plugins::list))
         .route(
@@ -100,14 +97,4 @@ async fn healthz() -> &'static str {
 
 async fn not_found() -> HubApiError {
     HubApiError::NotFound(String::from("no such route"))
-}
-
-/// A route of §5.2's table whose handler its own task has not written yet.
-///
-/// The route exists so the router knows its path and its methods, which is what makes the
-/// authorization layer's decision about the *right* grant and what turns a wrong method into a 405
-/// rather than a 404. The handler is a 501 with the task that fills it, never a 200 and never a 404:
-/// a 404 here would say the route does not exist, which is false.
-async fn not_ready() -> HubApiError {
-    HubApiError::NotImplemented
 }
