@@ -7,6 +7,12 @@
 
 use super::*;
 
+/// One column as the bits the wire carries: a transpose is exact only if it moves the value
+/// itself, and two `f32` that compare equal can still be different numbers.
+fn bits(column: &[f32]) -> Vec<u32> {
+    column.iter().map(|value| value.to_bits()).collect()
+}
+
 /// The `horizontal` parameter is the whole of the change: the same rows, the same lanes, the
 /// same numbers, with x and y exchanged. `a` merges `b` and `c`, so the paths bend and the
 /// swap has interior points to move.
