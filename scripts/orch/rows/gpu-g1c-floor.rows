@@ -1,0 +1,28 @@
+# gpu-g1c-floor — the collide guard's input floor (Amendment 3) and the 1M link/collide ceiling rows
+# (prompts/jobs/gpu-g1c-floor.md). Base: gpu-g1c, whose sdk:test is fully green. GPU rows take gpu.lock;
+# no 1M on the GPU here (gpu-g1c-floor-1m.rows is the orchestrator's).
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-lint|0|scripts/orch/node-slim.sh npm run sdk:lint
+sdk-test|0|scripts/orch/node-slim.sh npm run -s sdk:test > target/gpu-g1c-floor-sdk.log 2>&1; test "$(grep -c '^not ok' target/gpu-g1c-floor-sdk.log)" -eq 0 && grep -q '^# fail 0' target/gpu-g1c-floor-sdk.log
+named-tests|0|for t in the_host_collide_reproduces_the_fixture the_collide_floor_is_the_narrowing_alone the_1m_start_fails_without_its_floor every_collide_ceiling_sits_under_its_guard; do git grep -q "$t" -- crates/graph-sdk-js/test || { echo "missing $t"; exit 1; }; done
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/src/gpu
+no-f16|0|! git grep -n -i 'f16' -- crates/graph-sdk-js/src/gpu
+caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/collide-host.ts && git grep -q 'Amendment 3' -- crates/graph-sdk-js/src/gpu/bounds-collide.ts
+no-public-surface|0|! git grep -n 'gpu' -- crates/graph-sdk-js/src/index.ts
+pass-report-shared|0|git diff --quiet gpu-g1c -- crates/graph-sdk-js/src/gpu/pass-report.ts
+scope|0|test -z "$(git diff --name-only "$(git merge-base HEAD gpu-g1c)" | grep -v -E '^(crates/graph-sdk-js/src/gpu/(collide-host|bounds-collide|bounds-link)\.ts|crates/graph-sdk-js/test/gpu-collide(-floor)?\.test\.mjs|harness/gpu-collide-host\.mjs|docs/measurements/gpu-g1\.md)$')"
+file-size|0|! git ls-files crates/graph-sdk-js/src/gpu crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/test/gpu-collide.test.mjs crates/graph-sdk-js/test/gpu-collide-floor.test.mjs harness/gpu-collide-host.mjs | xargs wc -l | grep -v ' total$' | awk '$1 > 300' | grep .
+
+emit|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --out target/gpu-fixtures
+host-floor|0|scripts/orch/node-slim.sh node --experimental-strip-types harness/gpu-collide-host.mjs target/gpu-fixtures --only 1k,10k,50k
+gpu-js|0|scripts/orch/node-slim.sh npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir target/gpu-js
+gpu-js-imports|0|test -s target/gpu-js/gpu/collide-host.js && ! grep -rn -E "from ['\"][^'\"]*\.ts['\"]" target/gpu-js
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+
+collide-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass collide --only 1k,10k,50k
+collide-software|0|scripts/studio-probe.sh gpu-mesh software target/gpu-fixtures --pass collide --only 1k,10k,50k
+link-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass link --only 1k,10k,50k
+negctl-collide-order|0|sh -c 'flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass collide --only 1k --break collide-order > target/gpu-g1c-floor-order.log 2>&1; test $? -eq 3 && grep -q "^FAIL .*order" target/gpu-g1c-floor-order.log'
+negctl-collide-window|0|sh -c 'flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass collide --only 1k --break collide-window > target/gpu-g1c-floor-window.log 2>&1; test $? -eq 3 && grep -q -E "^FAIL .*(rms|guard)" target/gpu-g1c-floor-window.log'

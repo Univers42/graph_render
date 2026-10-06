@@ -1,0 +1,6 @@
+# gpu-g1c-floor-1m — the orchestrator's 1M rows for link and collide (Amendment 3). One 1M GPU run at a
+# time, under gpu.lock, after a free -g check of at least 12 GB available. Needs gpu-g1c-floor.rows'
+# emit, gpu-js and studio-build rows to have run in the same worktree.
+host-floor-1m|0|test "$(free -g | awk '/Mem:/{print $7}')" -ge 12 && scripts/orch/node-slim.sh node --experimental-strip-types harness/gpu-collide-host.mjs target/gpu-fixtures --only 1m
+link-1m-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock sh -c 'test "$(free -g | awk "/Mem:/{print \$7}")" -ge 12 && GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass link --only 1m'
+collide-1m-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock sh -c 'test "$(free -g | awk "/Mem:/{print \$7}")" -ge 12 && GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass collide --only 1m'
