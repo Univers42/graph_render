@@ -40,6 +40,31 @@ function factors(points: Points): { readonly floor: number; readonly readable: n
   return { floor: worldFactor(bounds, points.x.length), readable: readableFactor(points.x, points.y, bounds) };
 }
 
+/** A dag.lanes commit history: `count` rows one unit apart, each node in the lane it drew. */
+function lanes(count: number): Points {
+  const random = mulberry32(7);
+  const x = new Float32Array(count);
+  const y = new Float32Array(count);
+  for (let i = 0; i < count; i += 1) {
+    const roll = random();
+    x[i] = roll < 0.8 ? 0 : 1 + Math.floor(random() * 195);
+    y[i] = i;
+  }
+  return { x, y };
+}
+
+/** A Sugiyama layering: `rows` layers `gap` units apart, each holding `wide` nodes at pitch 1. */
+function layers(rows: number, wide: number, gap: number): Points {
+  const count = rows * wide;
+  const x = new Float32Array(count);
+  const y = new Float32Array(count);
+  for (let i = 0; i < count; i += 1) {
+    x[i] = i % wide;
+    y[i] = Math.floor(i / wide) * gap;
+  }
+  return { x, y };
+}
+
 test("a uniform lattice keeps today's factor", () => {
   const points = lattice(10, 1);
   // The lattice's box is 9 × 9, so the median node, in a full cell of 16, reads
@@ -97,4 +122,21 @@ test("a clump cannot spread a drawing past MAX_SPREAD times the floor", () => {
   // A clump with a spacing of its own, 1e-3, would ask for 56 000: the clamp binds.
   const tight = factors(lattice(31, 1e-3, [[1e6, 1e6]]));
   assert.equal(tight.readable, tight.floor * MAX_SPREAD);
+});
+
+test("a lanes drawing is capped by the pitch of its lines", () => {
+  // 85,928 commits, one per row at pitch 1, most of them in lane 0: no cell rule sees the pitch.
+  const points = lanes(85_928);
+  const spacing = typicalSpacing(points.x, points.y);
+  assert.ok(spacing >= 0.9, `spacing ${spacing}`);
+  assert.ok(spacing <= 2.5 + 1e-9, `spacing ${spacing}`);
+  const { readable } = factors(points);
+  assert.ok(readable >= TARGET_SPACING / 2.5 - 1e-9, `factor ${readable}`);
+});
+
+test("a layered drawing is capped by the pitch inside its layers", () => {
+  const points = layers(40, 300, 50);
+  const spacing = typicalSpacing(points.x, points.y);
+  assert.ok(spacing >= 0.9, `spacing ${spacing}`);
+  assert.ok(spacing <= 2.5 + 1e-9, `spacing ${spacing}`);
 });
