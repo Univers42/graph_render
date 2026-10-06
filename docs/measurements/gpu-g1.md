@@ -162,10 +162,11 @@ belongs to whoever owns `session/tests/golden.rs`.
    requires a throw, and also pins that a newer *minor* is read rather than refused. Row
    `named-tests` and row `gpu-fixture-loader`.
 6. **`SIZES` gains 1 000 000, and the base64 handoff is struck.** All eight files are emitted;
-   `mesh-1m-start.gmfx` and `mesh-1m-settled.gmfx` are 105 592 232 B = 100.7 MiB each. The
-   decided transport is `fetch` over the harness's own origin, stated in both the README and
-   this document: at 100.7 MiB a base64 handoff is a 134 MiB string through `import()`, which
-   is not a transport. Row `emit-1m`.
+   `mesh-1m-start.gmfx` and `mesh-1m-settled.gmfx` are 105 592 232 B = 100.7 MiB each
+   (`ls -l target/gpu-fixtures/`, confirmed by row `emit-1m`). The decided transport is
+   `fetch` over the harness's own origin, stated in both the README and this document: at
+   100.7 MiB a base64 handoff is a 134 MiB string through `import()`, which is not a
+   transport. Row `emit-1m`.
 
 ## The two derivations the verdict found wrong, corrected
 
@@ -207,3 +208,17 @@ reviewer note stands: the independent check is `mb_fidelity`, run on these same 
 emit at 1M is 100 ticks of a 1024-side mesh, which is a generator's cost and not a tick's.
 `msPerTick` at 1M and `stressRatio` are G1c's, and the toggle stays off until they are
 recorded.
+
+**One edit to graph-core's own solve path, and it moves no byte.** `Mesh::solve` used to leave
+`self.frame` set on the path where it returns `false`; it now clears it. A solve that returns
+`false` has no reader — `charge::apply` returns before it reads a field — so the tick's bytes
+are unchanged, and `hashgate --seeds 8` confirms it on all 44 arms. The edit is here because
+`Mesh::solution`'s `None` has to mean *no field was solved* rather than *a frame was placed and
+discarded*, which is the `None` the public signature promises. Without it the probe would hand
+back a spectrum for a frame the convolution never ran on.
+
+**The emitter's own schedule is `Serial`, one worker.** `mesh_probe` and `charge_deltas` share
+`charge_deltas`'s `How`, which is what makes the two comparable bit for bit — the property
+`every_column_is_the_meshes_own` rests on. It is also the slowest legal schedule, and the 1M
+settle runs on it: 333 s for all eight files. That is a generator's cost, paid once per gate
+run, and not a tick's.
