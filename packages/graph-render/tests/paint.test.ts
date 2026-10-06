@@ -46,6 +46,14 @@ test("strokes stay within the chunks each style needs, and a focus adds the lit 
   assert.ok(focused.edgeStyles <= 2);
 });
 
+test("an edge stroke wider than a device pixel is one stroke per edge; a hairline is chunked", () => {
+  const frame = randomFrame(400, 900, 11);
+  const thick = paintFrame(inputFor(frame, recorder(), { dpr: 2, camera: { x: 0, y: 0, scale: 2.5 } }));
+  assert.equal(thick.strokes, thick.edges);
+  const hairline = paintFrame(inputFor(frame, recorder(), { dpr: 2, camera: { x: 0, y: 0, scale: 0.5 } }));
+  assert.equal(hairline.strokes, Math.ceil(hairline.edges / CHUNK));
+});
+
 test("a style whose edges fill whole chunks is still counted once", () => {
   const counts = paintFrame(inputFor(randomFrame(2000, CHUNK * 2, 5), recorder()));
   assert.deepEqual([counts.strokes, counts.edgeStyles], [2, 1]);
