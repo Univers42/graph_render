@@ -6,6 +6,7 @@ import type { LabelPlan } from "../labels.ts";
 import type { Style } from "../style.ts";
 import type { Theme } from "../theme.ts";
 import type { Drawn } from "../three/projection.ts";
+import type { EdgeTween } from "./morph.ts";
 import type { SpriteCache } from "./sprites.ts";
 import type { Surface2D } from "./surface.ts";
 
@@ -30,8 +31,10 @@ export interface PaintInput {
   readonly y: Float32Array;
   /** World distance from a node's centre to its edge. */
   readonly extent: Float32Array;
-  /** False mid-transition: routed edges are drawn straight until the nodes arrive. */
+  /** False mid-transition: routed edges are morphed by `tween`, or drawn straight without one. */
   readonly settled: boolean;
+  /** Where a routed edge is in its move from the old frame's route to this frame's; read only while unsettled. */
+  readonly tween?: EdgeTween | null;
   /** True while the camera or the nodes move: the painter may draw less. */
   readonly moving: boolean;
   /** Edges a moving frame draws at most (`pace.ts`); MOVING_BUDGET when absent. */

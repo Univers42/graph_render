@@ -16,7 +16,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type LoopState, advance } from "../src/canvas2d/loop.ts";
+import type { LoopState } from "../src/canvas2d/loop.ts";
+import { advance } from "../src/canvas2d/tween.ts";
 import { newState, pickAt, showFrame } from "../src/canvas2d/controller.ts";
 import { type EasedPose, pickEased, pickIn, sceneOf } from "../src/scene.ts";
 import { plainStyle } from "../src/style.ts";

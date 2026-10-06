@@ -10,18 +10,20 @@
  * are both off one side of the screen is dropped even when its bend would have reached
  * into view. And while the view moves, a frame with more edges than its budget (MOVING_BUDGET,
  * lowered by `pace.ts` when frames run late) draws every k-th one; the whole set is drawn as
- * soon as it stops. And while the layout is still settling (`!input.settled`) a routed
- * edge is drawn as one straight source→target line; its bends appear once it settles.
+ * soon as it stops. While the layout is still settling (`!input.settled`) a routed edge is
+ * morphed between its old and new route (morph.ts), with the snaps that file names.
  *
  * The style's edge colour picks the pass: `flat` is paintAll, one stroke in the theme's own
  * colour as above; `gradient` is paintGradient, which batches the edges whose ends share a
  * colour and gives every edge whose ends do not share one its own colour (edgeGradient.ts).
  */
-import { bezierAt, controlPoint, FLAT_SEGMENTS, type Sample } from "../edges2d/curve.ts";
+import { controlPoint } from "../edges2d/curve.ts";
 import { edgeStops } from "../colour/blend.ts";
 import { type EdgePlan, FALLBACK_COLOUR, meanCss, planOf } from "./edgeGradient.ts";
 import { paintArrows } from "./arrows.ts";
 import type { PaintCounts, PaintInput } from "./input.ts";
+import { traceMorph } from "./morph.ts";
+import { type Ends, frameRoute, newRoute, traceRoute } from "./route.ts";
 
 /** Mirrored by `EDGE_CHUNK` in deploy/perf/rows.py. */
 export const CHUNK = 2048;
@@ -59,82 +61,7 @@ function beyond(a: number, b: number, size: number): boolean {
   return (a < -CULL_MARGIN && b < -CULL_MARGIN) || (a > size + CULL_MARGIN && b > size + CULL_MARGIN);
 }
 
-/** Nothing to trace: a Line frame, whose edge geometry carries no points at all. */
-const NO_POINTS = new Float32Array(0);
-
-function screenX(input: PaintInput, point: number): number {
-  const pts = input.frame.pts ?? NO_POINTS;
-  return (pts[2 * point] ?? 0) * input.camera.scale + input.camera.x;
-}
-
-function screenY(input: PaintInput, point: number): number {
-  const pts = input.frame.pts ?? NO_POINTS;
-  return (pts[2 * point + 1] ?? 0) * input.camera.scale + input.camera.y;
-}
-
-/** The control polygon in screen coordinates, grown and never shrunk, and the point de Casteljau last left it at. */
-let polygon: Float32Array = new Float32Array(0);
-const sampled: Sample = { x: 0, y: 0 };
-
-/** Loads the edge's own control polygon, its two endpoints included, in dense order. */
-function loadPolygon(input: PaintInput, from: number, to: number, ends: Ends): void {
-  const count = to - from + 2;
-  if (polygon.length < 2 * count) polygon = new Float32Array(2 * count);
-  polygon[0] = ends.ax;
-  polygon[1] = ends.ay;
-  for (let at = 0; at < to - from; at += 1) {
-    polygon[2 * (at + 1)] = screenX(input, from + at);
-    polygon[2 * (at + 1) + 1] = screenY(input, from + at);
-  }
-  polygon[2 * (count - 1)] = ends.bx;
-  polygon[2 * (count - 1) + 1] = ends.by;
-}
-
-/** Degree 4 and up: the curve itself, one chord per FLAT_SEGMENTS, never the polygon. */
-function traceHigher(input: PaintInput, from: number, to: number, ends: Ends): void {
-  loadPolygon(input, from, to, ends);
-  const count = to - from + 2;
-  for (let step = 1; step <= FLAT_SEGMENTS; step += 1) {
-    bezierAt(polygon, count, step / FLAT_SEGMENTS, sampled);
-    input.ctx.lineTo(sampled.x, sampled.y);
-  }
-}
-
-/**
- * Interior points as the control points of the curve when the count is the degree's, and as
- * a polyline through themselves when it is not. Degree 2 and 3 go to the exact canvas calls;
- * a higher degree is flattened by de Casteljau (edges2d/curve.ts). The points a snapshot
- * carries are the geometry it has: a count that disagrees with the degree cannot be evaluated
- * without inventing control points the writer never stored, so those edges are drawn as the
- * polyline their own points describe rather than as a curve of the declared degree.
- *
- * Ponytail: a count that disagrees with the degree — a malformed Curve, which a writer
- * emitting both never does — is drawn as its control polygon, so the bend reads as kinks at
- * the stored points; a degree of 1 carries no interior point and is the straight chord, which
- * the polyline already draws.
- */
-function traceInterior(input: PaintInput, edge: number, ends: Ends): void {
-  const { ctx, frame } = input;
-  const from = frame.offsets?.[edge] ?? 0;
-  const to = frame.offsets?.[edge + 1] ?? 0;
-  const degree = frame.curveDegree;
-  if (frame.edgeKind === "Curve" && degree >= 2 && to - from === degree - 1) {
-    if (degree === 2) ctx.quadraticCurveTo(screenX(input, from), screenY(input, from), ends.bx, ends.by);
-    else if (degree === 3) ctx.bezierCurveTo(screenX(input, from), screenY(input, from), screenX(input, from + 1), screenY(input, from + 1), ends.bx, ends.by);
-    else traceHigher(input, from, to, ends);
-    return;
-  }
-  for (let p = from; p < to; p += 1) ctx.lineTo(screenX(input, p), screenY(input, p));
-  ctx.lineTo(ends.bx, ends.by);
-}
-
-/** Screen ends of one edge, or null when a hidden node or the cull drops it. */
-export interface Ends {
-  ax: number;
-  ay: number;
-  bx: number;
-  by: number;
-}
+export type { Ends } from "./route.ts";
 
 export function screenEnds(input: PaintInput, edge: number, out: Ends): Ends | null {
   const { camera, frame, x, y } = input;
@@ -152,29 +79,36 @@ export function screenEnds(input: PaintInput, edge: number, out: Ends): Ends | n
 
 /**
  * The bend of a straight edge under the "curve" style: SciGraphs' AUTO control point
- * (edges2d/curve.ts), taken in y-up as that file asks. Null for a routed edge, for one
- * mid-transition, and for a degenerate one.
+ * (edges2d/curve.ts), taken in y-up as that file asks, from the ends the edge has now, so it
+ * follows them mid-transition. Null for a routed edge and for a degenerate one.
  */
 export function bendOf(input: PaintInput, ends: Ends): { x: number; y: number } | null {
-  if (!input.style.edges.curve || input.frame.edgeKind !== "Line" || !input.settled) return null;
+  if (!input.style.edges.curve || input.frame.edgeKind !== "Line") return null;
   const point = controlPoint({ x: ends.ax, y: -ends.ay }, { x: ends.bx, y: -ends.by });
   return point === null ? null : { x: point.x, y: -point.y };
 }
 
 const scratch: Ends = { ax: 0, ay: 0, bx: 0, by: 0 };
+const routed = newRoute();
+
+/** The rest of the edge after its moveTo: the frame's own route, or the straight chord for a Line frame. */
+function traceSettled(input: PaintInput, edge: number, ends: Ends): void {
+  const route = frameRoute(input.frame, edge, input.camera, routed);
+  if (route === null) input.ctx.lineTo(ends.bx, ends.by);
+  else traceRoute(input.ctx, route, ends);
+}
 
 function traceEdge(tracer: Tracer, edge: number): void {
   const { input } = tracer;
   const ends = screenEnds(input, edge, scratch);
   if (ends === null) return;
-  const { frame } = input;
   input.ctx.moveTo(ends.ax, ends.ay);
   const bend = bendOf(input, ends);
   if (bend !== null) {
     input.ctx.quadraticCurveTo(bend.x, bend.y, ends.bx, ends.by);
     tracer.counts.curves += 1;
-  } else if (frame.edgeKind === "Line" || !input.settled) input.ctx.lineTo(ends.bx, ends.by);
-  else traceInterior(input, edge, ends);
+  } else if (input.settled) traceSettled(input, edge, ends);
+  else traceMorph(input, edge, ends);
   tracer.counts.edges += 1;
   tracer.pending += 1;
   if (tracer.pending >= CHUNK) flush(tracer);
