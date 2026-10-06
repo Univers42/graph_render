@@ -103,7 +103,7 @@ export function gridFor(posX: Float64Array, posY: Float64Array): Grid {
 
 /**
  * The device's `axis_cell`, op for op: `i32((v - o) * inv)` on `f32` values, each operation
- * correctly rounded as WGSL's `-` and `*` are, truncated and saturated as `i32(f32)` is.
+ * correctly rounded like WGSL's `-` and `*`, truncated and saturated like `i32(f32)`.
  *
  * Caveat: it agrees with the CPU's `f64` cell except at a cell edge, where the narrowed
  * position can round across it; `the_collide_hash_matches_the_cpu_s_cells` holds on every node

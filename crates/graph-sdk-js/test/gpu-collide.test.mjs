@@ -10,10 +10,12 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { compare, components } from "../src/gpu/bounds.ts";
 import {
-  COLLIDE_RMS_REL_GUARD,
   collideCeilings,
+  collideGuard,
   collideVerdict,
+  maxContacts,
   orderCheck,
 } from "../src/gpu/bounds-collide.ts";
 import { cellOf, gridFor, scanPlan } from "../src/gpu/collide.ts";
@@ -168,16 +170,36 @@ test("the_order_check_names_a_descending_bucket", () => {
   assert.match(orderCheck(Uint32Array.from([0, 3, 1, 2]), Uint32Array.from([0, 2, 2, 4]), 5) ?? "", /not n/);
 });
 
+test("the_collide_guard_reads_the_measured_crowd", () => {
+  // A toy crowd: four nodes, each within reach of the other three, so the largest crowd is 3.
+  const posX = Float64Array.from([0, 10, 0, 10]);
+  const posY = Float64Array.from([0, 0, 10, 10]);
+  const grid = gridFor(posX, posY);
+  assert.equal(maxContacts(posX, posY, grid), 3, "the toy crowd's largest node has 3 contacts");
+  // A known reference column: every component 1, so rmsRef is 1.
+  const refX = Float64Array.from([1, 1, 1, 1]);
+  const refY = Float64Array.from([1, 1, 1, 1]);
+  const reference = components(refX, refY);
+  const rmsRef = compare({ got: reference, reference }).rmsRef;
+  assert.equal(rmsRef, 1, "the toy reference's rms is 1");
+  // The guard is 1e-4 + k_c * 5 * 2^-23 * P / rmsRef, with P = reach/2.
+  const guard = collideGuard(3, grid.reach, rmsRef);
+  const want = 1e-4 + (3 * 5 * 2 ** -23 * (grid.reach / 2)) / rmsRef;
+  assert.equal(guard, want, "the guard is the measured crowd's bound");
+});
+
 test("every_collide_ceiling_sits_under_its_guard", () => {
   for (const [key, row] of Object.entries(collideCeilings())) {
     assert.match(key, /^(hardware|software):\d+:[01]$/, `${key}: a row is keyed (arm, n, state)`);
-    assert.ok(row.rmsRel <= COLLIDE_RMS_REL_GUARD, `${key}: rmsRel ${row.rmsRel} is over the guard`);
+    const guard = collideGuard(row.k_c, 32, row.rmsRef);
+    assert.ok(row.rmsRel <= guard, `${key}: rmsRel ${row.rmsRel} is over the guard ${guard}`);
     assert.ok(Number.isFinite(row.maxAbs) && row.maxAbs > 0, `${key}: maxAbs ${row.maxAbs}`);
   }
   // A missing row is guard only: n = 7 has no fixture, so no row.
-  const clean = { n: 7, state: 0, arm: "hardware", rmsRel: 0, maxAbs: 1, repeatEqual: true, order: null };
-  assert.deepEqual(collideVerdict({ ...clean, rmsRel: COLLIDE_RMS_REL_GUARD / 2 }).failures, []);
-  const over = collideVerdict({ ...clean, rmsRel: COLLIDE_RMS_REL_GUARD * 2 });
+  const clean = { n: 7, state: 0, arm: "hardware", rmsRel: 0, rmsRef: 1, k_c: 0, reach: 32, maxAbs: 1, repeatEqual: true, order: null };
+  const guard = collideGuard(0, 32, 1);
+  assert.deepEqual(collideVerdict({ ...clean, rmsRel: guard / 2 }).failures, []);
+  const over = collideVerdict({ ...clean, rmsRel: guard * 2 });
   assert.equal(over.pass, false, "a breached guard fails the case");
   assert.match(over.failures.join(" "), /^guard \(n=7, state=0\)/, `got ${over.failures}`);
   const unordered = collideVerdict({ ...clean, order: "bucket 3 is not ascending" });
