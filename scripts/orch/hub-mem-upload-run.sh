@@ -105,11 +105,12 @@ ip=$(motor_ip)
 [ -n "$ip" ] || bail "the motor has no bridge address"
 await_motor "$ip" || bail "the motor never answered /healthz"
 
-# The hub, at §6's cap and Decision 4's input size. GRAPH_HUB_MAX_RECORD_BYTES is the default's own
-# value, named because the document's records are measured against it.
 # The hub's whole environment for this run, exported once so `hub reset` and `hub start` agree:
 # hub-run.sh fixes the environment when the container is created, and `start` reuses a container
 # that exists, so a changed value needs the reset that precedes it.
+#
+# GRAPH_HUB_MAX_RECORD_BYTES is §6's default value, named because the document's records are measured
+# against it.
 export GRAPH_HUB_MOTOR_URL="http://$ip:8080"
 export GRAPH_HUB_MAX_DOC_BYTES=$cap_bytes GRAPH_HUB_MAX_RECORD_BYTES=$record_bytes
 export HUB_MOTOR_KEY_FILE="$root/$out/motor-key" HUB_RUN_MEMORY=1g
