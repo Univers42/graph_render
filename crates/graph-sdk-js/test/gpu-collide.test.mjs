@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { orderCheck } from "../src/gpu/bounds-collide.ts";
 import { cellOf, gridFor, scanPlan } from "../src/gpu/collide.ts";
 import { loadFixture } from "../src/gpu/fixture.ts";
 
@@ -147,4 +148,17 @@ test("the_collide_scan_is_stable_at_every_bucket_count", () => {
       assert.equal(first, -1, `${buckets} ${shape}: start[${first}] is ${got[first]}, not ${want[first]}`);
     }
   }
+});
+
+test("the_order_check_names_a_descending_bucket", () => {
+  // Three buckets over five nodes: {0, 3}, {}, {1, 2, 4}.
+  const start = Uint32Array.from([0, 2, 2, 5]);
+  assert.equal(orderCheck(Uint32Array.from([0, 3, 1, 2, 4]), start, 5), null, "ascending holds");
+  // The collide-order fault's shape: the same members, descending.
+  const reversed = orderCheck(Uint32Array.from([3, 0, 4, 2, 1]), start, 5) ?? "";
+  assert.match(reversed, /^bucket 0 is not ascending/, `got ${reversed}`);
+  // A member list that is ascending in every bucket but is not a permutation.
+  assert.match(orderCheck(Uint32Array.from([0, 3, 0, 2, 4]), start, 5) ?? "", /node 0/);
+  // Spans that do not end at n.
+  assert.match(orderCheck(Uint32Array.from([0, 3, 1, 2]), Uint32Array.from([0, 2, 2, 4]), 5) ?? "", /not n/);
 });
