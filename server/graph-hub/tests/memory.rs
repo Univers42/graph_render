@@ -14,12 +14,18 @@ mod bodies;
 #[cfg(feature = "db-tests")]
 #[path = "memory/container.rs"]
 mod container;
+#[cfg(feature = "db-tests")]
+#[path = "memory/heads.rs"]
+mod heads;
 #[path = "memory/ledger.rs"]
 mod ledger;
 #[path = "memory/rss.rs"]
 mod rss;
 #[path = "support/mod.rs"]
 mod support;
+#[cfg(feature = "db-tests")]
+#[path = "memory/upload.rs"]
+mod upload;
 
 use graph_contract::hub::batch::read_batch;
 use graph_contract::hub::{Limits, read_manifest};

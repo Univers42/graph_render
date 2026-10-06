@@ -57,6 +57,56 @@ impl Remote {
             .unwrap_or_else(|error| panic!("PUT {path}: {error}"))
     }
 
+    /// `GET path` with this container's key, reading the **head only**.
+    ///
+    /// The head and not the body because both routes a container-level case reads this way answer
+    /// in tens of megabytes at Decision 4's 64 MiB input: `/graph` is the document itself and
+    /// `/layout` a layout of it. What those cases claim is the status line, the `ETag` and
+    /// `Graph-Seq`, none of which is in the body, and a client that collected the rest would be
+    /// measuring its own memory instead.
+    ///
+    /// Caveat: the body is dropped unread, so the hub sees a client that stopped reading. That
+    /// happens after the response head, which is after the upload the measurement times, and it
+    /// writes no line of its own — so it cannot move a number in `target/hub-mem/upload.txt`.
+    pub async fn head(&self, method: &str, path: &str) -> Result<Reply, String> {
+        let request = authorized(method, path)
+            .body(Full::new(Bytes::new()))
+            .expect("the request");
+        let exchange = async {
+            let response = self
+                .client
+                .request(request)
+                .await
+                .map_err(|error| error.to_string())?;
+            let (parts, body) = response.into_parts();
+            drop(body);
+            Ok(Reply {
+                status: parts.status,
+                headers: parts.headers,
+                body: Bytes::new(),
+            })
+        };
+        tokio::time::timeout(self.timeout, exchange)
+            .await
+            .map_err(|_| String::from("timed out"))?
+    }
+
+    /// `GET /graph`, head only: see [`Remote::head`].
+    pub async fn graph_head(&self, ws: &str) -> Reply {
+        let path = format!("/v1/workspaces/{ws}/graph");
+        self.head("GET", &path)
+            .await
+            .unwrap_or_else(|error| panic!("GET {path}: {error}"))
+    }
+
+    /// `POST /layout?layout=…` with no body, head only: see [`Remote::head`].
+    pub async fn layout_head(&self, ws: &str, layout: &str) -> Reply {
+        let path = format!("/v1/workspaces/{ws}/layout?layout={layout}");
+        self.head("POST", &path)
+            .await
+            .unwrap_or_else(|error| panic!("POST {path}: {error}"))
+    }
+
     /// `POST` one batch under `idem_key`; `Err` names the transport failure.
     pub async fn post_batch(
         &self,
