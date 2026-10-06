@@ -8,8 +8,10 @@
 #
 # Rows: hover fades the rest to 0.12 and labels the neighbourhood; click and shift-click select;
 # shift+drag selects the nodes in the box; a 150 px node drag lands under the pointer; the node
-# menu offers focus, pin, hide, copy id; copy id fills the clipboard state; hide removes the node.
-# The break control expects a fade of 0.13, which the app does not make.
+# menu offers focus, pin, hide, copy id; copy id fills the clipboard state; hide removes the node;
+# the five camera buttons take a real click.
+# The break control expects a fade of 0.13, which the app does not make, and stops the nav bar
+# from taking the pointer.
 #
 # Exit: 0 every row PASS · 1 a row FAIL or NOT-RUN · 2 could not run.
 # Build first: scripts/studio.sh build. Never takes the host gate lock.

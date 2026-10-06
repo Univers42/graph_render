@@ -247,11 +247,16 @@ def nav_centres(studio):
 
 
 def drop_nav_press(studio):
-    """The negative control: the bar stops taking the pointer, the way it did before the fix."""
+    """The negative control: the bar stops taking the pointer, the way it did before the fix.
+
+    The selector is doubled because the studio's own rules are adopted onto the shadow root
+    (`mount.ts`), and an adopted sheet is cascaded after any `<style>` element in the tree — at
+    equal specificity the adopted rule would still win and the control would not break anything.
+    """
     studio.page.evaluate("""
     (() => {
       const style = document.createElement('style');
-      style.textContent = '.gs-nav{pointer-events:none}';
+      style.textContent = '.gs-nav.gs-nav{pointer-events:none}';
       document.querySelector('graph-studio').shadowRoot.appendChild(style);
     })()""")
 
