@@ -20,6 +20,7 @@
 
 use std::time::Duration;
 
+use crate::ledger;
 use crate::support::db;
 use crate::support::wire::Remote;
 
@@ -108,6 +109,25 @@ async fn a_capped_workspace_uploads_five_times_inside_the_motor_body_timeout() {
          id_width={ID_WIDTH} plugins={PLUGINS}",
         fill.doc_bytes, fill.records, fill.record_bytes, fill.batches
     );
+    // Every figure the measurement file quotes, checked against the file: a run whose input size has
+    // moved must not be reported under the old numbers, and `docs/measurements/hub-memory.md` is where
+    // a changed figure is written down. This is the same contract `f_w_ceiling` and
+    // `last_seen_entry_ceiling_bytes` have.
+    for (name, have) in [
+        ("upload_doc_bytes", fill.doc_bytes as f64),
+        ("upload_records", fill.records as f64),
+        ("upload_record_bytes", fill.record_bytes as f64),
+        ("upload_id_width", ID_WIDTH as f64),
+        ("upload_plugins", PLUGINS as f64),
+        ("upload_batches", fill.batches as f64),
+    ] {
+        let recorded = ledger::value(name);
+        assert_eq!(
+            have, recorded,
+            "{name} is {have} but docs/measurements/hub-memory.md records {recorded}; \
+             write the new figure there with this run"
+        );
+    }
     let etag = graph_etag(&remote).await;
     for _ in 0..WARM_UPS {
         assert_layout_ok(&remote, &etag, "warm-up").await;

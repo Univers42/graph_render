@@ -126,31 +126,60 @@ seq_line=$(sed -nE 's/^.*(HUB_MEM upload etag=.*)$/\1/p' "$run_log" | head -1)
 [ -n "$input_line" ] || input_line='input unknown (the case printed no HUB_MEM upload cap= line)'
 
 # The six lines, then the five after the warm-up.
+#
+# A count other than five is a **verdict**, not a setup failure: row `negctl-throttle-upload` runs
+# this verb with the throttled relay, where the motor's body timeout answers 408 before any upload
+# finishes, so no upload reaches its tail and no line is written. That is the control working, and
+# it has to exit 1 with the reason named rather than 2 "could not run" — measured: with the bail
+# here, the control exited 2 and named nothing.
 all_lines=$(upload_lines)
 count=$(printf '%s\n' "$all_lines" | grep -c upload_ms || true)
 timed=$(timed_ms)
 n=$(printf '%s\n' "$timed" | grep -c '[0-9]' || true)
-[ "$n" = 5 ] || bail "the hub's log holds $n timed layout-upload lines, not 5"
-ms_line=$(printf '%s' "$timed" | tr '\n' ' ')
-median_ms=$(printf '%s\n' "$timed" | median)
-slowest_ms=$(printf '%s\n' "$timed" | sort -n | tail -1)
+if [ "$n" = 5 ]; then
+  ms_line=$(printf '%s' "$timed" | tr '\n' ' ')
+  median_ms=$(printf '%s\n' "$timed" | median)
+  slowest_ms=$(printf '%s\n' "$timed" | sort -n | tail -1)
+else
+  ms_line="$timed"
+  median_ms=none
+  slowest_ms=none
+fi
 
-# The chunk size Decision 4 names as the knob: the walk yields one record per chunk, so the largest
-# chunk is the largest record plus the separator that joins it to the previous one.
+# The chunk size Decision 4 names as the knob: the walk yields one record per chunk plus a head and a
+# tail, so the chunks of one upload are `records + 2` and the mean chunk is `bytes / chunks`.
+#
+# Caveat: a mean and not the largest chunk. The ids are a fixed width (tests/memory/upload.rs), so
+# every record is the same size and the mean is within a few bytes of the largest; a document with
+# mixed-width ids would make this an average over a range, which is why the case does not write one.
 records=$(printf '%s\n' "$all_lines" | sed -nE 's/.*"records":([0-9]+).*/\1/p' | tail -1)
 bytes=$(printf '%s\n' "$all_lines" | sed -nE 's/.*"bytes":([0-9]+).*/\1/p' | tail -1)
-chunks=$((records + 2)) # head and tail are chunks too
-chunk_bytes=$((bytes / chunks))
+if [ -n "$records" ] && [ -n "$bytes" ]; then
+  chunks=$((records + 2))
+  chunk_bytes=$((bytes / chunks))
+else
+  chunks=none
+  chunk_bytes=none
+fi
 
 motor_408=$(motor_408s)
 
-# The verdict, and which part failed. Every clause is checked by name so a reader of upload.txt
-# learns *which* condition broke rather than only that one did.
+# The verdict, and which part failed. Every clause is named so a reader of upload.txt learns *which*
+# condition broke rather than only that one did.
+#
+# The time clause is skipped when there is no time to judge: a run with no completed upload has
+# already failed every other clause, and "slowest upload none ms" would read as a measurement rather
+# than as its absence.
 why=
 [ "$test_rc" -eq 0 ] || why="the client case failed (exit $test_rc)"
-[ "$slowest_ms" -lt "$budget_ms" ] || why="${why:+$why; }slowest upload ${slowest_ms} ms is not under ${budget_ms} ms"
+if [ "$n" = 5 ]; then
+  [ "$slowest_ms" -lt "$budget_ms" ] ||
+    why="${why:+$why; }slowest upload ${slowest_ms} ms is not under ${budget_ms} ms"
+else
+  why="${why:+$why; }the hub's log holds $n completed uploads, not 5 (the relay writes a line only for an upload that reached its tail)"
+fi
 [ "$motor_408" = 0 ] || why="${why:+$why; }the motor logged $motor_408 408"
-[ "$seq_line" != 'input unknown' ] && [ -n "$seq_line" ] || why="${why:+$why; }no Graph-Seq line: every run did not match the /graph ETag"
+[ -n "$seq_line" ] || why="${why:+$why; }no Graph-Seq line: not every run matched the /graph ETag"
 [ "$count" = 6 ] || why="${why:+$why; }the hub's log holds $count layout-upload lines, not 6"
 if [ -z "$why" ]; then
   verdict=pass
