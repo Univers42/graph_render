@@ -27,7 +27,7 @@
 
 import type { Buffers } from "./buffers.ts";
 import type { Fixture } from "./fixture.ts";
-import { compare, components, maxAbsGuard, verdict } from "./bounds.ts";
+import { compare, components, kernelNorm, maxAbsGuard, verdict } from "./bounds.ts";
 import type { ChargeReport } from "./charge.ts";
 import type { GPUDevice } from "./types.ts";
 import { GPUMapMode } from "./types.ts";
@@ -81,11 +81,17 @@ export function report(
   const deltaEqual = sameBytes(first.delta, second.delta);
   const repeatEqual = densityEqual && deltaEqual;
   const boundsExact = extentMatches(first.extent, fixture);
+  // The run's own arm, from the adapter's fallback flag — not a constant. The ceiling table is
+  // keyed by arm, and a software adapter's reassociation and transcendentals are not the
+  // hardware's, so the two arms carry different rows and a report that graded a software run
+  // against the hardware row would hold it to numbers it never produced.
+  const arm = fallback ? "software" : "hardware";
+  const norm = kernelNorm(fixture.side, fixture.spectrumRe, fixture.spectrumIm);
   const verdicted = verdict({
     n: fixture.n,
     state: fixture.state,
-    arm: "hardware",
-    h: fixture.h,
+    arm,
+    kernelNorm: norm,
     rmsRel: measured.rmsRel,
     maxAbs: measured.maxAbs,
     depositedUnits: deposited,
@@ -115,7 +121,7 @@ export function report(
     failures: verdicted.failures,
     marks,
     fallback,
-    maxAbsGuard: fixture.n === 1_000_000 ? maxAbsGuard(fixture.h) : 0,
+    maxAbsGuard: fixture.n === 1_000_000 ? maxAbsGuard(norm) : 0,
   };
 }
 

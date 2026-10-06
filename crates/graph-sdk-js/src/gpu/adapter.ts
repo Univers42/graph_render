@@ -113,10 +113,20 @@ function marksOf(adapter: GPUAdapter): string {
   return [info.vendor, info.architecture].filter((part) => !!part).join("/");
 }
 
-/** `isFallbackAdapter`, which moved onto `adapter` on some builds and onto `info` on others. */
-function fallbackOf(adapter: GPUAdapter): boolean {
+/**
+ * `isFallbackAdapter`, which moved onto `adapter` on some builds and onto `info` on others.
+ *
+ * Both are read: a build that reports it only on `info` must still see a fallback adapter as
+ * one, or the hardware arm would hold a software adapter to the hardware ceiling and a lost
+ * device would read as a pass. The adapter's own word wins when both are present.
+ */
+export function fallbackOf(adapter: GPUAdapter): boolean {
   if (adapter.isFallbackAdapter !== undefined) {
     return adapter.isFallbackAdapter;
+  }
+  const info = adapter.info;
+  if (info?.isFallbackAdapter !== undefined) {
+    return info.isFallbackAdapter;
   }
   return false;
 }

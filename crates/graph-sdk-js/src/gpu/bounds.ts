@@ -5,10 +5,12 @@
  *
  * - A **guard** is *derived*. It is a bound the arm must not cross, and a breach is a stop to
  *   report with both numbers, never a re-tune. There are two: `rmsRel ≤ 1e-4` at every
- *   fixture, and at the two 1M fixtures `maxAbs ≤ |charge| · (2⁻¹¹/√3) / h²`.
+ *   fixture, and at the two 1M fixtures `maxAbs ≤ |charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6`,
+ *   with `‖g‖₂ = P · ‖spectrum‖₂` read from the fixture's own spectrum section.
  * - A **ceiling** is *measured*, per `(arm, n, state)`, and is the arm held to its own row. The
  *   table below was empty when the first run went out and was filled from what it printed; the
- *   derivation that produced the guards is condition 7's and is restated here.
+ *   derivation that produced the guards is condition 7's, corrected by Amendment 2
+ *   (`docs/decisions/gpu-g1.md`), and restated here.
  *
  * ## The guards' arithmetic, spelled out
  *
@@ -17,34 +19,38 @@
  * `fixtures/gpu/README.md:148-149`). The plan's own text said "one order of magnitude", which
  * is wrong by a factor of 3.6 and condition 7 requires the corrected wording.
  *
- * `maxAbs ≤ |charge| · (2⁻¹¹/√3) / h²` at 1M. The deposit quantum at 1M is 2⁻¹¹ of a unit
- * charge; four CIC weights each rounded with independent uniform error over one quantum give
- * rms `2⁻¹¹/√12` apiece, and four in quadrature give **`2⁻¹¹/√3 = 2.8e-4`** of a unit per
- * occupied cell. The field that produces is `(charge·alpha)·2.8e-4 / h²`, and with
- * `charge·alpha = 90` and `h` from the fixture header that is the number `maxAbsGuard`
- * computes. Condition 7 forbids the plan's own printed formula — two roots times the quantum
- * times root 1.25, `gpu-g1.md` — which evaluates to 7.7e-4 and does not produce the record's
- * figure.
+ * `maxAbs ≤ |charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6` at 1M. The deposit quantum at 1M is 2⁻¹¹ of
+ * a unit charge; four CIC weights each rounded with independent uniform error over one quantum
+ * give rms `2⁻¹¹/√12` apiece, and four in quadrature give **`2⁻¹¹/√3 = 2.8e-4`** of a unit per
+ * occupied cell. That deposit term is right. Two steps after it were wrong, and Amendment 2
+ * corrects them:
+ *
+ * 1. **The propagation factor.** The field is the convolution of the density error with the
+ *    sampled kernel `g`, so the field error's rms is `δ_rms · ‖g‖₂`, not `δ_rms / h²`. The
+ *    kernel `G = −r/l(r)` is a 1/r law, and `‖g‖₂ = P · ‖spectrum‖₂` comes from the fixture's
+ *    own spectrum section — 0.2085 on the settled 1M fixture, 0.1712 on the start one. The old
+ *    `1/h²` is about 100× smaller than `‖g‖₂`.
+ * 2. **An rms read as a maximum.** The guard now carries a peak factor over the `2n` read
+ *    components: `√(2·ln 2n)` = 5.39 at n = 1e6, rounded up to **6**.
+ *
+ * So the guard is `|charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6`, which is 3.17e-2 settled and 2.61e-2
+ * start. `‖spectrum‖₂` is computed from the fixture's spectrum section, as condition 8 reads
+ * `k` from the fixture's own edges.
+ *
+ * Caveat: this is a statistical bound, not a strict one. It models the deposit error as white
+ * noise and its peak as a Gaussian. The fixed-point weights sum to exactly one per node, which
+ * makes the true error field slightly smaller than the model. The f32 transcription sits 7%
+ * under the settled value. Another seed's 1M maximum could cross it, and that is a stop, not a
+ * re-tune.
  *
  * **There is no `maxAbs` guard below 1M.** The deposit quantum is not the dominant error
  * there — at 1k the scale is 2²¹ and the quantum 2⁻²¹, thirty orders below the field — so a
  * guard derived from it would be a number 10¹³ under everything else and would certify
  * anything.
  *
- * ## The f32-spacing floor, and why it is a Caveat and not a test
- *
- * A `maxAbs` ceiling below **2⁻¹¹ units at 1M is not a tighter gate, it is an unmeasurable
- * one**: positions are `f32`, the seed spiral reaches `12·√n = 12 000` units, and `f32`'s
- * spacing there is **2⁻¹⁰**, so a velocity error under 2⁻¹¹ units is lost when integrated
- * into a rim position at that magnitude (`gpu-force-tier.md:91-93`). A ceiling under the floor
- * gains nothing at 1M. It is *not* that the delta cannot be read — the delta itself comes back
- * as `f32` and is compared as such — it is that a number under the floor describes an
- * integration step the integrator cannot carry.
- *
- * **The plan's `the_ceilings_are_ordered` (`B_max ≥ 2⁻¹¹·h`) is dropped.** It contradicts its
- * own derivation: `2⁻¹¹ · 26.9 = 0.013`, which is thirteen thousand times the 3.7e-5 the plan
- * simultaneously derives for the same case. A test cannot hold both. The rule kept here is the
- * guard ordering below, which is checkable and not self-contradictory.
+ * The measured ceilings themselves — the f32-spacing floor, the dropped `the_ceilings_are_ordered`
+ * test, and the one-device caveat below — are in `ceilings.ts`, split out to keep this file under
+ * the house's 300-line limit.
  *
  * Caveat: **these are one device's numbers on one driver stack.** A driver update re-measures
  * them; it does not widen them. The per-arm rows are the decision: a software adapter's `f32`
@@ -55,21 +61,13 @@
  */
 
 import { scaleFor } from "./fixture.ts";
+import { ceilingFor } from "./ceilings.ts";
+import type { Arm } from "./ceilings.ts";
 
-/** The arms the ceiling table is keyed by. */
-export type Arm = "hardware" | "software";
-
-/**
- * One arm's measured numbers at one `(n, state)`.
- *
- * `rmsRel` and `maxAbs` are the measured values rounded **up** to two significant digits, so a
- * later run of the same arm on the same device sits at or under its own row rather than a
- * rounding step either side of it.
- */
-export interface Ceiling {
-  readonly rmsRel: number;
-  readonly maxAbs: number;
-}
+// The measured ceilings live in `ceilings.ts`, split out to keep this file under the house's
+// 300-line limit. They are re-exported here so the tests and `readback.ts` keep one import path.
+export { ceilingFor, ceilings, setCeiling } from "./ceilings.ts";
+export type { Arm } from "./ceilings.ts";
 
 /**
  * The `rmsRel` guard: 1.5 orders of magnitude under the mesh's own 3.6e-3 rms against the
@@ -93,27 +91,40 @@ const FOUR_WEIGHTS_IN_QUADRATURE = QUANTUM_AT_1M / Math.sqrt(3);
 const CHARGE_ALPHA = 90;
 
 /**
- * The derived `maxAbs` guard at 1M: `(charge·alpha) · (2⁻¹¹/√3) / h²` units per tick.
+ * The peak factor over the `2n` read components: `√(2·ln 2n)` = 5.39 at n = 1e6, rounded up.
  *
- * `h` comes from the fixture header, and the two 1M fixtures have different frames — `h` is
- * 26.909 at start and 22.627 at settled — so the guard is computed per fixture and not from
- * one of them.
+ * The deposit term is an rms; a maximum over 2n components sits several rms out. This converts
+ * one to the other, and rounding up keeps the guard a bound rather than an estimate.
  */
-export function maxAbsGuard(h: number): number {
-  return (CHARGE_ALPHA * FOUR_WEIGHTS_IN_QUADRATURE) / (h * h);
+const PEAK_FACTOR = 6;
+
+/**
+ * The kernel's 2-norm, `‖g‖₂ = P · ‖spectrum‖₂`, from the fixture's own spectrum section.
+ *
+ * The spectrum is pre-scaled by `1/P²` (`kernel.rs:66-76`), so the `P` here undoes the sampling
+ * density and leaves the kernel's actual 2-norm. Computed in `f64` on the host, once, from the
+ * fixture's `spectrum_re` / `spectrum_im` — the same way condition 8 reads `k` from the
+ * fixture's own edges.
+ */
+export function kernelNorm(side: number, spectrumRe: Float64Array, spectrumIm: Float64Array): number {
+  let sum = 0;
+  for (let k = 0; k < spectrumRe.length; k += 1) {
+    const re = spectrumRe[k] ?? 0;
+    const im = spectrumIm[k] ?? 0;
+    sum += re * re + im * im;
+  }
+  return side * Math.sqrt(sum);
 }
 
-/** The measured ceilings, keyed by `${arm}:${n}:${state}`. Empty until the first run. */
-const CEILINGS: Readonly<Record<string, Ceiling>> = {};
-
-/** This arm's ceiling for one fixture, or `undefined` when none has been measured. */
-export function ceilingFor(arm: Arm, n: number, state: number): Ceiling | undefined {
-  return CEILINGS[`${arm}:${n}:${state}`];
-}
-
-/** Every ceiling row, for the ordering test and for a report that wants the whole table. */
-export function ceilings(): Readonly<Record<string, Ceiling>> {
-  return CEILINGS;
+/**
+ * The derived `maxAbs` guard at 1M: `|charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6` units per tick.
+ *
+ * `kernelNorm` is `‖g‖₂ = P · ‖spectrum‖₂`, computed from the fixture's own spectrum section.
+ * The two 1M fixtures have different spectra — `‖g‖₂` is 0.2085 settled and 0.1712 start — so
+ * the guard is computed per fixture and not from one of them.
+ */
+export function maxAbsGuard(kernelNorm: number): number {
+  return CHARGE_ALPHA * FOUR_WEIGHTS_IN_QUADRATURE * kernelNorm * PEAK_FACTOR;
 }
 
 /** One arm's per-node velocity increment as it came back, and the reference it is against. */
@@ -179,7 +190,8 @@ export function verdict(input: {
   readonly n: number;
   readonly state: number;
   readonly arm: Arm;
-  readonly h: number;
+  /** The kernel's 2-norm `‖g‖₂ = P · ‖spectrum‖₂`, for the 1M `maxAbs` guard. */
+  readonly kernelNorm: number;
   readonly rmsRel: number;
   readonly maxAbs: number;
   readonly depositedUnits: number;
@@ -210,7 +222,7 @@ export function verdict(input: {
   if (ceiling && input.maxAbs > ceiling.maxAbs) {
     failures.push(`max ${where}: ${input.maxAbs} over this arm's ceiling ${ceiling.maxAbs}`);
   }
-  const guard = maxAbsGuard(input.h);
+  const guard = maxAbsGuard(input.kernelNorm);
   if (input.n === 1_000_000 && input.maxAbs > guard) {
     failures.push(`max ${where}: ${input.maxAbs} over the derived 1M guard ${guard}`);
   }

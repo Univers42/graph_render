@@ -15,9 +15,10 @@ The page fetches each `.gmfx` over the harness's own origin and passes the `Arra
 base64 handoff is a 134 MiB string through `import()` (`fixtures/gpu/README.md:188-191`).
 
 Per fixture one line, `PASS <name> …` or `FAIL <name> <failures> …`, with every report field.
-The arm is held to its own measured ceiling row in `bounds.ts`, and the guards are the derived
-ones: `rmsRel ≤ 1e-4` at every fixture, and at the two 1M fixtures
-`maxAbs ≤ |charge| · (2⁻¹¹/√3) / h²` with `h` from the fixture header.
+The wall time is `wallMs`, in milliseconds. The arm is held to its own measured ceiling row in
+`bounds.ts`, and the guards are the derived ones: `rmsRel ≤ 1e-4` at every fixture, and at the
+two 1M fixtures `maxAbs ≤ |charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6` with `‖g‖₂ = P · ‖spectrum‖₂`
+from the fixture's own spectrum section.
 
 Exit: 0 every fixture passed · 3 any fixture failed, any refusal, or a limit the pass needs is
 below what the device reports · 2 the harness could not run. The software refusal is the
@@ -245,7 +246,7 @@ def line(report, ms):
         f"rmsRel={report['rmsRel']:.6g} maxAbs={report['maxAbs']:.6g} "
         f"depositedUnits={report['depositedUnits']} repeatEqual={report['repeatEqual']} "
         f"boundsExact={report['boundsExact']} maxAbsGuard={report['maxAbsGuard']:.6g} "
-        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} ms={ms:.1f}"
+        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} wallMs={ms * 1000:.1f}"
     )
     return f"{' '.join(report['failures'])} {fields}" if report["failures"] else fields
 
