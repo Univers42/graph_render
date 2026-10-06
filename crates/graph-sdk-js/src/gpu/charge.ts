@@ -131,8 +131,8 @@ export async function runCharge(request: ChargeRequest, fault?: string): Promise
 }
 
 /** The fault's code, or a throw naming the five that exist. */
-function faultCodeFor(fault?: string): number {
-  if (fault === undefined) {
+function faultCodeFor(fault?: string | null): number {
+  if (fault === undefined || fault === null) {
     return 0;
   }
   const code = FAULTS[fault];

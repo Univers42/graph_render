@@ -185,22 +185,37 @@ def parse_args(argv):
 
 
 def fixtures(directory, only):
-    """Every `mesh-*.gmfx` in `directory` that `--only` keeps, in name order."""
+    """Every `mesh-*.gmfx` in `directory` that `--only` keeps, as the name without its suffix.
+
+    The suffix is the page's to append, not the harness's to carry: `path.name` already ends in
+    `.gmfx`, and a harness that passed it through made the page fetch
+    `mesh-1k-start.gmfx.gmfx` — a 404, whose HTML error page then failed the fixture's own magic
+    check and looked like a kernel fault.
+    """
     names = sorted(path.name for path in Path(directory).glob("mesh-*.gmfx"))
+    stems = [name[: -len(".gmfx")] for name in names]
     if only is None:
-        return names
-    return [name for name in names if name.split("-")[1] in only]
+        return stems
+    return [stem for stem in stems if stem.split("-")[1] in only]
 
 
 def call_js(name, arm, fault):
-    """`window.gpuMesh(name, arm, fault)` as one expression, with each argument a JS literal.
+    """`window.gpuMesh(name, arm, fault)` as one expression, each argument a JS literal.
 
-    `json.dumps`, not `!r`: `None` is written as the letters `None`, and the page answers
-    `ReferenceError: None is not defined` — a harness bug wearing the costume of a kernel
-    failure, on every fixture at once. `json.dumps` writes `null`, and `name`/`arm`/`fault` are
-    plain ASCII strings where its quoting is the same as Python's.
+    `json.dumps`, not `!r`: `!r` writes the five letters `None` and the page answers
+    `ReferenceError: None is not defined` — a harness bug in the costume of a kernel failure, on
+    every fixture at once.
     """
-    return f"window.gpuMesh({json.dumps(name)}, {json.dumps(arm)}, {json.dumps(fault)})"
+    return f"window.gpuMesh({json.dumps(name)}, {json.dumps(arm)}, {fault_js(fault)})"
+
+
+def fault_js(fault):
+    """The fault argument: JS `undefined` when the harness was given no `--break`.
+
+    Not `null`: `runCharge`'s second parameter is optional, and an explicit `null` is a value the
+    fault table does not hold, so the page would answer `Refusal: --break null` on a clean run.
+    """
+    return "undefined" if fault is None else json.dumps(fault)
 
 
 def run_fixtures(label, sets, url, names, arm, fault):

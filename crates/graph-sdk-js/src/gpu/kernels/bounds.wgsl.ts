@@ -17,6 +17,19 @@
  * whose limit is under the count this stage dispatches, so there is no third dispatch here to
  * fall back on: a device that passes the limits check can always run this in two.
  *
+ * ## The block fold is a tree, and it has to be
+ *
+ * One box per block means 256 lanes must *agree* on one box, and the obvious writing of that —
+ * every lane storing its own node's box to `boxes[block.x]` — is a race, not a reduction: all
+ * 256 stores land, the last one wins, and the block's box is one arbitrary node's box. It is
+ * silent, because a single node's box is still a plausible box, and it is what `boundsExact`
+ * exists to catch. So the lanes fold through `var<workgroup>` shared memory, halving the stride
+ * each step, and lane 0 stores the one box the block agreed on.
+ *
+ * The order is a tree and not the CPU's serial one, and that is free: min and max are exact and
+ * order-free, so the folded value is the same set's min and max whichever tree produced it. What
+ * the order would matter for is a *sum*, and there is no sum here.
+ *
  * **The final fold is one invocation.** 256 lanes over 3 907 blocks is 16 iterations of a
  * serial loop on lane 0 and 255 idle lanes — deliberately, because a serial fold is the CPU's
  * own order (`frame.rs:101` folds the blocks in order) and min/max makes the order irrelevant
@@ -34,10 +47,14 @@
 import { NODES_WGSL, PRELUDE_WGSL } from "./prelude.wgsl.ts";
 
 /** The WGSL for the bounds fold. */
-export const BOUNDS_WGSL = `${PRELUDE_WGSL}
+export const BOUNDS_WGSL = '${PRELUDE_WGSL}
 ${NODES_WGSL}
 @group(0) @binding(2) var<storage, read_write> boxes: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read_write> extent: array<vec4<f32>>;
+
+// The block's boxes, one per lane, folded down to one. 256 vec4<f32> is 4 KB, inside both
+// arms' 'maxComputeWorkgroupStorageSize' of 32 768 and 65 536.
+var<workgroup> lane_boxes: array<vec4<f32>, 256>;
 
 // One box per block of 256 nodes: (min x, min y, max x, max y). The empty box is the frame's
 // own EMPTY (frame.rs:27-30), so a block of non-finite nodes folds to it exactly.
@@ -52,7 +69,29 @@ fn fold_block(@builtin(workgroup_id) block: vec3<u32>,
   if (at < frame.n && p.x == p.x && p.y == p.y) {
     box = vec4<f32>(p.x, p.y, p.x, p.y);
   }
-  boxes[block.x] = box;
+  lane_boxes[lane.x] = box;
+  workgroupBarrier();
+  tree_fold(lane);
+  if (lane.x == 0u) {
+    boxes[block.x] = lane_boxes[0];
+  }
+}
+
+// 256 lanes down to one, halving the stride each step. Every lane runs every barrier, so the
+// barrier is not inside the 'if' — a barrier some lanes skip is a deadlock, not a slowdown.
+fn tree_fold(lane: vec3<u32>) {
+  var stride = 128u;
+  loop {
+    if (stride == 0u) {
+      break;
+    }
+    if (lane.x < stride) {
+      // 'lane.x + stride' is under 256: 'lane.x < stride' and 'stride <= 128'.
+      lane_boxes[lane.x] = widen(lane_boxes[lane.x], lane_boxes[lane.x + stride]);
+    }
+    workgroupBarrier();
+    stride = stride / 2u;
+  }
 }
 
 // The blocks, folded into one, in block order. One invocation: see the module's note on why.
@@ -91,4 +130,4 @@ fn widen(acc: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
     select(acc.w, b.w, b.w > acc.w),
   );
 }
-`;
+';
