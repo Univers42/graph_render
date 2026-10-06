@@ -214,7 +214,9 @@ smallest reserved lane when that lane is lower than the source's own, so every l
 off one old base converges into the column already waiting for it instead of holding its own
 column all the way down. **The motor changed and the plugin did not** — the same wasm command
 on the same committer-time logs, and `examples/plugins/git/` is untouched by that landing, so
-the column is a motor number alone.
+the column is a motor number alone. The same run re-read the layout times and they did not move
+beyond the shared host's noise (14.3 ms against 14.7 ms on git/git), so the `lanes ms` column
+is left as it stands.
 
 The synthetic has no `git log --graph` width in any column: it is not from a repository.
 The `lanes width` columns are the lane count it drew; the two `git log --graph` width columns are
