@@ -18,6 +18,7 @@ import { scanWgsl } from "./gpu-wgsl-scan.mjs";
 import { BOUNDS_WGSL } from "../src/gpu/kernels/bounds.wgsl.ts";
 import { DEPOSIT_WGSL } from "../src/gpu/kernels/deposit.wgsl.ts";
 import { FFT_WGSL } from "../src/gpu/kernels/fft.wgsl.ts";
+import { LINK_WGSL } from "../src/gpu/kernels/link.wgsl.ts";
 import { READ_WGSL } from "../src/gpu/kernels/read.wgsl.ts";
 import { ZERO_WGSL } from "../src/gpu/kernels/zero.wgsl.ts";
 
@@ -30,8 +31,13 @@ const SOURCES = [
   { name: "read", code: READ_WGSL },
 ];
 
+/** The other passes' modules: not charge stages, so outside the list above, under the same scan. */
+const PASS_SOURCES = [
+  { name: "link", code: LINK_WGSL },
+];
+
 test("every_kernel_is_256_wide_and_f32", () => {
-  const problems = scanWgsl(SOURCES);
+  const problems = scanWgsl([...SOURCES, ...PASS_SOURCES]);
   assert.deepEqual(problems, [], problems.join("; "));
 });
 

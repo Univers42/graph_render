@@ -1,11 +1,11 @@
 """The two strings the `gpu-mesh` probe page is made of, and the keys they interpolate.
 
 `gpu-mesh.py` is the harness — the flags, the browser, the verdicts. This file is the page it
-opens: a one-line HTML shell whose module script exposes `window.gpuMesh(name, arm, fault)`, and
-one JavaScript expression the harness evaluates to ask the page what adapter it can see. They are
-here rather than inline because they are the only two places in the harness that are JavaScript,
-and a Python file that is mostly JavaScript is a file whose line budget is spent on the wrong
-language.
+opens: a one-line HTML shell whose module script exposes
+`window.gpuMesh(name, arm, fault, pass)`, and one JavaScript expression the harness evaluates to
+ask the page what adapter it can see. They are here rather than inline because they are the only
+two places in the harness that are JavaScript, and a Python file that is mostly JavaScript is a
+file whose line budget is spent on the wrong language.
 
 **The fixture crosses by `fetch` over the harness's own origin, not over `import()`.** At 1M a
 `.gmfx` is 100.7 MiB and a base64 handoff would be a 134 MiB string through `import()`
@@ -38,12 +38,17 @@ READY_JS = """(async () => {
   return 'ready';
 })()"""
 
+# The pass dispatch: `gpu/<pass>.js` and its `run<Pass>(request, fault)` export, `runCharge`,
+# `runLink` or `runCollide`. A module without the export is a throw naming it, not a call on
+# `undefined` that reads as a kernel fault.
 PAGE = """<!doctype html><meta charset="utf-8"><title>gpu-mesh</title>
 <script type="module">
-import { runCharge } from "/target/gpu-js/gpu/charge.js";
-window.gpuMesh = async (name, arm, fault) => {
+window.gpuMesh = async (name, arm, fault, pass = "charge") => {
+  const module = await import("/target/gpu-js/gpu/" + pass + ".js");
+  const entry = "run" + pass[0].toUpperCase() + pass.slice(1);
+  if (typeof module[entry] !== "function") { throw new Error(pass + ".js has no " + entry); }
   const bytes = await (await fetch("/target/gpu-fixtures/" + name + ".gmfx")).arrayBuffer();
-  return await runCharge({ fixture: bytes, arm }, fault);
+  return await module[entry]({ fixture: bytes, arm }, fault);
 };
 </script>"""
 

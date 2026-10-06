@@ -222,3 +222,86 @@ back a spectrum for a frame the convolution never ran on.
 `every_column_is_the_meshes_own` rests on. It is also the slowest legal schedule, and the 1M
 settle runs on it: 333 s for all eight files. That is a generator's cost, paid once per gate
 run, and not a tick's.
+
+## G1c — the link pass, measured
+
+The link pass on the device (`crates/graph-sdk-js/src/gpu/link.ts`, kernel
+`gpu/kernels/link.wgsl.ts`): one invocation per node sums its own share of every incident
+simple edge, in ascending edge index, over a CSR the host builds once (`linkCsr`, the same
+counting sort as `row_csr`). No atomics, no float scatter (D10). Graded against the fixture's
+`delta_link` columns by `bounds.ts`'s `compare()`, held to `gpu/bounds-link.ts`. Measured on
+2026-10-06 with `scripts/studio-probe.sh gpu-mesh <arm> target/gpu-fixtures --pass link --only
+1k,10k,50k`, first with the ceiling table empty (guards only), then again with the rows below.
+
+### The adapters
+
+| arm | `vendor/architecture` | flag set that gave it | `isFallbackAdapter` (probe) |
+|---|---|---|---|
+| hardware | `amd/rdna-2` | set 1/4, `unsafe webgpu + vulkan` | false |
+| software | `google/swiftshader` | set 1/4, `swiftshader webgpu + vulkan` | true |
+
+### The measured rows
+
+`rmsRel` and `maxAbs` as the guards-only run printed them; the ceiling is each rounded **up**
+to two significant digits. Both runs passed every check, and both had `repeatEqual=True`.
+
+| arm | `n` | state | `rmsRef` | `rmsRel` | `maxAbs` | ceiling `rmsRel` | ceiling `maxAbs` |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| hardware | 1 000 | 0 | 17.4827 | 8.55892e-8 | 7.62939e-6 | 8.6e-8 | 7.7e-6 |
+| hardware | 1 000 | 1 | 22.3892 | 1.00495e-7 | 1.14441e-5 | 1.1e-7 | 1.2e-5 |
+| hardware | 10 000 | 0 | 73.2433 | 7.55265e-8 | 4.57764e-5 | 7.6e-8 | 4.6e-5 |
+| hardware | 10 000 | 1 | 44.5554 | 9.81270e-8 | 2.28882e-5 | 9.9e-8 | 2.3e-5 |
+| hardware | 50 000 | 0 | 172.786 | 7.48707e-8 | 1.22070e-4 | 7.5e-8 | 1.3e-4 |
+| hardware | 50 000 | 1 | 67.6473 | 1.00948e-7 | 1.37329e-4 | 1.1e-7 | 1.4e-4 |
+| software | 1 000 | 0 | 17.4827 | 8.13294e-8 | 7.62939e-6 | 8.2e-8 | 7.7e-6 |
+| software | 1 000 | 1 | 22.3892 | 9.01399e-8 | 7.62939e-6 | 9.1e-8 | 7.7e-6 |
+| software | 10 000 | 0 | 73.2433 | 7.27343e-8 | 4.57764e-5 | 7.3e-8 | 4.6e-5 |
+| software | 10 000 | 1 | 44.5554 | 9.05203e-8 | 2.28882e-5 | 9.1e-8 | 2.3e-5 |
+| software | 50 000 | 0 | 172.786 | 7.14735e-8 | 1.22070e-4 | 7.2e-8 | 1.3e-4 |
+| software | 50 000 | 1 | 67.6473 | 9.43418e-8 | 1.37329e-4 | 9.5e-8 | 1.4e-4 |
+
+The `maxAbs` values are single `f32` steps at the reference's magnitude (`7.62939e-6` is
+`2⁻¹⁷`, `1.22070e-4` is `2⁻¹³`): one rounding of one component, not an accumulated drift. The
+1M row is not here: the orchestrator measures it alone.
+
+### The guards, with their arithmetic
+
+`rmsRel ≤ k_measured · 5 · 2⁻²³` (condition 8): 5 ULP per term (a subtraction 0.5, `sqrt` 2,
+`x/y` 2.5), an `f32` ULP of `2⁻²³` (`2⁻²⁴` is the unit roundoff), `k` terms per node, and
+`k_measured = max degree + 1` read from each fixture's own `edge_lo`/`edge_hi` by
+`measuredK`. Both states of one `n` share a topology, so they share `k`.
+
+| `n` | max degree | `k_measured` | guard `k · 5 · 2⁻²³` | worst measured `rmsRel` | headroom |
+|---:|---:|---:|---:|---:|---:|
+| 1 000 | 39 | 40 | 2.384e-5 | 1.00495e-7 | 237× |
+| 10 000 | 90 | 91 | 5.424e-5 | 9.81270e-8 | 553× |
+| 50 000 | 113 | 114 | 6.795e-5 | 1.00948e-7 | 673× |
+
+**No guard was breached.** The guard is a per-node worst case applied to an aggregate, so the
+headroom is expected and is not a reason to tighten it: the measured ceiling is what holds the
+arm to its own numbers, and the guard is what a re-measure may never exceed.
+
+**No pair is coincident in `f32`.** The kernel gives a pair whose two `f32` positions are equal
+on both axes no force, where the CPU's `jiggle` gives it one. A one-off host count of
+`fround(x[hi]) - fround(x[lo])` and the same for `y` over all six fixtures found no edge with
+either axis at zero, so the jiggle branch is never reached here; a fixture where it was would
+fail `guard`, because one such edge moves two nodes by `O(60)`.
+
+### The controls
+
+| control | command | exit | line |
+|---|---|---:|---|
+| `link-bias` | `--pass link --only 1k --break link-bias`, hardware | **3** | `FAIL mesh-1k-start guard … rmsRel 0.8527938659570882 over k=40 · 5 · 2⁻²³ = 0.0000238… rms … max (… 105.15 over … 0.0000077)`; settled: `rmsRel 0.9323…`, `maxAbs 98.68` |
+
+`link-bias` swaps each edge's two weights in the kernel — the higher end takes `-(1 - b)` and the
+lower `b` — so every edge whose ends have unequal degrees moves its nodes by the wrong share:
+an `O(1)` mismatch, `rmsRel ≈ 0.85` against a guard of `2.4e-5`. All three of `guard`, `rms`
+and `max` name it.
+
+### What this does not establish
+
+The comparison is a transcription check, as charge's is (condition 6): the per-edge constants
+(`distance`, `strength`, the bias) are computed on the host from the frozen parameters
+(`params.rs:69-70`) and the fixture's own strengths, the way `edge_geometry` computes them, so
+a CPU-side error in those would be shared by both arms. What the GPU arm is checked for is the
+gather — the CSR, the row order, the per-edge force, the share and the sum.
