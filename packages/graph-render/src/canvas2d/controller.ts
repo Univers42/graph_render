@@ -89,7 +89,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
   return {
     ctx, sprites: createSpriteCache(spriteSurface, theme), onFrame: setup.onFrame, theme, policy, scene,
     camera: fitCamera(null, viewport), get limits() { return currentLimits(this); }, viewport, safe: null, dpr: 1,
-    x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1, fromFrame: null, eased: 0,
+    x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1, fromFrame: null, eased: 0, crossFade: null,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
     layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),

@@ -10,6 +10,7 @@ import { type LabelInput, type LabelPlan, type LabelPolicy, type Occupancy, foll
 import type { Scene } from "../scene.ts";
 import type { Theme } from "../theme.ts";
 import { type LayoutKey, layoutChanged } from "./layout-key.ts";
+import { type CrossFade, crossFading, paintCrossFade } from "./crossfade.ts";
 import type { PaintCounts } from "./input.ts";
 import { paintOverlay } from "./overlay.ts";
 import { type Pace, paced, worthPacing } from "./pace.ts";
@@ -52,6 +53,8 @@ export interface LoopState {
   fromFrame: Frame | null;
   /** The eased fraction of the transition: the edge morph's clock. */
   eased: number;
+  /** The picture a change is fading out from (crossfade.ts), or null. */
+  crossFade: CrossFade | null;
   lit: Uint8Array;
   hovered: number;
   /** `performance.now()` when the focus appeared, or -1 while there is none: the fade's clock. */
@@ -187,6 +190,7 @@ function paint(state: LoopState, moving: boolean, settled: boolean): void {
     x: state.x, y: state.y, settled, tween: settled ? null : { from: state.fromFrame, eased: state.eased }, moving, edgeBudget: state.pace.budget, focus, lit: state.lit, selected: state.selected,
     labels: state.plan, sprites: state.sprites, bulk: (input, counts) => paintBulk(state.bulk, input, counts),
   });
+  paintCrossFade(state, performance.now());
   paintOverlay(state);
 }
 
@@ -235,6 +239,6 @@ function renderFrame(state: LoopState, now: number): void {
   state.onFrame();
   // A frame that baked a label planned it at width 0: one more frame lays it out at its width.
   const rebake = state.sprites.starved() || state.sprites.rasterised() > 0;
-  if (travelling || fading(state, performance.now()) || rebake || state.bulk.refining) invalidate(state);
+  if (travelling || fading(state, performance.now()) || crossFading(state) || rebake || state.bulk.refining) invalidate(state);
   else if (moving && (state.scene.frame.edgeCount > state.pace.budget || drewAWay(state.counts) || state.layoutDirty)) armSettle(state);
 }
