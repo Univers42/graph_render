@@ -9,13 +9,13 @@
 use axum::body::Body;
 use axum::extract::{Extension, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use std::sync::Arc;
 
 use crate::app::App;
 use crate::auth::Credential;
 use crate::error::HubApiError;
-use crate::routes::{document, plugins::head_of};
+use crate::routes::{document, plugins::head_of, write_fault};
 
 /// The document at the workspace's current cursor, or a 304 for a matching `If-None-Match`.
 pub async fn get(
@@ -30,7 +30,7 @@ pub async fn get(
     head_of(store, &ws).await?;
     let document = graph_store::materialize::open(store, &ws)
         .await
-        .map_err(|error| crate::routes::write_fault(&error))?;
+        .map_err(|error| write_fault(&error))?;
     let tag = crate::etag::quoted(&document.cursor());
     if crate::etag::matches(&headers, &document.cursor()) {
         // The `Document` is dropped here, which closes the snapshot: a 304 costs one read and no
@@ -70,5 +70,3 @@ fn with_etag(body: Body, tag: &str) -> Response {
     )
         .into_response()
 }
-
-use axum::response::IntoResponse;

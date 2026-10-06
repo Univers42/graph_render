@@ -20,10 +20,11 @@ pub fn need_for(method: &Method, ids: &Ids) -> Need {
     let ws_is_empty = ids.ws().is_empty();
     let plugin = ids.plugin().unwrap_or_default().to_owned();
     match (method, ws_is_empty) {
-        // `/v1/meta` and `/v1/workspaces` name no workspace, so §5.2's "any key" is `Need::Read` on
-        // the empty workspace: a key with no grant at all is refused, and the route itself decides
-        // what the key may see inside.
-        (&Method::GET, true) => Need::Read,
+        // `/v1/meta` and `/v1/workspaces` name no workspace, so §5.2's "any key" is `Need::Any`: a
+        // key with no grant line at all is refused, and the route itself decides what the key may
+        // see inside. `Need::Read` on the empty workspace would refuse every key whose grants name
+        // a workspace rather than `*`, which is the common case.
+        (&Method::GET, true) => Need::Any,
         // `PUT /v1/workspaces/{ws}` is the only admin row: a workspace create.
         (&Method::PUT, _) if plugin.is_empty() => Need::Admin,
         // Every other read is a workspace read, and an empty plugin covers `/graph`, `/changes`,

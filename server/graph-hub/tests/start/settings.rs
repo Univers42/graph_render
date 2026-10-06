@@ -150,11 +150,15 @@ fn the_store_config_carries_the_same_numbers() {
     assert_eq!(store.idem_ttl_ms, 86_400_000);
 }
 
-/// `NAMES` holds §6's twenty-six plus the five unbounded names, and every one of the twenty-six is
-/// numeric, so a nonsense value is refused by name.
+/// `NAMES` holds §6's twenty-six, the five unbounded names and `GRAPH_HUB_TIMEOUT_MS`, and every
+/// numeric one is refused by name on a nonsense value.
 #[test]
 fn every_hub_env_name_is_read() {
-    assert_eq!(NAMES.len(), 31, "five unbounded names plus §6's twenty-six");
+    assert_eq!(
+        NAMES.len(),
+        32,
+        "five unbounded names, §6's twenty-six and GRAPH_HUB_TIMEOUT_MS"
+    );
     let text = [
         "GRAPH_HUB_DB_URL",
         "GRAPH_HUB_KEYS_FILE",

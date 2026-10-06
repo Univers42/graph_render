@@ -11,16 +11,19 @@
 //! prove the release build carries no `negctl` and no `test-hooks`.
 
 /// The breaks this crate's own rows force. Task 2 adds `no-start-check`, Task 3 `skip-grant` and
-/// `reload-keys-only`, Task 4 `no-cap`, Task 8 `drop-record` and `layoutfailed-as-502`, Task 9
-/// `ack-before-commit`, Task 10 `throttle-upload`.
-pub const NAMES: [&str; 8] = [
+/// `reload-keys-only`, Task 4 `no-cap`, Task 7 `skip-event`, Task 8 `drop-record` and
+/// `layoutfailed-as-502`, Task 9 `ack-before-commit`, Task 10 `sse-full-page` and
+/// `throttle-upload`.
+pub const NAMES: [&str; 10] = [
     "skip-grant",
     "reload-keys-only",
     "no-cap",
     "no-start-check",
+    "skip-event",
     "drop-record",
     "layoutfailed-as-502",
     "ack-before-commit",
+    "sse-full-page",
     "throttle-upload",
 ];
 

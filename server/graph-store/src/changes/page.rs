@@ -1,4 +1,5 @@
 //! One page of the feed: the cursor check, the headers and their operations, all in one snapshot.
+//! `read_heads` stops after the headers.
 
 use std::collections::BTreeMap;
 
@@ -6,16 +7,16 @@ use graph_contract::hub::{ChangeHead, Cursor, Manifest, change_json, manifest_ch
 use tokio_postgres::{Client, Row};
 
 use super::cursor::Bounds;
-use super::{Change, ChangeKind, ChangeOp, ChangePage, ChangesReq, CursorState, HOOKS};
+use super::{
+    Change, ChangeKind, ChangeOp, ChangePage, ChangesReq, CursorState, HOOKS, Head, HeadPage,
+};
 use crate::error::{DbError, StoreError};
 use crate::materialize::record;
 use crate::store::Store;
 
 /// One stored header.
 struct Header {
-    seq: u64,
-    plugin: String,
-    at: String,
+    head: Head,
     kind: ChangeKind,
     bytes: u64,
     ops: usize,
@@ -30,6 +31,38 @@ type Manifests = Option<BTreeMap<String, Manifest>>;
 /// between the header and operation reads takes rows from under the page and the row turns red.
 pub(crate) async fn read(store: &Store, req: &ChangesReq) -> Result<ChangePage, StoreError> {
     let client = store.client().await?;
+    begin(&client).await?;
+    let page = read_in(&client, req).await?;
+    client.batch_execute("COMMIT").await?;
+    Ok(page)
+}
+
+/// The headers of the page `read` would return, in the same kind of transaction.
+pub(crate) async fn read_heads(store: &Store, req: &ChangesReq) -> Result<HeadPage, StoreError> {
+    let client = store.client().await?;
+    begin(&client).await?;
+    let bounds = Bounds::read(&client, &req.ws).await?;
+    if bounds.state(req.since) == CursorState::Gone {
+        return Err(StoreError::Gone);
+    }
+    let headers = headers(&client, req).await?;
+    client.batch_execute("COMMIT").await?;
+    let seq = headers.last().map_or(req.since.seq, |h| h.head.seq);
+    let mut heads = Vec::with_capacity(headers.len());
+    heads.extend(headers.into_iter().map(|h| h.head));
+    Ok(HeadPage {
+        epoch: bounds.epoch,
+        head_seq: bounds.head_seq,
+        next: Cursor {
+            epoch: bounds.epoch,
+            seq,
+        },
+        heads,
+    })
+}
+
+/// Open the read-only snapshot both reads run in.
+async fn begin(client: &Client) -> Result<(), StoreError> {
     let isolation = if crate::breaks::on("changes-read-committed") {
         "READ COMMITTED"
     } else {
@@ -38,9 +71,7 @@ pub(crate) async fn read(store: &Store, req: &ChangesReq) -> Result<ChangePage, 
     client
         .batch_execute(&format!("BEGIN ISOLATION LEVEL {isolation}, READ ONLY"))
         .await?;
-    let page = read_in(&client, req).await?;
-    client.batch_execute("COMMIT").await?;
-    Ok(page)
+    Ok(())
 }
 
 /// The page, inside the open transaction.
@@ -51,13 +82,13 @@ async fn read_in(client: &Client, req: &ChangesReq) -> Result<ChangePage, StoreE
     }
     let headers = headers(client, req).await?;
     if let Some(last) = headers.last() {
-        HOOKS.pause_after_headers(last.seq).await;
+        HOOKS.pause_after_headers(last.head.seq).await;
     }
     let mut ops = operations(client, &req.ws, &headers).await?;
     let mut manifests: Manifests = None;
     let mut changes = Vec::with_capacity(headers.len());
     for header in headers {
-        let found = ops.remove(&header.seq).unwrap_or_default();
+        let found = ops.remove(&header.head.seq).unwrap_or_default();
         changes.push(build(client, &req.ws, header, found, &mut manifests).await?);
     }
     let seq = changes.last().map_or(req.since.seq, |c| c.seq);
@@ -106,9 +137,11 @@ async fn headers(client: &Client, req: &ChangesReq) -> Result<Vec<Header>, Store
 fn header_of(row: &Row) -> Header {
     let kind: &str = row.get(3);
     Header {
-        seq: row.get::<_, i64>(0) as u64,
-        plugin: row.get(1),
-        at: row.get(2),
+        head: Head {
+            seq: row.get::<_, i64>(0) as u64,
+            plugin: row.get(1),
+            at: row.get(2),
+        },
         kind: if kind == "manifest" {
             ChangeKind::Manifest
         } else {
@@ -129,7 +162,7 @@ async fn operations(
     if headers.is_empty() {
         return Ok(out);
     }
-    let seqs: Vec<i64> = headers.iter().map(|h| h.seq as i64).collect();
+    let seqs: Vec<i64> = headers.iter().map(|h| h.head.seq as i64).collect();
     let rows = client
         .query(
             "SELECT seq, op, qcoll, id, rev, text FROM change_ops \
@@ -165,7 +198,7 @@ async fn build(
     if found.len() != header.ops {
         return Err(fault(format!(
             "change {} has {} operations, header says {}",
-            header.seq,
+            header.head.seq,
             found.len(),
             header.ops
         )));
@@ -173,19 +206,16 @@ async fn build(
     let (ups, dels): (Vec<_>, Vec<_>) = found.into_iter().partition(|(up, _)| *up);
     let upserts: Vec<ChangeOp> = ups.into_iter().map(|(_, op)| op).collect();
     let deletes: Vec<ChangeOp> = dels.into_iter().map(|(_, op)| op).collect();
-    let head = ChangeHead {
-        seq: header.seq,
-        plugin: &header.plugin,
-        at: &header.at,
-    };
+    let head = header.head.as_change_head();
     let text = match header.kind {
         ChangeKind::Batch => batch_text(&head, &upserts, &deletes)?,
         ChangeKind::Manifest => manifest_text(client, ws, &head, manifests).await?,
     };
+    let Head { seq, plugin, at } = header.head;
     Ok(Change {
-        seq: header.seq,
-        plugin: header.plugin,
-        at: header.at,
+        seq,
+        plugin,
+        at,
         kind: header.kind,
         upserts,
         deletes,

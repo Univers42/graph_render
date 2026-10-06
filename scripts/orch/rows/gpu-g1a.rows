@@ -1,0 +1,27 @@
+# gpu-g1a — emit-gpu-fixtures: the CPU mesh's own per-pass velocity increments, and the
+# check that the committed 1k pair is what this tree emits today.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+
+emit|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --out target/gpu-fixtures
+check|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --check fixtures/gpu
+negctl-pass|nonzero|scripts/orch/gr -e GM_MUTATE_GPU_FIXTURE_PASS=collide cargo run -q -p graph-cli -- emit-gpu-fixtures --check fixtures/gpu; test $? -eq 0
+negctl-rung|nonzero|scripts/orch/gr -e GM_MUTATE_GPU_FIXTURE_RUNG=1 cargo run -q -p graph-cli -- emit-gpu-fixtures --check fixtures/gpu; test $? -eq 0
+negctl-absent|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --check fixtures/gpu-absent
+
+# The TypeScript arm's half of the same file: it loads the committed 1k pair and nothing else.
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+gpu-fixture-loader|0|scripts/orch/node-slim.sh node --test --experimental-strip-types crates/graph-sdk-js/test/gpu-fixture.test.mjs
+negctl-loader-scale|nonzero|scripts/orch/node-slim.sh bash -c 'node --experimental-strip-types crates/graph-sdk-js/test/gpu-fixture.control.mjs; test $? -ne 0'
+
+# The verdict's conditions (docs/decisions/gpu-g1.md, G1a PROCEED-WITH-CONDITIONS).
+pub-surface|0|test "$(git grep -h -E '^\s*pub (struct|enum|fn|type|const|trait) ' -- crates/graph-core/src/layout/force/session/mesh_probe.rs | wc -l)" -eq 2 && git grep -q 'pub fn mesh_probe' -- crates/graph-core/src/layout/force/session/mesh_probe.rs && git grep -q 'pub struct MeshProbe' -- crates/graph-core/src/layout/force/session/mesh_probe.rs
+no-allow|0|! git grep -n -E '#\[(allow|doc\(hidden\))' -- crates/graph-core/src/layout/force/session/mesh_probe.rs crates/graph-core/src/layout/force/session/mesh_probe crates/graph-cli/src/gpu_fixtures.rs crates/graph-cli/src/gpu_fixtures
+named-tests|0|git grep -q 'fn the_probe_leaves_the_next_tick_byte_identical' -- crates/graph-core && git grep -q 'the_loader_refuses_a_version_it_does_not_know' -- crates/graph-sdk-js/test
+emit-1m|0|test -s target/gpu-fixtures/mesh-1m-start.gmfx && test -s target/gpu-fixtures/mesh-1m-settled.gmfx
+no-source-names|0|! git grep -n -i -E '\bgit\b|commit|repositor|activitywatch' -- crates/graph-core/src/layout/force ':!crates/graph-core/src/layout/force/session/tests/golden.rs' crates/graph-cli/src/gpu_fixtures.rs crates/graph-cli/src/gpu_fixtures crates/graph-sdk-js/src/gpu

@@ -146,3 +146,8 @@ studio-open-large|build|prompts/jobs/studio-open-large.md|scripts/orch/rows/stud
 gpu-g1-plan|build|prompts/jobs/gpu-g1-plan.md|scripts/orch/rows/docs.rows|no
 git-lanes-bench|build|prompts/jobs/git-lanes-bench.md|scripts/orch/rows/git-lanes-bench.rows|no
 gpu-g1-verdict|devil|prompts/jobs/gpu-g1-verdict.md|scripts/orch/rows/docs.rows|no
+lanes-merge-verdict|devil|prompts/jobs/lanes-merge-verdict.md|scripts/orch/rows/docs.rows|no
+gpu-g1a|build|prompts/jobs/gpu-g1a.md|scripts/orch/rows/gpu-g1a.rows|no
+lanes-merge-d-verdict|devil|prompts/jobs/lanes-merge-d-verdict.md|scripts/orch/rows/docs.rows|no
+git-plugin-ct|build|prompts/jobs/git-plugin-ct.md|scripts/orch/rows/git-plugin-ct.rows|no
+lanes-merge|build|prompts/jobs/lanes-merge.md|scripts/orch/rows/lanes-merge.rows|no
