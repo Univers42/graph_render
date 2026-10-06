@@ -491,3 +491,81 @@ is the hash, the scan, the scatter's order, the reads, the push and the sum. The
 breach on `mesh-1k-settled` was not a defect in that transcription — the `f32` reference reproduces
 it — it was the relative-only guard being too tight for a fixture whose reference is near zero; the
 mixed guard (Amendment 1) absorbs it, and all six fixtures pass on both arms.
+
+## G1c — the 1M rows and the collide floor
+
+Amendment 3 (`docs/decisions/gpu-g1.md`) adds the collide guard's input floor: the device narrows
+every position to `f32` before it hashes or resolves, and that rounding scales with the coordinate
+extent, not with the collide radius, so Amendment 1's `P = reach / 2` scale missed it. The guard
+becomes `rmsAbs ≤ floorRms + 1e-4 · rmsRef + k_c · 5 · 2⁻²³ · P`, relative form
+`1e-4 + (floorRms + k_c · 5 · 2⁻²³ · P) / rmsRef`. `floorRms` is measured on the host in `f64` with
+the grid the device sorts with, as `k_c` already is.
+
+### The orchestrator's 1M measurement (hardware, `amd/rdna-2`, 2026-10-06)
+
+| pass | fixture | rmsAbs | rmsRef | rmsRel | maxAbs |
+|---|---|---:|---:|---:|---:|
+| link | `mesh-1m-settled` | 1.51605e-5 | 145.159 | 1.04441e-7 | 9.76562e-4 |
+| link | `mesh-1m-start` | 5.95736e-5 | 801.34 | 7.43424e-8 | 4.88281e-4 |
+| collide | `mesh-1m-settled` | 6.75245e-4 | 36.1809 | 1.8663e-5 | 0.209986 |
+| collide | `mesh-1m-start` | 2.39858e-4 | 0.319593 | 7.505127e-4 | 1.61097e-3 |
+
+Link passes both 1M fixtures. Collide passes `mesh-1m-settled` and, with the floor, now passes
+`mesh-1m-start`: at `floorRms = 0` its Amendment-1 guard is 3.387e-4 against the measured `rmsRel`
+7.505e-4, and at its own floor 2.399e-4 the guard is 1.089e-3, which the arm sits under.
+
+### The host floor against the numpy (b) column
+
+`harness/gpu-collide-host.mjs` runs the CPU's `resolve` in `f64` over every emitted fixture and
+prints the reproduction maxAbs, the floor, `k_c` and `rmsRef`. The floor is `collideFloor`: the rms
+of `hostCollide` on the `f32`-narrowed positions against `hostCollide` on the `f64` positions.
+
+| fixture | host `floorRms` | numpy (b) | `k_c` | reproduce maxAbs |
+|---|---:|---:|---:|---:|
+| `mesh-1k-start` | 6.89323e-6 | 6.893e-6 | 8 | 0 |
+| `mesh-1k-settled` | 3.86507e-6 | — | 4 | 0 |
+| `mesh-10k-start` | 2.15591e-5 | — | 8 | 0 |
+| `mesh-10k-settled` | 1.83955e-5 | — | 9 | 0 |
+| `mesh-50k-start` | 5.42625e-5 | 5.426e-5 | 8 | 0 |
+| `mesh-50k-settled` | 7.26989e-5 | — | 23 | 0 |
+| `mesh-1m-start` | 2.39858e-4 | 2.399e-4 | 8 | 1.78e-15 |
+| `mesh-1m-settled` | 6.75210e-4 | 6.752e-4 | 119 | 5.68e-14 |
+
+The host floor matches the numpy (b) column to three significant figures at every fixture the
+numpy analysis ran, and `k_c` matches (8, 8, 8, 119). Every reproduction is under
+`1e-12 · max(1, max|reference|)`, so the transcription is right.
+
+### The new guard per fixture
+
+`1e-4 + (floorRms + k_c · 5 · 2⁻²³ · 16) / rmsRef`, with each fixture's own `floorRms`, `k_c` and
+`rmsRef`:
+
+| fixture | `k_c` | `floorRms` | `rmsRef` | guard |
+|---|---:|---:|---:|---:|
+| `mesh-1k-start` | 8 | 6.89e-6 | 1.72612 | 1.48e-4 |
+| `mesh-1k-settled` | 4 | 3.86e-6 | 0.007189 | 5.94e-3 |
+| `mesh-10k-start` | 8 | 2.15e-5 | 1.00834 | 1.97e-4 |
+| `mesh-10k-settled` | 9 | 1.83e-5 | 2.6824 | 1.39e-4 |
+| `mesh-50k-start` | 8 | 5.42e-5 | 0.67192 | 2.94e-4 |
+| `mesh-50k-settled` | 23 | 7.26e-5 | 9.91163 | 1.35e-4 |
+| `mesh-1m-start` | 8 | 2.39e-4 | 0.319593 | 1.09e-3 |
+| `mesh-1m-settled` | 119 | 6.75e-4 | 36.1809 | 1.50e-4 |
+
+Caveat: `k_c` and `floorRms` are the fixture's own, from one start, as Amendment 3 states. Another
+seed's are recomputed, never carried over.
+
+### The rows
+
+`bounds-collide.ts` gains `hardware:1000000:0` and `hardware:1000000:1` from the table above
+(`rmsRel` and `maxAbs` rounded up to two significant digits; `k_c`, `rmsRef` and `floorRms` from the
+host run), and every existing row gains its `floorRms` rounded down to three significant digits.
+`bounds-link.ts` gains the two 1M link rows the same way, with `k = 173` from `measuredK` on the
+1M fixtures.
+
+| arm | `n` | state | ceiling `rmsRel` | ceiling `maxAbs` | `k_c` | `floorRms` | guard | verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| hardware | 1 000 000 | 0 | 7.6e-4 | 1.7e-3 | 8 | 2.39e-4 | 1.09e-3 | PASS |
+| hardware | 1 000 000 | 1 | 1.9e-5 | 0.21 | 119 | 6.75e-4 | 1.50e-4 | PASS |
+
+The 1M GPU rows themselves are the orchestrator's (`gpu-g1c-floor-1m.rows`); this slice fills the
+ceiling rows and the guard from the host run and the orchestrator's table.

@@ -45,7 +45,9 @@ const F32_ULP = 2 ** -23;
 /**
  * The measured ceilings, keyed by `${arm}:${n}:${state}`: hardware is `amd/rdna-2`, software
  * `google/swiftshader`, both measured 2026-10-06 (`docs/measurements/gpu-g1.md`, G1c). `k` is
- * the fixture's `measuredK`, the same for both states of one `n`.
+ * the fixture's `measuredK`, the same for both states of one `n`. The two 1M rows are the
+ * orchestrator's hardware measurement at 1M (`docs/measurements/gpu-g1.md`, G1c); the 1M
+ * software rows were not run.
  */
 const CEILINGS: Readonly<Record<string, LinkCeiling>> = {
   "hardware:1000:0": { rmsRel: 8.6e-8, maxAbs: 7.7e-6, k: 40 },
@@ -60,6 +62,8 @@ const CEILINGS: Readonly<Record<string, LinkCeiling>> = {
   "software:10000:1": { rmsRel: 9.1e-8, maxAbs: 2.3e-5, k: 91 },
   "software:50000:0": { rmsRel: 7.2e-8, maxAbs: 1.3e-4, k: 114 },
   "software:50000:1": { rmsRel: 9.5e-8, maxAbs: 1.4e-4, k: 114 },
+  "hardware:1000000:0": { rmsRel: 7.5e-8, maxAbs: 4.9e-4, k: 173 },
+  "hardware:1000000:1": { rmsRel: 1.1e-7, maxAbs: 9.8e-4, k: 173 },
 };
 
 /** This arm's ceiling for one fixture, or `undefined` when none has been measured. */
