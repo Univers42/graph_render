@@ -67,8 +67,12 @@ function change(seq) {
   return { at: "2026-10-05T00:00:00Z", kind: "batch", plugin: "ops", seq, upserts: [] };
 }
 
+// The hub's page shape (`routes/changes.rs` `page_body`): an object, not a bare array. A bare
+// array here once hid that the SDK read the wrong shape.
 function page(seqs) {
-  return new Response(JSON.stringify(seqs.map(change)), { status: 200, headers: { "Content-Type": "application/json" } });
+  const head = seqs.length === 0 ? 0 : seqs[seqs.length - 1];
+  const body = { epoch: 1, head_seq: head, next: `1.${head}`, bytes: 0, changes: seqs.map(change) };
+  return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
 function gone() {
@@ -175,7 +179,7 @@ test("hub_subscribe_takes_its_page_size_from_the_options", async () => {
   const gate = paced();
   const stop = subscribe(hub.caller, WS, { onChange: () => {}, onResync: () => {}, wait: gate.wait, page: 25 });
   await tick();
-  assert.equal(hub.changesSeen()[0].url, `${BASE}/v1/workspaces/ops/changes?since=&limit=25`);
+  assert.equal(hub.changesSeen()[0].url, `${BASE}/v1/workspaces/ops/changes?since=1.0&limit=25`);
   stop();
   await gate.finish();
 });

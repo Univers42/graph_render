@@ -69,11 +69,12 @@ function change(seq) {
   return { at: "2026-10-05T00:00:00Z", kind: "batch", plugin: "ops", seq, upserts: [] };
 }
 
+// The hub's page shape (`routes/changes.rs` `page_body`): an object, not a bare array. A bare
+// array here once hid that the SDK read the wrong shape.
 function page(seqs) {
-  return new Response(JSON.stringify(seqs.map(change)), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
+  const head = seqs.length === 0 ? 0 : seqs[seqs.length - 1];
+  const body = { epoch: 1, head_seq: head, next: `1.${head}`, bytes: 0, changes: seqs.map(change) };
+  return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
 function gone() {
@@ -282,3 +283,73 @@ test("hub_subscribe_stops", async () => {
   assert.deepEqual(gate.seen, [500]);
 });
 
+
+// Appended, not inserted: the negctl rows grep TAP numbers, which follow declaration order.
+
+test("hub_subscribe_reads_changes_from_the_given_since", async () => {
+  // The hub refuses an empty `since` (`routes/changes.rs` `since_of`), so the first read must
+  // carry the position even though no change has been delivered yet.
+  const hub = fakeHub({ events: () => notice(5), changes: () => page([5]) });
+  const gate = paced();
+  const stop = subscribe(hub.caller, WS, { since: "1.4", onChange: () => {}, onResync: NEVER, wait: gate.wait });
+  await tick();
+  assert.equal(hub.changesSeen()[0].url, `${BASE}/v1/workspaces/ops/changes?since=1.4&limit=1000`);
+  stop();
+  await gate.finish();
+});
+
+test("hub_subscribe_without_since_starts_at_the_first_notice", async () => {
+  // No `since`: the hub opens the stream at head, so the first notice names the epoch and the
+  // change before it is where this subscriber stands.
+  const hub = fakeHub({ events: () => notice(5), changes: () => page([5]) });
+  const gate = paced();
+  const delivered = [];
+  const stop = subscribe(hub.caller, WS, { onChange: (c) => delivered.push(c.seq), onResync: NEVER, wait: gate.wait });
+  await tick();
+  assert.equal(hub.changesSeen()[0].url, `${BASE}/v1/workspaces/ops/changes?since=1.4&limit=1000`);
+  assert.deepEqual(delivered, [5]);
+  stop();
+  await gate.finish();
+});
+
+test("hub_subscribe_reports_a_failed_read_and_backs_off", async () => {
+  // A 503 from `/changes` used to reject the detached loop, which ends a Node process.
+  const busy = () => new Response(JSON.stringify({ error: "busy", message: "read permits taken" }), { status: 503 });
+  const hub = fakeHub({ events: () => notice(7), changes: busy });
+  const gate = paced();
+  const errors = [];
+  const stop = subscribe(hub.caller, WS, {
+    since: "1.6",
+    onChange: NEVER,
+    onResync: NEVER,
+    onError: (cause) => errors.push(cause.status),
+    wait: gate.wait,
+    random: () => 0,
+  });
+  // `step` releases the wait it saw, so the next pass may already be running: read prefixes.
+  await gate.step();
+  await gate.step();
+  assert.deepEqual(errors.slice(0, 2), [503, 503]);
+  assert.deepEqual(gate.seen.slice(0, 2), [500, 1000], "a failed read is a closed stream: the ladder climbs");
+  stop();
+  await gate.finish();
+});
+
+test("hub_subscribe_refuses_a_page_without_a_changes_array", async () => {
+  const bare = () => new Response(JSON.stringify([change(7)]), { status: 200, headers: { "Content-Type": "application/json" } });
+  const hub = fakeHub({ events: () => notice(7), changes: bare });
+  const gate = paced();
+  const errors = [];
+  const stop = subscribe(hub.caller, WS, {
+    since: "1.6",
+    onChange: NEVER,
+    onResync: NEVER,
+    onError: (cause) => errors.push(String(cause.message)),
+    wait: gate.wait,
+    random: () => 0,
+  });
+  await gate.step();
+  assert.ok(errors.length > 0 && errors.every((m) => m.includes("no changes array")), JSON.stringify(errors));
+  stop();
+  await gate.finish();
+});
