@@ -154,3 +154,55 @@ each rounded over one quantum. Two steps after it are wrong.
   noise and its peak as Gaussian. The fixed-point weights sum to exactly one per node, which makes
   the true error field slightly smaller than the model. The f32 transcription sits 7% under the
   settled value. Another seed's 1M maximum could cross it, and that is a stop, not a re-tune.
+
+## Amendment 3 — the collide guard's input floor (orchestrator, 2026-10-06; an independent review is owed)
+
+**Finding.** At 1M the collide arm passes `mesh-1m-settled` and fails `mesh-1m-start` on its
+Amendment-1 guard: `rmsRel` 7.505e-4 against 3.387e-4, `maxAbs` 1.611e-3 (hardware, `amd/rdna-2`).
+At the same run, link passes both 1M fixtures (`rmsRel` 1.04e-7 settled, 7.43e-8 start).
+
+**The experiment.** `harness/gpu-collide-floor.py` transcribes the collide pass in numpy over every
+pair closer than `reach` (a k-d tree), and compares three versions against the fixture's f64
+`delta_collide`:
+
+| fixture | (a) f64 | (b) f32-narrowed positions, f64 math | (c) narrowed, f32 math | GPU | Amendment-1 guard |
+|---|---|---|---|---|---|
+| `mesh-1k-start` | 3.7e-16 | 3.993e-6 | 4.046e-6 | ceiling 4.1e-6 | 1.44e-4 |
+| `mesh-50k-start` | 1.0e-15 | 8.076e-5 | 8.077e-5 | ceiling 8.1e-5 | 2.14e-4 |
+| `mesh-1m-start` | 2.1e-15 | 7.505e-4 | 7.505e-4 | 7.505e-4 | 3.39e-4 |
+| `mesh-1m-settled` | 5.0e-16 | 1.866e-5 | 1.866e-5 | 1.866e-5 | 1.31e-4 |
+
+All values are `rmsRel`. The `maxAbs` agree as well: (b) gives 1.61e-3 at 1M start, and the GPU
+1.611e-3.
+
+- (a) reproduces the fixture to 1e-15, so the transcription is right.
+- The arm sits on (b) at every fixture. Its own f32 arithmetic, (c) minus (b), adds nothing
+  measurable. The kernel is not defective.
+
+**Why the guard is wrong.** The arm narrows every position to f32 before it hashes or resolves
+(`gpu/collide.ts`, `Math.fround`). That rounding is `2⁻²⁴·|x|` per coordinate, so it scales with
+the **coordinate extent**: 377 at 1k, 12 000 at 1M start (`r = 12·√(i+1)`). It does not scale with
+the collide radius. Amendment 1 bounded only the arithmetic, so its `P = reach/2 = 16` scale
+misses the input. A closed-form worst case does not exist either: the per-contact gain is
+`reach / (2·dist)` across the contact, which is unbounded as `dist → 0`.
+
+**Ruling.** The guard adds the floor, measured on the host from the fixture itself:
+
+`rmsAbs ≤ floorRms + 1e-4 · rmsRef + k_c · 5 · 2⁻²³ · P`
+
+- `floorRms` is the rms difference between the collide delta in f64 on the f32-narrowed
+  positions and the same delta on the f64 positions. It is computed on the host in f64 with the
+  grid the device sorts with, as `k_c` already is.
+- The bound is the triangle inequality on the rms norm. The arm's distance from the narrowed
+  reference is the Amendment-1 arithmetic term. The narrowed reference's distance from the
+  fixture is `floorRms`.
+- The host f64 collide is a second copy of `collide.rs::resolve`. A test holds it to graph-core:
+  on the unnarrowed positions it must reproduce the fixture's `delta_collide` at every non-1M
+  fixture to `maxAbs ≤ 1e-12`.
+- Values: at `mesh-1m-start` the guard becomes 3.48e-4 absolute, about 1.09e-3 relative, against
+  the GPU's 2.40e-4 absolute. At 1k the floor is 6.9e-6 absolute, so `collide-window` stays red by
+  about 8×, as Amendment 1 required.
+- Caveat: the floor is the fixture's own, from one start, as `k_c` is. Another seed's floor is
+  recomputed, never carried over. The pair set at a contact's exact boundary can differ between the
+  narrowed and the f64 positions; the push there is ~0, so it moves the floor by less than the
+  arithmetic term.
