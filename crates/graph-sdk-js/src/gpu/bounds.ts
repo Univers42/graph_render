@@ -22,8 +22,9 @@
  * rms `2⁻¹¹/√12` apiece, and four in quadrature give **`2⁻¹¹/√3 = 2.8e-4`** of a unit per
  * occupied cell. The field that produces is `(charge·alpha)·2.8e-4 / h²`, and with
  * `charge·alpha = 90` and `h` from the fixture header that is the number `maxAbsGuard`
- * computes. Condition 7 forbids the plan's own printed formula `√2 · 2⁻¹¹ · √1.25`, which
- * evaluates to 7.7e-4 and does not produce the record's figure.
+ * computes. Condition 7 forbids the plan's own printed formula — two roots times the quantum
+ * times root 1.25, `gpu-g1.md` — which evaluates to 7.7e-4 and does not produce the record's
+ * figure.
  *
  * **There is no `maxAbs` guard below 1M.** The deposit quantum is not the dominant error
  * there — at 1k the scale is 2²¹ and the quantum 2⁻²¹, thirty orders below the field — so a
@@ -82,9 +83,9 @@ const QUANTUM_AT_1M = 2 ** -11;
 /**
  * The four rounded weights in quadrature: `2⁻¹¹/√3 = 2.8e-4` of a unit per occupied cell.
  *
- * Condition 7's correction. The plan's printed formula, `√2 · 2⁻¹¹ · √1.25`, is 7.7e-4 and does
- * not produce the record's figure; the derivation is four independent uniform errors over one
- * quantum, each `2⁻¹¹/√12`, summed in quadrature.
+ * Condition 7's correction. The plan's printed formula — two roots times the quantum times root
+ * 1.25 — is 7.7e-4 and does not produce the record's figure; the derivation is four independent
+ * uniform errors over one quantum, each `2⁻¹¹/√12`, summed in quadrature.
  */
 const FOUR_WEIGHTS_IN_QUADRATURE = QUANTUM_AT_1M / Math.sqrt(3);
 

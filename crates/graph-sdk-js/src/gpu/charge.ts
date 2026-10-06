@@ -14,10 +14,14 @@
  * So the dispatches, each in its own pass so the order is the encoder's and not a convention:
  *
  * ```
- * zero_density · fold_block · fold_extent · deposit · widen_density
- * fft_line × 4  (rows fwd, cols fwd, rows×gain inv, cols inv)
- * read_field
+ * [zero_density · fold_block · fold_extent · deposit]  ← submit 1
+ * [widen_density · fft_line × 4 · read_field]          ← submit 2
  * ```
+ *
+ * Two submits per run, split at the deposit, because the `--break repeat` fault writes `+1` into
+ * one density cell *inside* the second run — after its deposit, before its transform — and a run
+ * that is a single submit has no inside to write into. Written between the two runs instead, the
+ * second run's own `zero_density` would erase it and the control would prove nothing.
  *
  * `live` per transform pass is the one `fft/pass.rs` gives and not another: `cells` for the
  * forward rows and the inverse columns, `side` for the other two (`fft/pass.rs:112-125`).
@@ -105,7 +109,7 @@ const CHARGE_ALPHA = -90;
  * so no caller can inject a fault by accident. The harness passes `undefined` for a real run
  * and one of the five names for a control.
  */
-export async function runCharge(request: ChargeRequest, fault?: string): Promise<ChargeReport> {
+export async function runCharge(request: ChargeRequest, fault?: string | null): Promise<ChargeReport> {
   const fixture = loadFixture(request.fixture);
   const host: GpuHost = request.host ?? navigator;
   const repeat = fault === FAULT_REPEAT;
@@ -116,11 +120,16 @@ export async function runCharge(request: ChargeRequest, fault?: string): Promise
     try {
       upload(device, buffers, fixture, code);
       const rig = build(device, buffers);
-      const first = await once(device, buffers, rig, fixture);
+      await depositHalf(device, rig, fixture);
+      const first = await transformHalf(device, buffers, rig, fixture);
+      await depositHalf(device, rig, fixture);
+      // The repeat fault's write lands here: after the second run's deposit and before its
+      // transform. Written after the first run instead, the second run's own clear would erase it
+      // and the control would prove nothing — which is the bug this fault was written to catch.
       if (repeat) {
         bumpDensity(device, buffers);
       }
-      const second = await once(device, buffers, rig, fixture);
+      const second = await transformHalf(device, buffers, rig, fixture);
       return report(fixture, first, second, marks, fallback);
     } finally {
       destroy(buffers);
@@ -224,30 +233,49 @@ function writeFrame(
   device.queue.writeBuffer(buffer, 0, words);
 }
 
-/** One full pass: clear, fold, deposit, widen, four transforms, read. Then the read-back. */
-async function once(device: GPUDevice, buffers: Buffers, rig: Rig, fixture: Fixture): Promise<Ran> {
-  const { n, side } = fixture;
-  const plane = groupsFor(side * side);
-  const nodes = groupsFor(n);
-  const planeBytes = side * side * 4;
-  const nodeBytes = n * 8;
+/**
+ * The pass's first half: clear, the two folds, the deposit. One submit.
+ *
+ * A half and not the whole pass because the repeat fault's write has to land *inside* a run —
+ * after its deposit, before its transform — and a run that is one submit has no inside. Two
+ * submits per run is the price, and it is a small one: the stages are unchanged and their order
+ * is still the encoder's.
+ */
+async function depositHalf(device: GPUDevice, rig: Rig, fixture: Fixture): Promise<void> {
   const encoder = device.createCommandEncoder();
   // zero_density: the clear is its own dispatch, never the deposit reading what was there.
   let pass = encoder.beginComputePass();
-  dispatch(pass, rig.zero, rig.zeroBind, plane);
+  dispatch(pass, rig.zero, rig.zeroBind, groupsFor(fixture.side * fixture.side));
   pass.end();
   // fold_block then fold_extent: ⌈n/256⌉ blocks, then one invocation over them.
   pass = encoder.beginComputePass();
-  dispatch(pass, rig.block, rig.blockBind, nodes);
+  dispatch(pass, rig.block, rig.blockBind, groupsFor(fixture.n));
   pass.end();
   pass = encoder.beginComputePass();
   dispatch(pass, rig.extent, rig.extentBind, 1);
   pass.end();
   pass = encoder.beginComputePass();
-  dispatch(pass, rig.deposit, rig.depositBind, nodes);
+  dispatch(pass, rig.deposit, rig.depositBind, groupsFor(fixture.n));
   pass.end();
-  pass = encoder.beginComputePass();
-  dispatch(pass, rig.widen, rig.widenBind, plane);
+  device.queue.submit([encoder.finish()]);
+}
+
+/**
+ * The pass's second half: widen, the four transforms, the read, the three read-back copies.
+ * Then the mapping, which is where the run's bytes become numbers.
+ */
+async function transformHalf(
+  device: GPUDevice,
+  buffers: Buffers,
+  rig: Rig,
+  fixture: Fixture,
+): Promise<Ran> {
+  const { n, side } = fixture;
+  const planeBytes = side * side * 4;
+  const nodeBytes = n * 8;
+  const encoder = device.createCommandEncoder();
+  let pass = encoder.beginComputePass();
+  dispatch(pass, rig.widen, rig.widenBind, groupsFor(side * side));
   pass.end();
   // The four transforms, one workgroup per line, in mesh.rs's order.
   for (let index = 0; index < rig.fftBind.length; index += 1) {
@@ -260,7 +288,7 @@ async function once(device: GPUDevice, buffers: Buffers, rig: Rig, fixture: Fixt
     pass.end();
   }
   pass = encoder.beginComputePass();
-  dispatch(pass, rig.read, rig.readBind, nodes);
+  dispatch(pass, rig.read, rig.readBind, groupsFor(n));
   pass.end();
   encoder.copyBufferToBuffer(buffers.density, 0, buffers.read.density, 0, planeBytes);
   encoder.copyBufferToBuffer(buffers.delta, 0, buffers.read.delta, 0, nodeBytes);
