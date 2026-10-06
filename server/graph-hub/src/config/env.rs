@@ -19,13 +19,15 @@ use super::{Connections, Gates, Limits, Subscribers, capped, capped_millis};
 /// Every variable the hub reads, in the order the start line lists them.
 ///
 /// The first five are the ones §6's table does not bound (where the listener binds, where the
-/// database is, and the two credential files H8 names); the rest are §6's twenty-six.
+/// database is, and the two credential files H8 names); then §6's twenty-six, and last
+/// `GRAPH_HUB_TIMEOUT_MS`, which §6 names inside the `GRAPH_HUB_DB_POOL` row rather than in a row of
+/// its own but which `Settings::from_env` reads all the same.
 ///
 /// `GRAPH_HUB_MOTOR_URL` and `GRAPH_HUB_MOTOR_KEY_FILE` are this slice's names for §6's
 /// `GRAPH_MOTOR_URL` and `GRAPH_MOTOR_KEY_FILE`: every other name in that table carries the
 /// `GRAPH_HUB_` prefix, the motor key is the hub's own credential (Decision 6), and the plan's
 /// `hub-upload-timeout` row already passes `GRAPH_HUB_MOTOR_URL`.
-pub const NAMES: [&str; 31] = [
+pub const NAMES: [&str; 32] = [
     "GRAPH_HUB_BIND",
     "GRAPH_HUB_PORT",
     "GRAPH_HUB_DB_URL",
@@ -57,6 +59,7 @@ pub const NAMES: [&str; 31] = [
     "GRAPH_HUB_MOTOR_TIMEOUT_MS",
     "GRAPH_HUB_MOTOR_URL",
     "GRAPH_HUB_MOTOR_KEY_FILE",
+    "GRAPH_HUB_TIMEOUT_MS",
 ];
 
 /// One refused variable: its name and what is wrong, never its value.
@@ -186,7 +189,7 @@ pub(super) fn read_limits(env: &Env<'_>) -> Result<Limits, ConfigError> {
         motor_timeout: capped_millis(env.millis("GRAPH_HUB_MOTOR_TIMEOUT_MS", 45_000)?),
         timeout: capped_millis(env.millis("GRAPH_HUB_TIMEOUT_MS", 30_000)?),
         sse_page: capped(env.number("GRAPH_HUB_SSE_PAGE", 256, 1..=65_536)?),
-        fetch_rows: capped(env.number("GRAPH_HUB_FETCH_ROWS", 32, 1..=65_536)?),
+        fetch_rows: capped(env.number("GRAPH_HUB_FETCH_ROWS", 4096, 1..=65_536)?),
         last_seen: capped(env.number("GRAPH_HUB_LAST_SEEN", 65_536, 1..=16_777_216)?),
     })
 }

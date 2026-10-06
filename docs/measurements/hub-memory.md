@@ -1,9 +1,9 @@
-# graph-hub memory: F_w, the last-seen entry, and the peak at every cap
+# graph-hub memory: F_w, the last-seen entry, the change header, and the peak at every cap
 
 Measured 2026-10-06 for the `hub-memory` row of spec §6 and §8
 (`docs/superpowers/specs/2026-10-05-graph-service-plugins-design.md`). The spec planned two terms of
 the memory budget with borrowed or estimated numbers: `F_w` (graph-server's 18.25, measured on another
-reader) and the last-seen entry (256 B, estimated). Both are measured here on the hub's own code, and
+reader), the last-seen entry and the change header (256 B each, estimated). All three are measured here on the hub's own code, and
 the cases in `server/graph-hub/tests/memory.rs` assert the ceilings below.
 
 ## Ledger
@@ -15,6 +15,20 @@ run that justifies it.
 |---|---|---|---|
 | `f_w_ceiling` | 52 | 50.92 worst of three runs | peak bytes per byte of `MAX_BODY` |
 | `last_seen_entry_ceiling_bytes` | 272 | 263.8 | bytes per entry at `GRAPH_HUB_LAST_SEEN` = 65 536 |
+| `max_header_ceiling_bytes` | 410 | 326.2 worst of two runs | bytes per change header in one SSE read |
+| `upload_doc_bytes` | 67108842 | 67108842 | the `/layout` document, 22 B under `GRAPH_HUB_MAX_DOC_BYTES` |
+| `upload_records` | 745633 | 745633 | records in that document |
+| `upload_record_bytes` | 89 | 89 | one record's stored text, separators excluded |
+| `upload_id_width` | 5 | 5 | the id's fixed width in base 36 |
+| `upload_plugins` | 8 | 8 | plugins the records are spread over |
+| `upload_batches` | 75 | 75 | batch `POST`s the fill took |
+| `upload_ms` | 2715 2773 2605 2491 2463 | the same | the five timed uploads, in log order, at the defaults |
+| `upload_median_ms` | 2605 | 2605 | their median |
+| `upload_slowest_ms` | 2773 | 2773 | the slowest, which §5.3's condition is over |
+| `upload_chunks` | 745635 | 745635 | chunks in one upload: one per record, plus head and tail |
+| `upload_chunk_bytes` | 90 | 90 | mean chunk size, unchanged by the fix |
+| `upload_budget_ms` | 8000 | 2773 | §5.3's budget, against the slowest run — a pass |
+| `upload_page_rows` | 4096 | 4096 | `GRAPH_HUB_FETCH_ROWS`, rows one document page reads at most |
 
 ## Conditions
 
@@ -93,21 +107,51 @@ this is left as the upgrade path if a smaller container is ever needed.
 
 The spec planned 256 B. At the default the map is 16.5 MiB rather than 16 MiB.
 
+## The change header
+
+An SSE subscriber holds one page of change headers at a time (`events::page::page`, which reads
+`graph_store::changes::heads`: seq, plugin and timestamp, no operations). The case
+`a_changes_page_holds_at_most_sse_page_headers` (`tests/memory/heads.rs`) seeds one workspace with
+2 050 changes, each one record carrying a 1 KiB note, then reads 1, `SSE_PAGE` (256) and 2 048
+headers from seq 0, each read in its own child. The per-header cost is the slope between the 1 and the
+2 048 read. The 256 read proves the page stops at `SSE_PAGE`, and the 2 048 read proves the 8 MiB
+byte cut did not shorten the measured read.
+
+| Run | Children per size | Peak at 1 | Peak at 256 | Peak at 2 048 | Bytes per header |
+|---|---|---|---|---|---|
+| `~/goinfre/logs/hub-maxheader-b1.out` | 1 | 622 592 | 737 280 | 1 101 824 | 234.1 |
+| `~/goinfre/logs/hub-maxheader-c1.out` | least of 3 | 524 288 | 581 632 | 1 191 936 | 326.2 |
+| gate row `hub-max-header` (`target/gate-maxheader/hub-max-header.log`) | least of 3 | 704 512 | 819 200 | 1 277 952 | 280.1 |
+
+The spec planned 256 B. The ceiling is the worst run plus the noise bound below, rounded up: 410 B.
+Break `sse-full-page` makes the read pull every change's operations, as `/changes` does. Each header
+then carries its 1 KiB note, and the case fails the ceiling: 4 202.1 B per header in the gate run
+(row `negctl-sse-full-page`, `target/gate-maxheader/negctl-sse-full-page.log`).
+
+Caveat: the slope is taken over resident pages. One read's peak moved by about 150 KiB from run to run
+(three earlier runs at 256 headers gave 48, 257 and 1 124 B per header, `hub-maxheader-{1,2,3}.out`,
+even under `MALLOC_ARENA_MAX=1`). Over 2 047 headers that is about ±75 B per header, so the figure
+is good to that much. Each child keeps the least of three peaks, because the noise only adds pages.
+
 ## The budget at the defaults, with the measured numbers
 
-Spec §6's formula with `F_w` = 52 and the entry at 272 B; every other term is the spec's.
+Spec §6's formula with `F_w` = 52, the entry at 272 B and `max_header` at 410 B; every other term is
+the spec's. The
+reads arm is the one revised with the upload fix below: a document page is cut at
+`CHANGES_BYTES` of row cost, so it is `2 × CHANGES_BYTES` (the driver's rows and the decoded page)
+rather than `2 × FETCH_ROWS × MAX_RECORD_BYTES`; at 32 rows the old arm was 348 MiB and the total 799.
 
 | Term | Formula at the defaults | MiB |
 |---|---|---|
 | writers | 2 × 4 MiB × 52 | 416 |
-| reads and layouts | (2 + 1) × max(2 × 32 × 1 MiB + 1 MiB × 52, 2 × 8 MiB, 64 × 256 KiB, 1 MiB) | 348 |
+| reads and layouts | (2 + 1) × max(2 × 8 MiB + 1 MiB × 52, 64 × 256 KiB, 1 MiB) | 204 |
 | headers | 256 × 16 KiB | 4 |
-| subscribers | 64 × (256 B + 256 × 256 B) | 4.02 |
+| subscribers | 64 × (256 B + 256 × 410 B) | 6.42 |
 | last-seen map | 65 536 × 272 B | 17 |
 | pool | 8 × 1 MiB (planned `conn_buf`) | 8 |
-| **total** | plus `base` and three `IO_BUF` | **797** |
+| **total** | plus `base` and three `IO_BUF` | **655** |
 
-That leaves 227 MiB of the container's 1 GiB for `base` and the I/O buffers, so no default shrinks on
+That leaves 369 MiB of the container's 1 GiB for `base` and the I/O buffers, so no default shrinks on
 this arithmetic. Caveat: this is arithmetic over a measured `F_w`, not a measurement of the whole
 process; the container run below is.
 
@@ -134,6 +178,174 @@ the cap, which is what the negative control asserts. Both rows are in `scripts/o
 Caveat: the barrier aligns the start of every parse, not the peaks, so the measured peak can sit
 below writers × the single-body peak. The control is sized to pass the cap even so.
 
+## The /layout upload (Decision 4)
+
+**Command**, verbatim, the whole expansion of `scripts/orch/hub-mem.sh upload` (gate row
+`hub-upload-timeout` runs `scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start &&` before it):
+
+```
+scripts/orch/hub-pg.sh reset && scripts/orch/hub-pg.sh start \
+  && GRAPH_HUB_MOTOR_URL=http://<motor bridge ip>:8080 \
+     GRAPH_HUB_MAX_DOC_BYTES=67108864 GRAPH_HUB_MAX_RECORD_BYTES=1048576 \
+     HUB_MOTOR_KEY_FILE=target/hub-mem/motor-key HUB_RUN_MEMORY=1g \
+     scripts/orch/hub-run.sh start \
+  && scripts/orch/hub-mem.sh upload
+```
+
+Two containers: the hub (`scripts/orch/hub-run.sh`, `--memory 1g --memory-swap 1g` through
+`HUB_RUN_MEMORY`) and a real graph-server as the motor (`scripts/service.sh run`, `SERVICE_PORT=0`
+so no host port is published). The hub reaches the motor at its **bridge** address, so the path
+measured is container to container.
+
+**Input size**, read back off the store by the client case (`tests/memory/upload.rs`), not computed
+in advance:
+
+| # | Quantity | Value |
+|---|---|---|
+| `upload_doc_bytes` | the workspace's `doc_bytes`, the number the cap is enforced on (`writer/plan.rs:275`) | 67 108 842 |
+| `upload_records` | records in the document | 745 633 |
+| `upload_record_bytes` | one record's stored text, separators excluded | 89 |
+| `upload_id_width` | the id's fixed width in base 36, because ids must be distinct and a document this size holds ~7.5·10⁵ of them | 5 |
+| `upload_plugins` | plugins the records are spread over; `GRAPH_HUB_MAX_PLUGIN_BYTES` is 16 MiB, so one plugin cannot hold 64 MiB | 8 |
+| `upload_batches` | batch `POST`s the fill took (`max_batch` is 10 000 operations) | 75 |
+
+The record is the smallest the contract admits: one collection, one scalar cell, and the four members
+`read_batch` requires. That is what makes the document hold as many records as the cap allows, so the
+upload is the relay's worst case and not its best. The plan's "one-character id" is not reachable —
+ids must be distinct and 36 one-character ids cannot fill 64 MiB — so the ids are the shortest
+distinct ones of a **fixed** width, which is what lets one `record_bytes` stand for all of them.
+
+**Pass condition** (§5.3, N4): the slowest of five timed uploads finishes in **under 8 000 ms** —
+two seconds under graph-server's `GRAPH_BODY_TIMEOUT_MS` default of 10 000
+(`server/graph-server/src/config.rs:196`) — with no 408 in the motor's log and every `Graph-Seq`
+equal to the `/graph` ETag at the same cursor. One warm-up precedes the five and is excluded. A miss
+is a **stop**, not a retune.
+
+### Before the fix: 32-row pages
+
+**The five numbers and the median**, from the first run of gate row `hub-upload-timeout`
+(`target/gate-hub-upload3/hub-upload-timeout.log`'s predecessor, the run that completed all six
+uploads):
+
+| # | Quantity | Value |
+|---|---|---|
+| `upload_ms` | the five `upload_ms`, in log order | 7847 · 8482 · 7773 · 7737 · 7813 |
+| `upload_median_ms` | their median | 7813 |
+| `upload_slowest_ms` | the slowest, which is what the condition is over | 8482 |
+
+**Three runs, three misses**, all on the identical input (`doc_bytes` 67 108 842, 745 633 records,
+89 B each, 75 batches — the case asserts every one of those against this file, so the input was
+provably the same each time):
+
+| Run | `upload_ms` | median | slowest | 408 at the motor |
+|---|---|---|---|---|
+| 1 | 7410 · 7492 · 7671 · 7708 · 8133 | 7671 | 8133 | 0 |
+| 2 | 7847 · 8482 · 7773 · 7737 · 7813 | 7813 | 8482 | 0 |
+| 3 | 8726 · 9392 · 9868 · *(the 4th never finished)* | — | 9868 | **1** |
+
+Run 3 is the informative one: its first three uploads all cleared **9 s**, and the fourth ran past
+graph-server's own 10 s `GRAPH_BODY_TIMEOUT_MS`, so the motor answered **408**, the hub returned
+**502** `MotorBodyTimeout`, and only three `layout-upload` lines were written. So on a loaded host
+the miss is not merely "over an 8 s budget" — it reaches the motor's hard 10 s limit. Run 3 was run
+while cargo builds were competing for the same 20 cores, which is why it is recorded rather than
+discarded: the spread between run 1 and run 3 is ~2 s, and §5.3 asks for 2 s of headroom.
+
+**Chunk size**, the knob Decision 4 named: the walk yields one record per chunk plus a head and a
+tail, so one upload is **745 635** chunks and the mean chunk is **90 bytes**. The diagnostic below
+shows the chunks were not the cost.
+
+**Result: a miss, and a STOP.** All three runs missed §5.3's 8 000 ms budget on the slowest run
+(8133, 8482 and 9868 ms), so `scripts/orch/hub-mem.sh upload` exits 1, gate row `hub-upload-timeout`
+**FAILS**, and this file records the numbers rather than a retune (§5.3: "A miss is a stop, not a
+retune"). Nothing was retuned to reach the budget: not the chunk size, not a cap, not a timeout.
+The stop was resolved by finding the cause and changing the design (next section), not the budget.
+
+What the miss is **not**, in runs 1 and 2: the motor answered every upload **200**, its log held no
+408, and every `Graph-Seq` matched the `/graph` ETag. The relay reached the motor, and the motor read
+the whole 64 MiB inside its own 10 s limit with roughly 1.5 s to spare. The 64 MiB upload takes the
+hub about 7.8 s of streaming on an idle host and the motor about 2.1 s of parsing, so it is the hub's
+streaming cost — 745 635 socket writes of 90 bytes each — that puts the slowest run over budget, not
+the motor's timeout. In run 3, under load, the same cost reached the motor's limit too. That
+paragraph's attribution to socket writes was a hypothesis, refuted below.
+
+**The throttled control** (`negctl-throttle-upload`, `GM_HUB_BREAK=throttle-upload`): the relay
+sleeps 2 ms before yielding each record (`relay/body.rs`, `breaks.rs`), which at 745 633 records is
+about 25 minutes of upload. The motor answered **408 at 10 001 ms** — its `GRAPH_BODY_TIMEOUT_MS`
+doing exactly what the un-throttled runs 1 and 2 stayed inside — and the hub mapped it to **502**
+`MotorBodyTimeout`. The verb exits 1, the row (which expects a non-zero exit) **PASSES**, and
+`target/hub-mem/upload.txt` names every clause that failed. So the measurement can fail, and it fails
+differently from the plain miss above: here the motor refuses on the first upload, there it answers
+three to five of them.
+
+**Caveat**: this is loopback between two containers on one host, so it measures the hub's own
+streaming cost and the socket between the two containers, **not a network**. A deployment whose
+motor is a hop and a queue away has a different number, and the 2 s of headroom §5.3 asks for is
+headroom against graph-server's timeout, not against a network.
+
+**Caveat**: `upload_ms` runs from the first poll of the body stream to the production of the tail
+(`relay/upload.rs`), so it includes the hub's own scheduling before the first chunk, stops a hair
+before hyper hands the tail to the socket, and excludes the motor's answer entirely. It is the
+relay's cost, not the exchange's.
+
+### The cause: the walk's database pages, not its chunks
+
+graph-store's walk read the document through keyset pages of `GRAPH_HUB_FETCH_ROWS` rows, default
+32 (`server/graph-store/src/materialize/document.rs`; §5.3 planned a portal, which the pinned
+`tokio-postgres` does not offer). At 745 633 records that is **23 301 queries** for one upload, each
+a round trip to the database container.
+
+**Diagnostic** (one variable changed): the same verb with `GRAPH_HUB_FETCH_ROWS=4096` exported to the
+hub, everything else identical — same input, same 745 635 chunks of 90 B, same relay. Log
+`~/goinfre/wt/hub-upload/target/diag/fetch4096.log`:
+
+| Pages | `upload_ms` | median | slowest | 408 | verdict |
+|---|---|---|---|---|---|
+| 32 rows (run 2 above) | 7847 · 8482 · 7773 · 7737 · 7813 | 7813 | 8482 | 0 | fail |
+| 4096 rows | 2359 · 2703 · 3079 · 2626 · 2552 | 2626 | 3079 | 0 | pass |
+
+The chunk count did not move and the time fell to a third, so the cost was the page count.
+
+**The fix** (`document.rs` `PAGE`, spec §5.3 and §6): a page is bounded by **rows and bytes**. It
+holds at most `GRAPH_HUB_FETCH_ROWS` rows (default now 4096) and only as many as fit
+`GRAPH_HUB_CHANGES_BYTES` (8 MiB) of row cost, where a row costs its text, `qcoll` and `id` plus
+512 B; the first row is always kept so the walk always moves, and only an empty page ends it (a short
+page may be a byte cut). Memory stays bounded by one page whatever the record size: 4096 rows of
+1 MiB records would otherwise be 4 GiB. Test `pages_cut_by_bytes_read_every_record`
+(`server/graph-store/tests/materialize/equal.rs`) cuts pages by bytes with a record wider than the
+page budget and asserts the document byte-identical to the model; with the old end-of-walk rule
+(`exhausted = rows.len() < fetch_rows`) it fails at `equal.rs:67`, so it bites.
+
+**After the fix, at the defaults** (no `GRAPH_HUB_FETCH_ROWS` override), `target/hub-mem/upload.txt`,
+log `~/goinfre/wt/hub-upload/target/diag/upload-fix.log`:
+
+| # | Quantity | Value |
+|---|---|---|
+| `upload_ms` | the five `upload_ms`, in log order | 2715 · 2773 · 2605 · 2491 · 2463 |
+| `upload_median_ms` | their median | 2605 |
+| `upload_slowest_ms` | the slowest | 2773 |
+| 408 at the motor | | 0 |
+| verdict | | **pass** |
+
+Caveat: a page cut by bytes still scans `FETCH_ROWS` keys and their lengths, so a workspace of
+1 MiB records reads about 512 keys for each record a page returns; this upload's records are 89 B,
+so it measures the row-bounded case only.
+
+### Deviation: a test-case client plus the relay's log event, not a `graph-hub upload-measurement` subcommand
+
+Decision 4 records the expansion as `cargo run … -p graph-hub -- upload-measurement`. This runs as
+`tests/memory/upload.rs`, one `#[ignore]`d case against a hub the script started, plus the relay's
+own `layout-upload` log line (`relay/upload.rs`) for the timing. Two reasons, both measured:
+
+- The timing must be of the **shipped** relay inside its **container**, reading
+  `GRAPH_HUB_MAX_DOC_BYTES` from the environment the hub was started with. A subcommand in the same
+  binary would have to re-read that environment, and a disagreement between the two readings would be
+  a measurement of the wrong document.
+- The client has to *write* ~745 000 records through the hub before it can time an upload of them, and
+  `support::wire::Remote` (the container-level client `scripts/orch/hub-run.sh` already serves) is
+  what writes them. The case is driven by `scripts/orch/hub-mem.sh upload`, which is what
+  `scripts/hub.sh upload-measurement` now execs — so one script owns the containers, the verdict and
+  `target/hub-mem/upload.txt`, and the row and the verb cannot disagree.
+
 ## Commands
 
 | # | Command | Exit |
@@ -143,6 +355,11 @@ below writers × the single-body peak. The control is sized to pass the cap even
 | 3 | the same, debug profile (`~/goinfre/logs/hub-mem-debug.out`, 56.16 s) | 0 |
 | 4 | `scripts/orch/hub-mem.sh measure` (`~/goinfre/logs/hub-mem-container-measure.out`) | 0 |
 | 5 | `scripts/orch/hub-mem.sh control` (`~/goinfre/logs/hub-mem-container-control.out`) | 137 |
+| 6 | `scripts/orch/gr -e GM_HUB_PG_URL cargo test --manifest-path server/Cargo.toml -p graph-hub --release --features db-tests --test memory heads:: -- --test-threads=1 --nocapture` (before the ledger row; `hub-maxheader-b1.out` 288 s, `hub-maxheader-c1.out` 460 s) | 101 |
+| 7 | `scripts/orch/hub-mem.sh upload` (Decision 4, three runs: slowest 8133, 8482 and 9868 ms against an 8000 ms budget) | 1 |
+| 8 | the same with `GM_HUB_BREAK=throttle-upload` (the control; the motor answers 408 at 10 001 ms) | 1 |
+| 9 | the same as 7 with `GRAPH_HUB_FETCH_ROWS=4096`, before the fix (the diagnostic; slowest 3079 ms) | 0 |
+| 10 | the same as 7 after the fix, at the defaults (slowest 2773 ms) | 0 |
 
 ## Deviations from the plan
 
@@ -156,8 +373,35 @@ below writers × the single-body peak. The control is sized to pass the cap even
   tests do not depend on graph-cli.
 - The container run sets `GRAPH_HUB_WRITERS_PER_KEY` to the writer count so one key can hold every
   writer permit at once; the default is 1.
-- The reads, layouts and subscribers terms are arithmetic only. The records page carries no record
-  values and the hub calls no motor yet, so no route reaches those peaks. The SSE-page case waits on
-  Task 7 and the upload and throttled-upload rows on Task 8.
+- The reads and layouts terms are arithmetic only: no case drives those routes to their peaks. The
+  subscribers term is measured per header (above), not as 64 subscribers at once.
+- The SSE page read operations before this change: `events::page` took a full `/changes` page and
+  kept its headers, so one subscriber could hold `CHANGES_BYTES` of operations rather than
+  `SSE_PAGE × max_header`. It now reads headers only (`graph_store::changes::heads`); break
+  `sse-full-page` restores the old read as the negative control.
+- Seeding the header case costs about 5 minutes. Each batch's commit runs `retention::prune`, whose
+  window over the kept log is O(kept) (its own Caveat). Per-post time grew from 58 ms at 258 changes
+  to 139 ms at 2 050, so filling a log costs O(n²). The upgrade path, a `log_bytes` column on
+  `workspaces`, is named in `retention.rs`.
 - The hub does not migrate its database on start; the container case migrates it
   (`support::db::migrated`) before the first write.
+- The `/layout` upload runs as a test-case client plus the relay's own `layout-upload` log event
+  rather than a `graph-hub upload-measurement` subcommand; see the Decision 4 section above.
+- The upload's records are spread over 8 plugins. Decision 4 asks for one document at
+  `GRAPH_HUB_MAX_DOC_BYTES`, which one plugin cannot hold: `GRAPH_HUB_MAX_PLUGIN_BYTES` is 16 MiB
+  (§6's default) and the store refuses a batch past it with a 413, which the fill hit at batch 18 of
+  one-plugin version before this change.
+- `scripts/orch/hub-mem.sh upload` writes the motor's plaintext key into `target/hub-mem/motor-key`
+  **from a container running as uid 10001**, at mode 0600. The hub container reads that file as
+  10001, and a 0600 file owned by the host user is unreadable to it: the relay's `bearer()` turned
+  the unreadable file into `MotorUnavailable`, so every `/layout` answered 502 in 6 ms. The host user
+  cannot `chown` to 10001, which is why a container creates it.
+- **`hub-upload-timeout` failed three times at 32-row pages, then passed after a design change.**
+  The miss was a stop and was not retuned; its cause was the walk's 23 301 database pages, and the
+  fix bounds a page by rows and bytes (spec §5.3, §6 revised; `GRAPH_HUB_FETCH_ROWS` 32 → 4096). The
+  budget, the caps and the motor's timeout are unchanged.
+- The throttled control produces **zero** `layout-upload` lines, not six, because the motor's body
+  timeout answers 408 before any upload reaches its tail and the relay writes a line only for an
+  upload that did. `scripts/orch/hub-mem-upload-run.sh` treats that count as a **verdict** (exit 1,
+  with the clause named) rather than as "could not run" (exit 2): measured, an earlier `bail` there
+  made the control exit 2 and name nothing.

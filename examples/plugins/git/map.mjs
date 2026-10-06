@@ -1,7 +1,7 @@
 // `git log` text (FORMAT) to the rows the SDK's rows adapter maps onto the ingest contract.
 // Pure: no I/O, so the tests run it on a string and the bench times it alone.
 
-export const FORMAT = "%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s";
+export const FORMAT = "%H%x1f%P%x1f%an%x1f%ct%x1f%D%x1f%s";
 export const SUBJECT_MAX = 120;
 const HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const SECONDS = /^\d{1,10}$/;
@@ -24,8 +24,12 @@ export class LogRefusal extends Error {
   }
 }
 
-/** Every commit, in log order. A record without six fields, a hash that is not 40 or 64 hex
- *  digits, a time that is not a u32, or a commit seen twice is refused with its line. */
+/** Every commit, in log order. The fourth field of FORMAT is committer time (`%ct`), the time the
+ *  commit was written, not author time: a rebased or cherry-picked commit keeps its old author
+ *  time, so ordering records by author time interleaves branches. It becomes each record's
+ *  `updatedAt`, which the SDK's rows adapter maps onto `version`.
+ *  A record without six fields, a hash that is not 40 or 64 hex digits, a time that is not a u32,
+ *  or a commit seen twice is refused with its line. */
 export function parseLog(text) {
   const commits = [];
   const seen = new Set();
