@@ -23,6 +23,7 @@ import { neighboursOf } from "./adjacency.ts";
 import { showFresh } from "./carry.ts";
 import { fitResults } from "./fitResults.ts";
 import { type Before, type Held, beforeOf, clear } from "./pipeline/clear.ts";
+import { type StyleIn, sameStyleIn } from "./pipeline/styleIn.ts";
 import { type Plan, heldBack, heldNote, planOf } from "./plan.ts";
 import { summaryOf } from "./runSummary.ts";
 import { schemaOf } from "./schema.ts";
@@ -60,6 +61,8 @@ interface Rig extends PipelineDeps {
   held: Held | null;
   /** The look the view was last given; `null` before the first. */
   shown: Appearance | null;
+  /** What the view's style was last made of; `null` before the first. */
+  styled: StyleIn | null;
   /**
    * The token of the newest `apply` call. A call that comes back from the motor with an older
    * token has been superseded, and says so rather than writing over the newer drawing.
@@ -96,8 +99,10 @@ export function firstOf(notes: readonly string[]): readonly string[] {
 function restyle(rig: Rig, look: Settings): void {
   const { meta, analysis, reveal } = rig.store.get();
   if (meta === null) return;
-  const { appearance, filter, groups } = look;
-  rig.view.setStyle(styleFrom(styleInputOf({ meta, appearance, filter, groups, analysis, reveal })));
+  const input = { meta, appearance: look.appearance, filter: look.filter, groups: look.groups, analysis, reveal };
+  if (sameStyleIn(rig.styled, input)) return;
+  rig.styled = input;
+  rig.view.setStyle(styleFrom(styleInputOf(input)));
 }
 
 function showLook(rig: Rig, look: Settings): void {
@@ -140,12 +145,13 @@ function draw(rig: Rig, token: number, run: RunReport, shown: { readonly look: S
   const summary = summaryOf(run, snapshot);
   if (shown.fresh) showFresh(rig.view, rig.held, snapshot, frame);
   else rig.view.setFrame(frame, { animate: true });
+  // The view keeps its style over a frame of the same node count only (`sceneOf`).
+  if (rig.held?.ends.nodeCount !== frame.nodeCount) rig.styled = null;
   rig.held = { bytes: run.bytes, ends: frame };
   if (shown.fresh) rig.view.select(-1);
   patch(rig, (state) => ({
     meta, run: summary, selected: shown.fresh ? -1 : state.selected, selection: shown.fresh ? [] : state.selection,
-    // The values are written here, with the layout: they are what this run was made at, and
-    // nothing else in the pipeline writes a member of the settings that a run settles.
+    // Written here, with the layout: what this run was made at, which nothing else writes.
     settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId, params: shown.look.params }),
     // The filter the drawing was made under, and the only place it is written: the count
     // below is what a `relayout` filter is compared against to know it has already run.
@@ -263,8 +269,7 @@ async function drawOut(rig: Rig, token: number, next: Settings): Promise<Outcome
   // report the counts of a frame the host had already taken back.
   await Promise.resolve();
   guard(rig, token);
-  // Nothing was re-run, so what changed is the look, and it fades instead of cutting.
-  if (parts.length === 0) rig.view.crossFade();
+  if (parts.length === 0) rig.view.crossFade(); // nothing re-ran: what changed is the look, so it fades
   showLook(rig, next);
   if (parts.length === 0) restyle(rig, next);
   return {
@@ -275,7 +280,7 @@ async function drawOut(rig: Rig, token: number, next: Settings): Promise<Outcome
 }
 
 export function createPipeline(deps: PipelineDeps): Pipeline {
-  const rig: Rig = { ...deps, held: null, shown: null, generation: 0, running: 0 };
+  const rig: Rig = { ...deps, held: null, shown: null, styled: null, generation: 0, running: 0 };
   return {
     apply: (next) => apply(rig, next),
     look: (next) => {

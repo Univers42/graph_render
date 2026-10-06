@@ -54,7 +54,9 @@ function Section(props: SectionProps): ReactElement {
         <span className="gs-head-name">{name}</span>
         <span aria-hidden="true">{open ? "▾" : "▸"}</span>
       </button>
-      <div className="gs-section-body" id={id} aria-labelledby={`${id}-head`} hidden={!open}>{children}</div>
+      {/* WHY a shut section draws nothing: the dock redraws on every store change, and every
+          action's value and reason in every section was worked out for a body nobody saw. */}
+      <div className="gs-section-body" id={id} aria-labelledby={`${id}-head`} hidden={!open}>{open && children}</div>
     </>
   );
 }
