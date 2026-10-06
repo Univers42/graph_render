@@ -169,14 +169,25 @@ function firstDeltaDifference(
   right: Float32Array,
 ): string {
   const count = Math.min(left.length, right.length);
+  let first = -1;
+  let seen = 0;
   for (let k = 0; k < count; k += 1) {
     const a = left[k] ?? 0;
     const b = right[k] ?? 0;
     if (a !== b) {
-      return `the second run's delta differs from the first at component ${k} (${a} then ${b})`;
+      if (first < 0) {
+        first = k;
+      }
+      seen += 1;
     }
   }
-  return "the second run's delta differs from the first";
+  if (first < 0) {
+    return "the second run's delta differs from the first";
+  }
+  const a = left[first] ?? 0;
+  const b = right[first] ?? 0;
+  return `the second run's delta differs from the first at component ${first} (${a} then ${b})` +
+    ` and at ${seen - 1} more of ${count} components`;
 }
 
 /**
