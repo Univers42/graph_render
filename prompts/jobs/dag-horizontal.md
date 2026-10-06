@@ -143,8 +143,9 @@ Rules (beyond `scripts/orch/common.md`):
   - `deploy/nav/paramsrows.py`, `deploy/nav/paramspage.py`, a new `deploy/nav/paramsrows2.py`;
   - the header of `scripts/studio-params.sh`.
 - Do not touch `crates/graph-contract`, `crates/graph-wasm`, `crates/graph-sdk-js`, `server/`,
-  `packages/` or `app/`. The ruling needs no regeneration: `codegen --check` and
-  `capabilities --check` must stay green as they are.
+  `packages/` or `app/`. The ruling needs no regeneration: `codegen --check` must stay
+  green as it is. `capabilities --check` reads every gate's evidence, so it runs only in develop's
+  full gate, not here.
 - graph-core takes no new dependency and no `unsafe`. Each function is at most 40 lines, each file
   at most 300, nesting at most 3.
 - No hash may move: the hash gate and the service digests run at the defaults.
