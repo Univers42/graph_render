@@ -1,0 +1,28 @@
+# dag-horizontal: a published `horizontal` Bool on layout.dag.sugiyama and layout.dag.lanes
+# (prompts/jobs/dag-horizontal.md, ruling docs/decisions/dag-horizontal.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+scope|0|b=$(git merge-base HEAD origin/develop); test -z "$( (git diff --name-only "$b"; git status --porcelain --untracked-files=all | cut -c4-) | grep -v -E '^(crates/graph-core/src/|crates/graph-cli/src/|harness/horizontal-wasm\.mjs$|deploy/nav/(paramsrows|paramspage|paramsrows2)\.py$|scripts/studio-params\.sh$)')"
+no-forbidden|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" -- crates/graph-contract crates/graph-wasm crates/graph-sdk-js server packages app)"
+named-tests|0|git grep -q 'fn a_transpose_swaps_centres_sizes_and_every_path_point' -- crates/graph-core/src/layout && git grep -q 'fn two_transposes_give_back_the_same_geometry' -- crates/graph-core/src/layout && git grep -q 'fn horizontal_draws_the_layers_along_x_bit_for_bit' -- crates/graph-core/src/layout/sugiyama && git grep -q 'fn horizontal_draws_the_rows_along_x_bit_for_bit' -- crates/graph-core/src/layout/lanes && test "$(git grep -c 'fn horizontal_false_is_the_default_drawing' -- crates/graph-core/src/layout | wc -l)" -eq 2 && git grep -q 'fn horizontal_is_published_last_as_a_bool_defaulting_to_false' -- crates/graph-core/src/registry/params/tests/schema.rs
+tunable-last|0|test "$(git grep -c 'horizontal: bool, Bool, 0.0, 1.0, 0.0, 1.0' -- crates/graph-core/src/registry/tunable.rs | cut -d: -f2)" = 2
+no-unsafe|0|! git grep -n -E '\bunsafe\b' -- crates/graph-core/src/layout/transpose.rs crates/graph-core/src/layout/transpose
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm-horizontal|0|scripts/orch/gr cargo build -q -p graph-wasm --release --target wasm32-unknown-unknown && scripts/orch/node-slim.sh node --experimental-strip-types harness/horizontal-wasm.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm
+negctl-wasm-horizontal|0|scripts/orch/gr cargo build -q -p graph-wasm --release --target wasm32-unknown-unknown && scripts/orch/node-slim.sh node --experimental-strip-types harness/horizontal-wasm.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm --break; test $? -eq 1
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+capabilities|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
+codegen|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
+svc-test|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --workspace --no-fail-fast
+sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+params|0|scripts/studio-params.sh
+negctl-params|nonzero|STUDIO_PARAMS_BREAK=1 scripts/studio-params.sh
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
