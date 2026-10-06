@@ -131,10 +131,21 @@ export async function readStored(caller: HubCaller, workspace: string, plugin: s
     if (found.plugin_seq !== pluginSeq) {
       throw new RestartSignal(`plugin_seq moved under the read: ${pluginSeq} then ${found.plugin_seq}`);
     }
-    for (const record of found.records) keys.push({ collection: record.collection, id: record.id });
-    if (found.next === undefined) return { keys, pluginSeq };
+    for (const record of found.records) keys.push({ collection: bareCollection(plugin, record.collection), id: record.id });
+    if (found.next === undefined || found.next === null) return { keys, pluginSeq };
     cursor = found.next;
   }
+}
+
+/** The route names a collection as `<plugin>.<collection>` (the id it is stored under) and a
+ * batch body must name it bare (`a_qualified_collection_in_a_body_is_422`), so a stored key is
+ * stripped here, once, before `deleteOps` compares it with the ingest's own. */
+function bareCollection(plugin: string, collection: string): string {
+  const prefix = `${plugin}.`;
+  if (!collection.startsWith(prefix)) {
+    throw new GraphMotorError(`records of plugin ${plugin} named collection ${collection}, outside ${prefix}*`);
+  }
+  return collection.slice(prefix.length);
 }
 
 async function pushChunk(
@@ -170,5 +181,5 @@ function recordsRoute(workspace: string, plugin: string, page: number, cursor: s
 interface RecordsPageWire {
   readonly plugin_seq: string;
   readonly records: readonly { readonly collection: string; readonly id: string; readonly rev: number }[];
-  readonly next?: string;
+  readonly next?: string | null;
 }
