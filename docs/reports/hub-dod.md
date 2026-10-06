@@ -1,9 +1,27 @@
 # graph-hub DoD — final report
 
-Written on the `hub-report` branch. develop's tip at the time of writing: `50aae08d`
-(`git rev-parse --short origin/develop`); this branch's tip: `c202527f`
-(`git rev-parse --short HEAD`). Every `file:line` below was read on that tree and every command
-was run on it.
+Written on the `hub-report` branch in two passes. §1–§4 were first written with develop at
+`50aae08d` on slice 3's landing tree `c202527f`; this pass merged develop at `fbd696f7`
+(`git rev-parse --short origin/develop`), after the `hub-maxheader`, `hub-upload` and `hub-live`
+landings, and §5 ran on that merged tree. Every cited path was checked with
+`git diff --numstat 50aae08d fbd696f7 -- <path>`, and the ones that changed are handled as follows:
+
+- Spec lines are cited at their `c202527f` numbers. The spec gained 8 lines before `:588` since: 4
+  at `:568-587` in `hub-maxheader` (`611c9c01`) and 4 at `:325-574` in `hub-upload` (`c07227f4`,
+  landed by `5c4f10e4`). So every spec line this report cites past `:587` is 8 higher on `fbd696f7`
+  (checked by hashing `:650`, `:672`, `:678`, `:680`, `:688`, `:690`, `:790`, `:804`, `:872`, `:938`
+  and `:993` on `c202527f` against the line 8 below on `fbd696f7`: all equal).
+- `docs/measurements/hub-memory.md` gained its change-header and upload sections; its citations
+  below are at their `fbd696f7` lines.
+- `scripts/orch/rows/hub.rows` gained rows at `:51-52` only, and `hub-sdk.rows` uncommented its live
+  rows at `:26-27`; no other line cited from either moved.
+- `server/graph-hub/src/config/env.rs` changed one line, the `GRAPH_HUB_FETCH_ROWS` default at
+  `:192` (32 → 4096).
+- `crates/graph-sdk-js/src/{hub/,plugin/sync.ts}`, `server/graph-store/src/materialize.rs`,
+  `server/graph-hub/src/relay/body.rs` and `scripts/orch/hub-mem.sh` changed and are cited by path
+  only, except in the §3 deviations, whose line numbers are at `fbd696f7`.
+- `server/graph-hub/src/{main.rs,config/check.rs}` changed in `fbd696f7` (migrations at start,
+  deviation (a)); cited at `fbd696f7` lines.
 
 Landing commits: the first-parent subjects on `origin/develop` are all the literal string `updated`,
 so a branch name is not greppable from the log (`docs/reports/service-dod.md:8-12`). Each slice is
@@ -11,9 +29,20 @@ therefore named by its landing merge, found with `git log --first-parent --merge
 and tied to the slice by the paths it brought in (`git diff --stat <merge>^1 <merge>`); the second
 parent is cited. Slice 2 landed as two merges and both are cited.
 
-This report covers plan Tasks 1–4 only (`docs/superpowers/plans/2026-10-05-graph-hub-report.md`).
-§5 and §6 are the full gate, which the orchestrator runs after the `hub-upload` and `hub-maxheader`
-branches land; nothing in this report gates itself, and no gate row was run here.
+This report covers plan Tasks 1–6 (`docs/superpowers/plans/2026-10-05-graph-hub-report.md`).
+The report itself gates nothing; §5 is the full gate, run once on the merged tree after the
+`hub-upload`, `hub-maxheader` and `hub-live` branches landed, one rows file at a time under
+`scripts/orch/timed`.
+
+Landings after slice 3, tied by their paths the same way (`git log --first-parent c202527f..fbd696f7`;
+the ones without a second parent are fast-forwarded commits):
+
+| Branch | Develop commits | What they brought in |
+|---|---|---|
+| `hub-maxheader` | `03f09c02`, `3c332ce2`, `611c9c01`, `50aae08d` | `graph_store::changes::heads`, `server/graph-hub/tests/memory/heads.rs`, the `hub-max-header` row, `hub-memory.md` "The change header" |
+| `hub-upload` | `b549d92e`, 2nd parent `5c4f10e4` | `server/graph-hub/src/relay/body.rs` (pages cut at `CHANGES_BYTES`), `GRAPH_HUB_FETCH_ROWS` 4096, `scripts/orch/hub-mem-upload{,-run}.sh`, the `hub-upload-timeout` row, `hub-memory.md` "The /layout upload" |
+| SDK subscribe fixes | `185178bc`, `439d33c5`, `fd84a7b2` | `crates/graph-sdk-js/src/hub/*` (deviation (b) in §3) |
+| `hub-live` | `572b46be`, `ac8f53c2`, `fbd696f7` | `scripts/orch/hub-live.sh`, `crates/graph-sdk-js/test/live/*`, the live `hub-sync` and `hub-sdk` rows, `graph_store::migrate` at start (deviation (a) in §3) |
 
 ## 1. Steps
 
@@ -22,8 +51,8 @@ branches land; nothing in this report gates itself, and no gate row was run here
 | 1. hub-contract | met | `cb11ea17`, 2nd parent `14934630` (the `hub-contract` branch tip, `git for-each-ref --points-at 14934630`) | `hub-wire` `scripts/orch/rows/hub-contract.rows:10`, `hub-materialize` `:12`, `motor-lock` `:16`, `codegen --check` `:8` (`scripts/orch/gr cargo run -q -p graph-cli -- codegen --check`), `fmt` `:4`, `clippy` `:5` | not measured — no `docs/measurements/*.md` file covers slice 1 |
 | 2. hub-store | met | two landings: `d1dae673` 2nd parent `64e867a4` (= `origin/hub-store-changes`, exact ref match), and `ba17fe9e` 2nd parent `004d2c53` | `hub-virtual-root` `scripts/orch/rows/hub-store.rows:29` and `hub.rows:3`, `hub-floor` `hub-store.rows:35` and `hub.rows:5`, `svc-supply` `hub-store.rows:61` and `hub.rows:14`, `hub-seq` `:66`, `hub-epoch-trigger` `:41`, `hub-epoch-detector` `:45`, `hub-epoch-deadlock` `:70`, `hub-idem` `:68`, `hub-changes-snapshot` `:75`, `hub-pg-durability` `:82`, `cargo-deny-server` `:59` | §4 of this report — the virtual root is unchanged and `server/Cargo.lock` is byte-identical to the baseline |
 | 3. hub-api | met | `c202527f`, 2nd parent `74ef178d` | `hub-authz` `scripts/orch/rows/hub.rows:31`, `hub-reload` `:33`, `hub-limits` `:35`, `hub-events` `:38`, `hub-roundtrip` `:43`, `hub-motor-map` `:45`, `hub-durability` `:47`, `hub-memory` `:49`, `hub-breaks-off` `:1`, `cargo-deny-server` `:19`, `lock-parity` `:21`, `svc-features` `:24` | `docs/measurements/hub-memory.md`: peak RSS 395 MiB of the 1 GiB cap, §2 of this report |
-| 4. hub-sdk | met, with one ruled deviation | `bf61f076`, 2nd parent `7510e7d9` | `hub-sdk-types` `scripts/orch/rows/hub-sdk.rows:13`, `hub-sdk-lint` `:14`, `hub-sdk-unit` `:15`, `hub-sdk-example` `:20`, plus the `negctl-hub-sdk-*` rows `:16-19` and `:21`. The rows `hub-sync` and `hub-sdk` the plan names are **commented out** at `hub-sdk.rows:26-27`, so they did not run — the deviation behind `N14` and `N16` in §3 | `hub-sdk.rows` |
-| 5. hub-report | partial — this report | this file | none of its own (a report gates nothing) | §2 and §4 measured here; §5 and §6 are the full gate |
+| 4. hub-sdk | met, with two ruled deviations | `bf61f076`, 2nd parent `7510e7d9`; the live rows in `hub-live` (`ac8f53c2`, `fbd696f7`) | `hub-sdk-types` `scripts/orch/rows/hub-sdk.rows:13`, `hub-sdk-lint` `:14`, `hub-sdk-unit` `:15`, `hub-sdk-example` `:20`, plus the `negctl-hub-sdk-*` rows `:16-19` and `:21`. The live rows `hub-sync` `:26` (nested `hub-sync.rows:7`, control `:8`) and `hub-sdk` `:27` (nested `hub-sdk-live.rows:8`, control `:9`) were commented out at slice 4's landing and run since `ac8f53c2`; deviations (a) and (b) in §3 are what they found | `hub-sdk.rows`; the live rows' verdicts are in §5 |
+| 5. hub-report | met | this file | none of its own (a report gates nothing) | §2 and §4 measured here; §5 and §6 are the full gate |
 
 The landing-commit ties are from the paths each merge brought in:
 
@@ -56,32 +85,27 @@ their paths, and `14934630` additionally matches a live ref exactly.
 | The SDK `hub.ts` / `plugin.ts` and the `./hub`, `./plugin` exports | met | `bf61f076` 2nd parent `7510e7d9` | `createHub`, `createPlugin` and their re-export blocks | `crates/graph-sdk-js/src/hub.ts:19,27,39`, `src/plugin.ts:20,38,49`, `package.json:12-13` |
 | The contract module | met | `cb11ea17` 2nd parent `14934630` | nine `pub mod`s and the generated `hub.d.ts` | `crates/graph-contract/src/hub.rs:29-38`, `:44-54`, `generated/hub.d.ts` (202 lines) |
 | The example plugin | met | `bf61f076` 2nd parent `7510e7d9` | registers itself with the hub | `examples/plugins/rows-file/sync.mjs:16` |
-| This report | partial | this commit | §1–§4 only; §5–§6 await the full gate | `docs/reports/hub-dod.md` |
+| This report | met | this commit | §1–§6 | `docs/reports/hub-dod.md` |
 
 ### The numbers §6 asks to be measured
 
-All five measured cells come from `docs/measurements/hub-memory.md` on `origin/develop`, which is
-slice 3's file and is read here, never written.
+Every measured cell comes from `docs/measurements/hub-memory.md` on `fbd696f7`, which slices 3,
+`hub-maxheader` and `hub-upload` wrote and this report only reads.
 
 | Number | §6 asks | Measured | Ledger row | Cell |
 |---|---|---|---|---|
-| peak RSS at every cap at once | < 1 GiB under `drun` | **395 MiB** peak `VmHWM` (404 580 KiB), cgroup peak 413 130 752 B, 38 % of the cap | `hub-memory.md:154` (`measure` row; the `control` row at `:155` is OOM-killed, exit 137) | met |
+| peak RSS at every cap at once | < 1 GiB under `drun` | **395 MiB** peak `VmHWM` (404 580 KiB), cgroup peak 413 130 752 B, 38 % of the cap | `hub-memory.md:170` (`measure` row; the `control` row at `:171` is OOM-killed, exit 137) | met |
 | `F_w` | graph-server's measured 18.25 replaced by the hub's own | **52** ceiling, 50.92 worst of three runs | `hub-memory.md:16` | met — graph-server's value is `server/graph-server/src/config/slots.rs:15` ("1,224,659,341 B, 18.25x the body") and the constant at `:22`; the hub's 52 replaces it and is **2.85× larger**, which is why the budget grew |
-| `max_header` | one change header row as read, planning estimate 256 B | **410 B** ceiling; 234.1, 326.2 and 280.1 B per header over three runs (the last is gate row `hub-max-header`) | `hub-memory.md:18`, runs at `:109-111` | met — the ceiling replaces the 256 B estimate, and §6's total at `:125` uses 410 B |
-| last-seen map entry size | planning estimate 256 B | **272 B** ceiling, 263.8 measured at 65 536 entries | `hub-memory.md:17` | met |
-| `/layout` upload of a `GRAPH_HUB_MAX_DOC_BYTES` workspace | under graph-server's 10 s body timeout (`body.rs:20`) | see below | — | pending: branch hub-upload |
-| the planning total | about 425 MiB plus `base` and the `IO_BUF` terms | **799 MiB** recomputed, plus `base` and three `IO_BUF`; 225 MiB of the 1 GiB left over | `hub-memory.md:128-138` | met, with the caveat the file states at `:139-140`: this is arithmetic over a measured `F_w`, not a whole-process measurement |
-
-`max_header` and the `/layout` upload are being re-measured on branches that have not landed, so
-those two cells are pending and this report does not restate a number for them. Note that
-`hub-memory.md:18` does carry a `max_header_ceiling_bytes` ledger value of 410 measured 326.2, and
-`:113` records that it replaces the 256 B planning estimate; it is left pending here because the
-brief for this slice defers both cells to the branch landing, not because it is absent.
+| `max_header` | one change header row as read, planning estimate 256 B | **410 B** ceiling; 234.1, 326.2 and 280.1 B per header over three runs (the last is gate row `hub-max-header`) | `hub-memory.md:18`, runs at `:122-124` | met — the ceiling replaces the 256 B estimate (`:126`), and §6's total uses 410 B (`:138`, `:149`) |
+| last-seen map entry size | planning estimate 256 B | **272 B** ceiling, 263.8 measured at 65 536 entries | `hub-memory.md:17`, `:106` | met; §5's `hub-memory` row re-measures it |
+| `/layout` upload of a `GRAPH_HUB_MAX_DOC_BYTES` workspace | slowest of five under 8 000 ms, two seconds under graph-server's 10 s `GRAPH_BODY_TIMEOUT_MS` (`hub-memory.md:217-222`) | **2 773 ms** slowest, median 2 605, over a 67 108 842 B document of 745 633 records; no 408 at the motor | `hub-memory.md:25-30`, results at `:318-325` | met — before the fix the same upload failed three runs (slowest 8 133, 8 482 and 9 868 ms, `:359`); the cause and the fix are `:290-316` |
+| the planning total | about 425 MiB plus `base` and the `IO_BUF` terms | **655 MiB** recomputed, plus `base` and three `IO_BUF`; 369 MiB of the 1 GiB left over | `hub-memory.md:144-154` | met, with the caveat the file states at `:155-156`: this is arithmetic over a measured `F_w`, not a whole-process measurement |
 
 The planning total is worth restating plainly: §6 planned "about 425 MiB plus `base` and the `IO_BUF`
-terms", and the measured constants give **799 MiB**. The plan's own writers term (`hub-memory.md:130`)
-is `2 × 4 MiB × 52 = 416 MiB`, already over half the container. No default shrinks on this
-arithmetic (`hub-memory.md:138`).
+terms", and the measured constants give **655 MiB**. The writers term (`hub-memory.md:146`) is
+`2 × 4 MiB × 52 = 416 MiB` on its own, two thirds of the total. The upload fix lowered the reads arm
+from 348 MiB to 204 MiB by cutting a document page at `CHANGES_BYTES` (`:140-142`); before it the
+total was 799 MiB. No default shrinks on this arithmetic (`:154`).
 
 ### The rest of §2
 
@@ -122,6 +146,10 @@ Conclusions are at `:90-98`; `:62-65` records that the detector's inputs stay re
 Verdicts, revision 1 → 2 (`docs/decisions/graph-hub.md:69` records the revision 4 BLOCK, `:80-82`
 the revision 5 PROCEED-WITH-CONDITIONS, `:78-79` the `event: busy` deviation). Spec line and code
 line both cited; "agree" means the code read on `50aae08d` satisfies the condition's own wording.
+The five source files changed since (`git diff --numstat 50aae08d fbd696f7`: `materialize.rs` +4/−1,
+`sync.ts` +41/−6, `subscribe.ts` +51/−10, `config/check.rs` +19, `main.rs` +7/−2) were re-read on
+`fbd696f7`. `materialize.rs` gained one field, `page_bytes: store.config().changes_bytes`, and a doc
+comment; the single `REPEATABLE READ` snapshot of §12.5 is untouched.
 
 | Question | What the lines say | Do spec and code agree? |
 |---|---|---|
@@ -139,10 +167,10 @@ line both cited; "agree" means the code read on `50aae08d` satisfies the conditi
 | §12.12 `source=contract`, mapped motor answers | spec `:801`; `server/graph-hub/src/relay/map.rs` | yes — `hub-motor-map` (`hub.rows:45`) |
 | §12.13 deny, lock-parity, svc-features, `-p graph-hub` image, breaks off | spec `:802`; `scripts/orch/rows/hub.rows:1` | yes — `hub-breaks-off` (`hub.rows:1`), `lock-parity` (`:21`), `svc-features` (`:24`) |
 | §12.14 u64 seq in JavaScript; no key in a browser | spec `:803`; `crates/graph-sdk-js/src/hub/cursor.ts` | yes — `hub-sdk-unit` (`hub-sdk.rows:15`) |
-| §12.15 no `motor-alone` claim; deferrals lifted in writing; 4f agreement recorded | spec `:804`; `docs/decisions/graph-hub.md:80-82` | not checked in this slice — §6 of the spec (`:680-691`) is the deferral list and this report does not write §6 |
-| §13.1–18 conditions, D1–D13 | spec `:806-841`; `docs/decisions/graph-hub.md:69-78` | yes where a row exists. The `[L]` conditions map to `hub-materialize` (`keep-cells`), `hub-seq`, `hub-idem`, `hub-epoch*`, `svc-supply`, `hub-virtual-root`, `hub-memory`, `hub-authz`, `hub-events`, `hub-breaks-off`, `hub-sync`. Conditions 17 ("every row and negative control on the landing commit") and 18 ("record the verdict") are **this report's** conditions and are §5/§6, not yet met |
+| §12.15 no `motor-alone` claim; deferrals lifted in writing; 4f agreement recorded | spec `:804`; `docs/decisions/graph-hub.md:80-82` | yes — §6 of this report lists every deferral of spec §9 (`:680-691`) with its verdict, and claims nothing for `motor-alone`, which is in no rows file |
+| §13.1–18 conditions, D1–D13 | spec `:806-841`; `docs/decisions/graph-hub.md:69-78` | yes where a row exists. The `[L]` conditions map to `hub-materialize` (`keep-cells`), `hub-seq`, `hub-idem`, `hub-epoch*`, `svc-supply`, `hub-virtual-root`, `hub-memory`, `hub-authz`, `hub-events`, `hub-breaks-off`, `hub-sync`. Conditions 17 ("every row and negative control on the landing commit") and 18 ("record the verdict") are **this report's** conditions: §5 runs every row and control on `fbd696f7` and §6 records the verdict |
 | §14(a).4, .5, .8, .9, .10, .12 (the six partly-met revision 2 conditions) | spec `:855-861` | yes — `:856` fixes `default-members`, `:854` the manifest lock order, `:859` `GRAPH_HUB_LAYOUTS`, `:860` the `M` total, `:861` the §5.2 status map. The plan's "nine" counts the rows differently; the spec text at `:851` says **eight**, and its table has six [L] rows plus the two prose cases, so the count is not load-bearing here |
-| §16(b) hub-sdk condition 6 | spec `:993`; `crates/graph-sdk-js/src/plugin/sync.ts` | met — the adapter's `deleted` maps to a delete when stored and is dropped otherwise (the `N14` fix, commit `6c8a2884`). Note the row the spec names, `hub-sync`, is **commented out** at `hub-sdk.rows:26`, so the end-to-end case did not run; `hub-sdk-unit` (`hub-sdk.rows:15`) covers the unit half |
+| §16(b) hub-sdk condition 6 | spec `:993`; `crates/graph-sdk-js/src/plugin/sync.ts` | met — the adapter's `deleted` maps to a delete when stored and is dropped otherwise (the `N14` fix, commit `6c8a2884`). The row the spec names, `hub-sync` (`hub-sdk.rows:26`, nested `hub-sync.rows:7`, its test "a row deleted from the file is deleted from the hub, and one never written is not sent"), runs since `ac8f53c2`; `hub-sdk-unit` (`hub-sdk.rows:15`) covers the unit half. The live row found that the records route answers qualified collections a batch body must not carry (deviation (b)) |
 
 ### The revision 3 → 4 condition (b) diff
 
@@ -156,7 +184,7 @@ not just the post-slice-2 window, so slice 1 and 2 fixes are attributed correctl
 | N1 trigger DDL refused; `TRUNCATE`, replica and restore bypass | one trigger per event plus `TRUNCATE`, `ENABLE ALWAYS`; `epoch_clock` floor; `hub.writer` on the batch, manifest PUT, workspace create and sweeper; `hub_meta` restore detector; runbook and Caveat; reverse check in `hub-epoch` (§5.3, §8) | `b24579c1` (`server/graph-store/sql/0002_epoch.sql`, +29 lines) and `b82f2260`; the `hub.writer` write paths at `763f01c6` and `85f26354` | `hub-epoch-trigger` `hub-store.rows:41`, `hub-epoch-detector` `:45`, `hub-epoch-deadlock` `:70` | met |
 | N2 `/changes` headers without operations | one `REPEATABLE READ, READ ONLY` transaction; stored `ops` count checked (`§5.1, §5.3, §8`) | `64e867a4` (`server/graph-store/src/changes/page.rs`, +243) | `hub-changes-snapshot` `hub-store.rows:75` | met |
 | N3 422 from the caller's layout read as a hub defect | 422 split on `error` (§5.2) | `7b2feb89` | `hub-motor-map` `hub.rows:45` | met |
-| N4 408 and 503 retried | 408 → 502 `MotorBodyTimeout`; 503 relayed without `Retry-After`; the SDK never retries `/layout`; the upload measured in slice 3 (§5.2, §5.3, §7, §11) | `7b2feb89` | `hub-motor-map` `hub.rows:45`; the measured upload is the `pending: branch hub-upload` cell in §2 | met for the status map; the measurement is pending |
+| N4 408 and 503 retried | 408 → 502 `MotorBodyTimeout`; 503 relayed without `Retry-After`; the SDK never retries `/layout`; the upload measured in slice 3 (§5.2, §5.3, §7, §11) | `7b2feb89` | `hub-motor-map` `hub.rows:45`; the upload, `hub-upload-timeout` `hub.rows:51` and §2 (slowest 2 773 ms of five against the 8 000 ms budget, `hub-memory.md:25-30`) | met |
 | N5 `/layout` holds a snapshot while graph-server queues | `GRAPH_HUB_LAYOUTS` = 1 and a Caveat (§5.3, §6) | `7b2feb89` | `hub-motor-map` `hub.rows:45` | met |
 | N6 M not total | every route under `READS` or `LAYOUTS`; connection and header limits; the anti-join portal; the hash compare; manifests streamed (§5.1, §5.3, §6) | `cc787956` | `hub-limits` `hub.rows:35` | met |
 | N7 `hub-memory` negative control cannot fail | sized from the measured `F_w`, `--memory 1g`, a barrier (§8) | `4a05a967` (`scripts/orch/hub-mem.sh`) | `hub-memory` `hub.rows:49`, control `negctl-hub-memory` | met — the control row is OOM-killed at exit 137 (`hub-memory.md:155`) |
@@ -166,16 +194,15 @@ not just the post-slice-2 window, so slice 1 and 2 fixes are attributed correctl
 | N11 `sequence-seq` cannot fail | removes the lock, delays odd commits (§8) | `79cdd47c` (`server/graph-store/tests/writer/sequence.rs`) | `hub-seq` `hub-store.rows:66` | met |
 | N12 byte order assumed | `initdb --encoding=UTF8 --locale=C` and a start check (§6, §10) | `89b1e0cb` (`deploy/postgres.Dockerfile`, +30) | `hub-start-check`, inside `hub-pg-durability` `hub-store.rows:82` | met |
 | N13 no body timeout | `GRAPH_HUB_BODY_TIMEOUT_MS`, 408 (§6) | `c3e22ad8` (`server/graph-hub/src/body.rs`, +74) | `hub-limits` `hub.rows:35` | met |
-| N14 adapters' `deleted` unmapped | a delete when stored, else dropped (§7, `hub-sync`) | `6c8a2884` (`crates/graph-sdk-js/src/plugin/sync.ts`) | **not claimed met** — the row the spec names, `hub-sync`, is commented out at `hub-sdk.rows:26`; `hub-sdk-unit` `hub-sdk.rows:15` covers the unit half only |
+| N14 adapters' `deleted` unmapped | a delete when stored, else dropped (§7, `hub-sync`) | `6c8a2884` (`crates/graph-sdk-js/src/plugin/sync.ts`), completed by `185178bc` (`bareCollection`, deviation (b)) | `hub-sync` `hub-sdk.rows:26` (nested `hub-sync.rows:7`) | met — the live row runs since `ac8f53c2`; its verdict on `fbd696f7` is in §5 |
 | N15 unlisted graph-server statuses | the default row, 502 `MotorError` (§5.2) | `7b2feb89` | `hub-motor-map` `hub.rows:45` | met |
-| N16 records paging not a snapshot | `plugin_seq` per page, `If-Match`, start over on 412 (§5.2, §7, `hub-sync`) | `64e867a4` (`server/graph-store/src/records.rs`) | **not claimed met** — same reason as N14; no live row proves the restart on 412 |
+| N16 records paging not a snapshot | `plugin_seq` per page, `If-Match`, start over on 412 (§5.2, §7, `hub-sync`) | `64e867a4` (`server/graph-store/src/records.rs`), the SDK half completed by `185178bc` (`readStored` ends on a `null` next, deviation (b)) | `hub-sync` `hub-sdk.rows:26`, the test "two writers of one plugin converge on the one that synced last", which asserts a 412 was seen | met — as N14 |
 | H14 byte-equality precondition | hub-contract condition 1 (§10 slice 1) | `eb74797b` (`crates/graph-contract/src/hub/tests/materialize/order.rs`) | `hub-materialize` `hub-contract.rows:12` | met |
 
-Two of the sixteen (`N14`, `N16`) are **not claimed met**, and for the same reason: the spec's own
-proving row `hub-sync` is commented out in `scripts/orch/rows/hub-sdk.rows:26-27`, so the end-to-end
-paging and delete-mapping cases did not run on the landing commit. The code fixes are present and
-named above; what is missing is the row that would prove them. Re-enabling `hub-sync` is the fix,
-and it belongs to whoever owns `hub-sdk.rows`.
+The first pass of this report left `N14` and `N16` **not claimed met**: their proving row `hub-sync`
+was commented out at slice 4's landing. The `hub-live` branch uncommented it (`hub-sdk.rows:26-27`,
+`ac8f53c2`), and running it end to end is what found the two SDK defects that completed both fixes
+(deviation (b) below). All sixteen are now met, on the rows named.
 
 ### The §15(b) deviation, accepted in revision 5
 
@@ -185,14 +212,47 @@ still valid, and a resync makes every subscriber read the whole `/graph` while t
 short". The ADR accepts it on its merits (`docs/decisions/graph-hub.md:81-82`, and names it as the
 one deviation from the verdict's fix at `:78-79`). The rows that pin it are `hub-events`
 (`scripts/orch/rows/hub.rows:38`, the `busy` cases, §16(b) hub-api condition 11 at `:996`) and
-`hub-sdk` — whose live row is `hub-sdk-unit` `hub-sdk.rows:15`, since `hub-sync` is commented out.
+`hub-sdk` — whose live row is `hub-sdk-live.rows:8` (nested under `hub-sdk.rows:27`), the tests "a busy
+stream reconnects from its cursor and delivers" and "subscribers sent busy together do not come back
+together"; `hub-sdk-unit` (`hub-sdk.rows:15`) holds the unit half.
 
 This is a **deviation from the verdict's fix, accepted in revision 5**, not a defect found here.
+
+### Deviations the live rows found after slice 4
+
+Both were found by the live rows the `hub-live` branch enabled, both were fixed and landed on
+develop before §5 ran, and both were masked by tests that do the missing step themselves. Line
+numbers are at `fbd696f7`.
+
+**(a) The hub binary never migrated its database.** The first live run answered the workspace PUT
+with 500 `db`: the hub opened a fresh PostgreSQL and served without its schema. The Rust tests and
+`scripts/orch/hub-mem.sh` call `graph_store::migrate::apply` on their own, so no row before the live
+ones started the binary on an empty database. Fixed in `fbd696f7`: `main.rs:74` calls
+`config::migrate_database` (`server/graph-hub/src/config/check.rs:173`) after the start checks and
+before the bind; two hubs starting together serialize on `graph_store::migrate::MIGRATE_LOCK`
+(`check.rs:172`). The test is `server/graph-hub/tests/start/migrate.rs`. The spec names migrations only
+as graph-store's (`grep -in migrat` on it finds `:93` and slice 2's `:714`), never at hub start, so
+this is an omission of the plan, not a change of the contract.
+
+**(b) Five SDK defects behind the unit fakes.** `hub-sdk-unit` runs the SDK against fakes that
+answered the shapes the SDK expected, not the shapes the hub sends:
+
+| Defect | What the live row saw | Fix | Commit |
+|---|---|---|---|
+| `readStored` paged forever | the records route ends on `next: null`; the loop stopped only on `undefined` | `sync.ts:136` stops on either | `185178bc` |
+| a batch named qualified collections | the records route answers `<plugin>.<collection>`; a batch body must name it bare (`a_qualified_collection_in_a_body_is_422`), so every delete was a 422 | `bareCollection`, `sync.ts:144` | `185178bc`, `439d33c5` |
+| an empty first cursor | `/changes` refused `since=` with no cursor (`since_of`) | `formatCursor({epoch, seq})`, `subscribe.ts:208` | `fd84a7b2` |
+| `/changes` read as an array | the route answers `{epoch, head_seq, next, bytes, changes}` | the page parsed as that object, `subscribe.ts:212`; `hub-api.md` updated | `fd84a7b2` |
+| a failed read killed Node | a 503 while the read permits were taken rejected a detached loop | `passOf` catches it and reports it through a new `onError` option, `subscribe.ts:101-110` | `fd84a7b2` |
+
+A subscriber with no `since` is now placed at the first notice's id minus one (`placeAt`,
+`subscribe.ts:235`). None of the five changes the wire contract; each makes the SDK read what the
+hub already sent.
 
 ## 4. Open review items
 
 "Open" here means: no row in the review is marked closed or fixed, and reading the cited code on
-`50aae08d` shows the defect still present. Counts: **high 0, medium 0, low 0**, plus **0 process
+`fbd696f7` shows the defect still present. Counts: **high 0, medium 0, low 0**, plus **0 process
 conditions** that no code change can close.
 
 | Review | Verdict | Id | Severity | Finding |
@@ -209,8 +269,8 @@ The reviews run on the hub: **none**. There is no `docs/reviews/graph-hub.md` an
 ("ForceAtlas2BarnesHut", S3-8). The hub's review is the `devil` verdicts in
 `docs/decisions/graph-hub.md`, and the condition tables in spec §12–§16, which §1 and §3 above
 report against; those are the findings this slice is accountable for. Nothing is listed as open
-because the (b) diff in §3 has 14 of 16 met and the two exceptions are `not claimed met` rows, not
-open code defects, and each is recorded there.
+because the (b) diff in §3 has 16 of 16 met, and the two defect classes the live rows found
+(deviations (a) and (b) in §3) were fixed before §5 ran.
 
 ### The virtual-root diffs
 
@@ -279,12 +339,14 @@ scripts/orch/gr cargo tree --manifest-path server/Cargo.toml -e features --locke
 |---|---|---|
 | baseline `5372c803` | 0 | — |
 | slice 3 (`c202527f`, this landing commit) | 0 | 1 |
-| slice 5 (this report, `c202527f`) | 0 | 1 |
+| slice 5 (this report, `c202527f`; `fbd696f7` has the same `server/Cargo.lock` and manifests) | 0 | 1 |
 
 Slice 3 is **not** `not claimed met`: the count the row asserts is 1 in the `-p graph-hub` tree and
 0 in the virtual root, and both hold on the landing commit, which is exactly what
-`scripts/orch/rows/hub.rows:3` (`hub-virtual-root`) checks. Slice 5 re-runs the same grep on the same
-commit and gets the same two numbers.
+`scripts/orch/rows/hub.rows:3` (`hub-virtual-root`) checks. Slice 5 re-ran the same grep on the same
+commit and got the same two numbers; the merged tree `fbd696f7` changes none of its inputs
+(`git diff --stat c202527f fbd696f7 -- server/Cargo.lock server/Cargo.toml server/graph-hub/Cargo.toml
+server/graph-store/Cargo.toml` prints nothing, exit 0), and §5's `hub-virtual-root` row runs it there.
 
 **graph-server's lock entries** (spec `:650` conditions 2, 3, 5; "no version change in graph-server's
 lock entries"):
@@ -317,4 +379,23 @@ Filled by the full gate on the landing commit (plan Tasks 5–6).
 
 ## 6. What is not done
 
-Filled by the full gate on the landing commit (plan Tasks 5–6).
+Spec §9 opens "Each of these waits for a caller" (`:678`); each deferral is cited at its `c202527f`
+line (8 higher on `fbd696f7`, see the header). `won't fix (YAGNI)` means no caller exists today, not
+that the item is refused.
+
+| Item | Verdict | Why |
+|---|---|---|
+| The Redis cache and the snapshot cache | won't fix (YAGNI) | spec `:680`; D2 makes it a stop-and-ask item |
+| Two or more hub instances, `LISTEN/NOTIFY` | won't fix (YAGNI) | spec `:681`; one hub per database |
+| Pull or webhook plugins, in-process plugins, plugin distribution | won't fix (YAGNI) | spec `:682`; plugins push through the SDK's `sync` |
+| Edge properties | won't fix (YAGNI) | spec `:683-684`; a relation with attributes is a record in its own collection |
+| A query language, traversal or search route | won't fix (YAGNI) | spec `:685` |
+| Time travel, `/graph?at=` | won't fix (YAGNI) | spec `:685`; `/graph` reads one snapshot at the head (§12.5) |
+| Deleting a workspace or a plugin, changing or removing a manifest's collections or fields over HTTP | won't fix (YAGNI) | spec `:686-687`; operators do these in SQL and the epoch (H15) tells clients |
+| TLS and publishing beyond the host | not attempted | spec `:688`; a stop-and-ask item |
+| Per-key write quotas | won't fix (YAGNI) | spec `:688`; `hub-limits` (`hub.rows:35`) caps request bytes and permits, not a key's volume |
+| A Python SDK | won't fix (YAGNI) | spec `:688`; the TypeScript SDK is the one SDK (§1 row 4) |
+| `pgvector` | won't fix (YAGNI) | spec `:689`; the images ADR lists it and nothing calls it |
+| Live studio integration | not attempted | spec `:690-691`; it needs `packages/graph-studio/src/host/*`, which graph-render-4f owns, so it is a later slice agreed with them |
+| `motor-alone` | not run | spec `:672-674`; no rows file defines it (`git grep -n motor-alone -- scripts/orch/rows` prints nothing, exit 1), and this report claims `motor-lock` (`hub-contract.rows:16`) instead |
+| Slice 1's measurement cell (§1 row 1) | not measured | slice 1 is the contract crate and computes no number the spec asks to measure |
