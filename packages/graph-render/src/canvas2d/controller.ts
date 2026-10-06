@@ -16,6 +16,7 @@ import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
 import { currentLimits, safeOf } from "./limits.ts";
+import { morphSource } from "./morph.ts";
 import { newPace } from "./pace.ts";
 export { pickAt } from "./pick.ts";
 import { newRate } from "./rate.ts";
@@ -88,7 +89,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
   return {
     ctx, sprites: createSpriteCache(spriteSurface, theme), onFrame: setup.onFrame, theme, policy, scene,
     camera: fitCamera(null, viewport), get limits() { return currentLimits(this); }, viewport, safe: null, dpr: 1,
-    x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
+    x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1, fromFrame: null, eased: 0, crossFade: null,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
     layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),
@@ -188,23 +189,39 @@ export function select(controller: Controller, node: number): void {
   setSelection(controller, node >= 0 ? [node] : []);
 }
 
-/** Starts the move to `frame` from wherever the nodes are drawn now. */
-function startTransition(state: LoopState, frame: Frame): void {
-  state.fromX = state.x.slice();
-  state.fromY = state.y.slice();
+/** Where a move into another frame starts: one entry per node of the new frame, NaN for a node the old one lacked. */
+export interface StartColumns {
+  readonly x: Float32Array;
+  readonly y: Float32Array;
+}
+
+function carries(frame: Frame, start: StartColumns | undefined): start is StartColumns {
+  return start !== undefined && frame.nodeCount > 0 && start.x.length === frame.nodeCount && start.y.length === frame.nodeCount;
+}
+
+/** Starts the move to `frame` from `start`, or from wherever the nodes are drawn now. */
+function startTransition(state: LoopState, frame: Frame, start: StartColumns | null): void {
+  state.fromX = (start?.x ?? state.x).slice();
+  state.fromY = (start?.y ?? state.y).slice();
   state.x = state.fromX.slice();
   state.y = state.fromY.slice();
   state.transitionStart = performance.now();
+  // Carried columns are in another frame's node order, so that frame's routes are not these edges.
+  state.fromFrame = start === null ? morphSource(state.scene.frame, frame) : null;
+  state.eased = 0;
   state.scene = sceneOf(frame, state.scene.style, null);
 }
 
-export function showFrame(state: LoopState, frame: Frame, animate: boolean): void {
+export function showFrame(state: LoopState, frame: Frame, animate: boolean, start?: StartColumns): void {
   const resized = frame.nodeCount !== state.scene.frame.nodeCount;
-  if (animate && !resized && frame.nodeCount > 0) {
-    startTransition(state, frame);
+  if (animate && carries(frame, start)) {
+    startTransition(state, frame, start);
+  } else if (animate && !resized && frame.nodeCount > 0) {
+    startTransition(state, frame, null);
   } else {
     state.scene = sceneOf(frame, state.scene.style, null);
     state.transitionStart = -1;
+    state.fromFrame = null;
     // Nothing is easing, so nothing is there to mix: the layer reads `u_eased` of 1 and a pick
     // reads the grid. A tween cut short by a snap or a resize has to leave both.
     state.bulk.tween = null;

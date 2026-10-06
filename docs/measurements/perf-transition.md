@@ -92,7 +92,7 @@ settled frame after it measures again and is exact. Both carry a `Ponytail:` lin
 The quad pass gathers its two `from` columns only while a tween is in flight; at `u_eased` of 1
 `place()` returns before it reads them.
 
-### Canvas2D: a node budget, above which it snaps (`canvas2d/loop.ts`)
+### Canvas2D: a node budget, above which it snaps (`canvas2d/tween.ts`)
 
 `TWEEN_BUDGET = 32_768`. Above it the 2D painter snaps to the new layout on its first frame rather
 than easing, because a tween it cannot finish is worse than no tween. The budget is read off the

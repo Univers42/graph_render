@@ -10,19 +10,15 @@
  * It does not: run a layout, fetch, read CSS, or keep a frame loop alive while parked.
  * Not done yet: WebGPU, pinch with two pointers, keyboard navigation of nodes.
  */
-import { type Camera, type FitArea, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
-import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";
-import { clickAt, contextAt, pressAt } from "./canvas2d/choose.ts";
-import { type Controller, fit, hover, measure, moveTo, newState, pickAt } from "./canvas2d/controller.ts";
-import { taken } from "./gestured.ts";
-import { invalidate } from "./canvas2d/loop.ts";
+import type { Camera, FitArea, Point, Viewport, ZoomLimits } from "./camera.ts";
+import { cameraApi, sceneApi } from "./camera-api.ts";
+import { type Controller, type StartColumns, measure, newState } from "./canvas2d/controller.ts";
 import { type EdgeEnds } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";
-import { DOUBLE_CLICK_ZOOM } from "./gesture.ts";
 import type { LabelPolicy } from "./labels.ts";
 import type { LiveDrag } from "./drag.ts";
 import { type LocalOptions, newLocalLayer } from "./local.ts";
-import { bindPointer } from "./pointer.ts";
+import { bindInputs, toBlob } from "./view-inputs.ts";
 import { statsOf } from "./view-stats.ts";
 import type { Style } from "./style.ts";
 import type { Theme } from "./theme.ts";
@@ -109,10 +105,16 @@ export interface ViewEvents {
 }
 
 export interface FrameOptions {
-  /** Move the nodes from where they are. Ignored when the node count changed. */
+  /** Move the nodes from where they are. Ignored when the node count changed, unless `start` is given. */
   readonly animate?: boolean;
   /** Default true. */
   readonly fit?: boolean;
+  /**
+   * With `animate`, where each node of the new frame starts, in the world the view drew last: one
+   * entry per node of `frame`, NaN for a node the drawing on screen lacked, which starts where it
+   * ends. It moves the nodes even when the node count changed; a column of another length is ignored.
+   */
+  readonly start?: StartColumns;
 }
 
 export interface View {
@@ -120,6 +122,12 @@ export interface View {
   setStyle(style: Style): void;
   setTheme(theme: Theme): void;
   setLabels(policy: LabelPolicy): void;
+  /**
+   * Copies the picture on screen and fades it out over the next `ms` (220 by default) of repaints.
+   * A host calls it right before a change the nodes cannot move through — a style, a theme —
+   * which would otherwise cut. Without `OffscreenCanvas` it does nothing and the change cuts.
+   */
+  crossFade(ms?: number): void;
   /**
    * The frame the last `setFrame` gave the view, as the scene holds it. Read-only: it does
    * not invalidate or repaint, and before the first frame it is the empty frame. The host
@@ -214,53 +222,6 @@ export interface View {
 }
 
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
-function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob === null) reject(new Error("graph-render: the canvas could not be encoded as PNG"));
-      else resolve(blob);
-    }, "image/png");
-  });
-}
-
-/** Pointer, wheel and resize; returns what undoes all three. */
-function bindInputs(controller: Controller): () => void {
-  const { canvas, state } = controller;
-  // Every gesture the pointer layer reports, not the ones that happen to move the camera: a click
-  // and a node drag leave the camera where it is, and both still mean the user has taken it over
-  // from the view's automatic fit (`gestured.ts`).
-  const unbind = bindPointer(canvas, {
-    zoom: taken(controller, (at: Point, factor: number) => {
-      if (state.orbit !== null) zoomAt3d(controller, factor);
-      else moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false);
-    }),
-    pan: taken(controller, (delta: Point) => moveTo(controller, panBy(state.camera, delta), false)),
-    orbit: taken(controller, (delta: Point, right: boolean) => orbitBy(controller, delta, right)),
-    hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
-    click: taken(controller, (at: Point, shift: boolean) => clickAt(controller, at, shift)),
-    press: taken(controller, (at: Point, shift: boolean) => pressAt(controller, at, shift)),
-    context: taken(controller, (at: Point) => contextAt(controller, at)),
-    doubleClick: taken(controller, (at: Point) => {
-      // A double-click on a node is the node's own gesture (S2); on the background it zooms.
-      if (pickAt(state, at) >= 0) return;
-      if (state.orbit !== null) zoomAt3d(controller, DOUBLE_CLICK_ZOOM);
-      else moveTo(controller, zoomAt(state.camera, at, DOUBLE_CLICK_ZOOM, state.limits), false);
-    }),
-  }, globalThis.window, () => inSpace(state));
-  const observer = new ResizeObserver(() => {
-    measure(controller);
-    if (controller.fitted) fit(controller);
-    else invalidate(state);
-  });
-  observer.observe(canvas);
-  canvas.style.cursor = "grab";
-  canvas.style.touchAction = "none";
-  return () => {
-    observer.disconnect();
-    unbind();
-  };
-}
-
 export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {}): View {
   const handlers: Handlers = { hover: new Set(), select: new Set(), selection: new Set(), context: new Set(), camera: new Set(), frame: new Set() };
   const emit = <Name extends keyof ViewEvents>(name: Name, payload: ViewEvents[Name]): void => {

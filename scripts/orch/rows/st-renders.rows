@@ -1,0 +1,13 @@
+# st-renders: the studio's main-thread regression at open and per layout switch (prompts/jobs/st-renders.md).
+# Only packages/graph-studio and its measurement change; the Rust floor is not re-run here.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+studio-only|0|b=$(git merge-base HEAD origin/studio-speed); test -z "$(git diff --name-only "$b" -- crates src harness fixtures server app deploy Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json; git status --porcelain --untracked-files=all -- crates src harness fixtures server app deploy Cargo.toml Cargo.lock package.json package-lock.json tsconfig.json)" && test -z "$(git diff --name-only "$b" -- packages/graph-render)"
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
+perf-after|0|scripts/studio-perf.sh --label st-renders-after
+renders-target|0|python3 -c "import re,sys;t=open('target/studio-perf/st-renders-after/table.md').read();r=int(re.search(r'^\| 120 \| 1 \|.*?(\d+) renders',t,re.M).group(1));b=float(re.search(r'perf-block. \|[^|]*\| ([0-9.]+) ms',t).group(1));print('renders',r,'block',b);sys.exit(0 if r<=800 and b<=10 else 1)"
+report|0|grep -q 'Caveat:' docs/measurements/studio-renders.md

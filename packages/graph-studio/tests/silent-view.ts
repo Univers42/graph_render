@@ -8,7 +8,7 @@ import type { ViewFace } from "../src/studio/pipeline.ts";
 export function silentView(calls: string[]): ViewFace {
   const noop = (): void => undefined;
   return {
-    setFrame: noop, setStyle: noop, setTheme: noop, setLabels: noop,
+    setFrame: noop, setStyle: noop, setTheme: noop, setLabels: noop, crossFade: noop,
     fit: () => void calls.push("fit"),
     reset: () => void calls.push("reset"),
     zoomBy: () => void calls.push("zoomBy"), panBy: () => void calls.push("panBy"),

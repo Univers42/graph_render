@@ -5,13 +5,13 @@
  * is on screen and a recipe taken at any moment replays.
  */
 import { frameFrom } from "../../../graph-render/src/frame.ts";
-import { DEFAULT_POLICY, type LabelPolicy } from "../../../graph-render/src/labels.ts";
 import { decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
 import { styleFrom } from "../../../graph-render/src/style.ts";
 import { backdropTheme } from "../../../graph-render/src/look/backdrop.ts";
 import { isLightTheme, themeNamed } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
 import type { Outcome } from "../actions/registry.ts";
+import { policyOf } from "../look/labelPolicy.ts";
 import { styleInputOf } from "../look/styleOf.ts";
 import { CancelledError, type MotorClient } from "../motor/client.ts";
 import type { AnalysisReport, GraphSummary, RunReport } from "../motor/protocol.ts";
@@ -20,15 +20,17 @@ import type { StudioState } from "../state/model.ts";
 import { type Appearance, type ParamValues, type Settings, type Source, withSettings } from "../state/settings.ts";
 import type { Store } from "../state/store.ts";
 import { neighboursOf } from "./adjacency.ts";
+import { showFresh } from "./carry.ts";
 import { fitResults } from "./fitResults.ts";
 import { type Before, type Held, beforeOf, clear } from "./pipeline/clear.ts";
-import { heldBack, heldNote, planOf } from "./plan.ts";
+import { type StyleIn, sameStyleIn } from "./pipeline/styleIn.ts";
+import { type Plan, heldBack, heldNote, planOf } from "./plan.ts";
 import { summaryOf } from "./runSummary.ts";
 import { schemaOf } from "./schema.ts";
 
 export type ViewFace = Pick<
   View,
-  | "setFrame" | "setStyle" | "setTheme" | "setLabels"
+  | "setFrame" | "setStyle" | "setTheme" | "setLabels" | "crossFade"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
   | "focus" | "select" | "local" | "showAll" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
   | "hide" | "togglePin" | "pinned" | "selectMany"
@@ -59,6 +61,8 @@ interface Rig extends PipelineDeps {
   held: Held | null;
   /** The look the view was last given; `null` before the first. */
   shown: Appearance | null;
+  /** What the view's style was last made of; `null` before the first. */
+  styled: StyleIn | null;
   /**
    * The token of the newest `apply` call. A call that comes back from the motor with an older
    * token has been superseded, and says so rather than writing over the newer drawing.
@@ -71,16 +75,6 @@ interface Rig extends PipelineDeps {
 interface Part {
   readonly message: string;
   readonly notes: readonly string[];
-}
-
-export const LABEL_POLICIES: Readonly<Record<Appearance["labels"], LabelPolicy>> = {
-  auto: DEFAULT_POLICY,
-  more: { threshold: 0.45, budget: 400 },
-  none: { threshold: DEFAULT_POLICY.threshold, budget: 0 },
-};
-
-function policyOf(appearance: Appearance): LabelPolicy {
-  return { ...LABEL_POLICIES[appearance.labels], fade: appearance.textFade };
 }
 
 const NOTES_SHOWN = 5;
@@ -105,8 +99,10 @@ export function firstOf(notes: readonly string[]): readonly string[] {
 function restyle(rig: Rig, look: Settings): void {
   const { meta, analysis, reveal } = rig.store.get();
   if (meta === null) return;
-  const { appearance, filter, groups } = look;
-  rig.view.setStyle(styleFrom(styleInputOf({ meta, appearance, filter, groups, analysis, reveal })));
+  const input = { meta, appearance: look.appearance, filter: look.filter, groups: look.groups, analysis, reveal };
+  if (sameStyleIn(rig.styled, input)) return;
+  rig.styled = input;
+  rig.view.setStyle(styleFrom(styleInputOf(input)));
 }
 
 function showLook(rig: Rig, look: Settings): void {
@@ -147,13 +143,15 @@ function draw(rig: Rig, token: number, run: RunReport, shown: { readonly look: S
     throw new MetaMismatch(`the snapshot holds ${frame.nodeCount} nodes and came with no description of them`);
   }
   const summary = summaryOf(run, snapshot);
+  if (shown.fresh) showFresh(rig.view, rig.held, snapshot, frame);
+  else rig.view.setFrame(frame, { animate: true });
+  // The view keeps its style over a frame of the same node count only (`sceneOf`).
+  if (rig.held?.ends.nodeCount !== frame.nodeCount) rig.styled = null;
   rig.held = { bytes: run.bytes, ends: frame };
-  rig.view.setFrame(frame, { animate: !shown.fresh });
   if (shown.fresh) rig.view.select(-1);
   patch(rig, (state) => ({
     meta, run: summary, selected: shown.fresh ? -1 : state.selected, selection: shown.fresh ? [] : state.selection,
-    // The values are written here, with the layout: they are what this run was made at, and
-    // nothing else in the pipeline writes a member of the settings that a run settles.
+    // Written here, with the layout: what this run was made at, which nothing else writes.
     settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId, params: shown.look.params }),
     // The filter the drawing was made under, and the only place it is written: the count
     // below is what a `relayout` filter is compared against to know it has already run.
@@ -210,18 +208,22 @@ function holdBack(rig: Rig, next: Settings, analysisId: string): Part | null {
   return { message: `${analysisId} not re-run`, notes: [heldNote(analysisId, nodes)] };
 }
 
-async function measure(rig: Rig, token: number, next: Settings, carried: boolean): Promise<Part> {
+async function measure(rig: Rig, token: number, next: Settings, plan: Plan): Promise<Part> {
+  // New colours over nodes that stand still fade in; over a layout that is moving them they cut.
+  const fade = (): void => { if (!plan.layout) rig.view.crossFade(); };
   if (next.analysis === null) {
+    fade();
     forget(rig);
     restyle(rig, next);
     return { message: "analysis off", notes: [] };
   }
-  const held = carried ? holdBack(rig, next, next.analysis) : null;
+  const held = plan.carried ? holdBack(rig, next, next.analysis) : null;
   if (held !== null) return held;
   try {
     const analysis = await rig.client.analysis(next.analysis);
     guard(rig, token);
     patch(rig, (state) => ({ analysis, settings: withSettings(state.settings, { analysis: analysis.id }) }));
+    fade();
     restyle(rig, next);
     return { message: `${analysis.id} ${ms(analysis.ms)}`, notes: measured(analysis) };
   } catch (error) {
@@ -260,13 +262,14 @@ async function drawOut(rig: Rig, token: number, next: Settings): Promise<Outcome
   if ((plan.load || plan.layout || plan.analysis) && rig.running > 0) rig.client.cancel();
   if (plan.load) parts.push(await load(rig, token, next.source));
   if (plan.layout) parts.push(await arrange(rig, token, next, { fresh: plan.load, before }));
-  if (plan.analysis) parts.push(await measure(rig, token, next, plan.carried));
+  if (plan.analysis) parts.push(await measure(rig, token, next, plan));
   // One turn of the queue before the answer. A host that calls `loadGraph` from inside the
   // `graph-load` handler it was just given re-enters on the next turn, not inside this frame, and
   // the token is only raised once that call reaches `apply`: without the turn this call would
   // report the counts of a frame the host had already taken back.
   await Promise.resolve();
   guard(rig, token);
+  if (parts.length === 0) rig.view.crossFade(); // nothing re-ran: what changed is the look, so it fades
   showLook(rig, next);
   if (parts.length === 0) restyle(rig, next);
   return {
@@ -277,10 +280,11 @@ async function drawOut(rig: Rig, token: number, next: Settings): Promise<Outcome
 }
 
 export function createPipeline(deps: PipelineDeps): Pipeline {
-  const rig: Rig = { ...deps, held: null, shown: null, generation: 0, running: 0 };
+  const rig: Rig = { ...deps, held: null, shown: null, styled: null, generation: 0, running: 0 };
   return {
     apply: (next) => apply(rig, next),
     look: (next) => {
+      rig.view.crossFade();
       showLook(rig, next);
       restyle(rig, next);
       return { message: "restyled" };

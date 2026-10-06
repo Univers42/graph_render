@@ -1,5 +1,5 @@
 /** The dock: what can be done to the graph, grouped, and why one group cannot be used now. */
-import { useState, type ReactElement, type ReactNode } from "react";
+import { memo, useState, type ReactElement, type ReactNode } from "react";
 
 import { DOCK_SECTIONS } from "../actions/all.ts";
 import { PARAMS_SECTION, specsOf } from "../actions/params.ts";
@@ -101,7 +101,7 @@ function panelOf(props: PanelProps): ReactNode {
   return null;
 }
 
-function Body(props: PanelProps): ReactElement {
+function BodyOf(props: PanelProps & { readonly open: boolean }): ReactElement {
   const { studio, state, name } = props;
   return (
     <>
@@ -110,6 +110,17 @@ function Body(props: PanelProps): ReactElement {
     </>
   );
 }
+
+/**
+ * WHY a shut section keeps what it drew last: the dock redraws on every store change, and every
+ * action's value and reason in every section was worked out again for bodies nobody could see.
+ * A shut body is drawn once, at mount, and again the moment it opens, from the state then.
+ */
+export function keepsShut(before: { readonly open: boolean; readonly name: string }, after: { readonly open: boolean; readonly name: string }): boolean {
+  return !before.open && !after.open && before.name === after.name;
+}
+
+const Body = memo(BodyOf, keepsShut);
 
 export function Dock(props: DockProps): ReactElement {
   const { studio, open, onToggle, bar } = props;
@@ -131,7 +142,7 @@ export function Dock(props: DockProps): ReactElement {
       <div className="gs-dock-body" id={BODY} hidden={!open}>
         {DOCK_SECTIONS.map((name) => (
           <Section key={name} name={name} open={shown.includes(name)} onToggle={() => flip(name)}>
-            <Body studio={studio} state={state} name={name} bar={bar} />
+            <Body studio={studio} state={state} name={name} bar={bar} open={open && shown.includes(name)} />
           </Section>
         ))}
       </div>
