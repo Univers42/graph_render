@@ -43,7 +43,7 @@ function widthProblems(source) {
       problems.push(`${source.name}: an @compute entry point is not @workgroup_size(${WG})`);
     }
   }
-  if (found.length === 0 && source.name !== "shared") {
+  if (found.length === 0 && source.name !== "prelude") {
     problems.push(`${source.name}: no @compute entry point at all`);
   }
   return problems;

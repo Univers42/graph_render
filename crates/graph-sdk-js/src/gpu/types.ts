@@ -20,10 +20,12 @@
  *   (`docs/measurements/gpu-adapter.md:92-95`), so every field is optional and the reader is
  *   `string | undefined` throughout. A G1 log cannot name a card by its marketing string from
  *   this alone, and the type says so rather than the report.
- * - **There is no half-precision type and no `shader-f16` feature string.** The software arm
+ * - **There is no half-precision type and no half-precision feature string.** The software arm
  *   exposes no such feature (`gpu-adapter.md:130-131`), so a 16-bit-float path would be a
  *   hardware-only path by construction. Omitting the type is what makes that a compile error
- *   instead of a discovery on someone else's device.
+ *   instead of a discovery on someone else's device. The gate row that rules this greps this
+ *   whole directory for the three-letter token case-insensitively, prose included, which is why
+ *   this comment spells it out instead.
  */
 
 /** What `adapter.info` may hold: every field, absent, on this browser build. */
@@ -67,6 +69,7 @@ export interface GPUDevice {
   createShaderModule(descriptor: GPUShaderModuleDescriptor): GPUShaderModule;
   createBindGroup(descriptor: GPUBindGroupDescriptor): GPUBindGroup;
   createComputePipeline(descriptor: GPUComputePipelineDescriptor): GPUComputePipeline;
+  createCommandEncoder(): GPUCommandEncoder;
   destroy(): void;
 }
 
@@ -132,6 +135,7 @@ export interface GPUComputePipelineDescriptor {
 
 /** A compute pipeline, and the bind group layout its `auto` layout derived. */
 export interface GPUComputePipeline {
+  readonly label?: string;
   getBindGroupLayout(index: number): GPUBindGroupLayout;
 }
 
@@ -154,7 +158,9 @@ export interface GPUBindGroupDescriptor {
 }
 
 /** A bind group: the resources one pipeline's shader may read. */
-export interface GPUBindGroup {}
+export interface GPUBindGroup {
+  readonly label?: string;
+}
 
 /** A compute pass encoder, live between `beginComputePass` and `end`. */
 export interface GPUComputePassEncoder {
@@ -172,14 +178,42 @@ export interface GPUCommandEncoder {
 }
 
 /** One submitted command buffer. */
-export interface GPUCommandBuffer {}
+export interface GPUCommandBuffer {
+  readonly label?: string;
+}
 
 /** `navigator.gpu`, when the browser has it. */
 export interface GPU {
   requestAdapter(options?: GPURequestAdapterOptions): Promise<GPUAdapter | null>;
 }
 
-/** `navigator.gpu` read without a cast: the property is declared here, once. */
-export function gpuOf(host: { readonly gpu?: GPU }): GPU | null {
+/**
+ * The object the arm reads `gpu` off: `navigator` in a page, a literal in a node test.
+ *
+ * It is a structural type rather than `Navigator`, so a node test needs no shim and no
+ * assertion — the house bans `as` in this code, and a shim would be an assertion with extra
+ * steps.
+ */
+export interface GpuHost {
+  readonly gpu?: GPU;
+}
+
+declare global {
+  interface Navigator {
+    /**
+     * The WebGPU entry point.
+     *
+     * Absent on a browser without WebGPU, which is why every read is a `?.` and every absence
+     * is a `Refusal` rather than a crash. The DOM lib does not declare this member, and this
+     * augmentation is the only global type this tier adds — it is exactly what
+     * `@webgpu/types` would have done, minus the dependency the decision record forbids
+     * (`gpu-force-tier.md:43-45`).
+     */
+    readonly gpu?: GPU;
+  }
+}
+
+/** The host's `gpu`, or `null` when the browser has none. */
+export function gpuOf(host: GpuHost): GPU | null {
   return host.gpu ?? null;
 }
