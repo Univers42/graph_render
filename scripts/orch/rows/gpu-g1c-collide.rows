@@ -1,0 +1,27 @@
+# gpu-g1c-collide — the collide pass in WGSL (hash, scan, scatter, resolve) against the fixtures'
+# delta_collide (prompts/jobs/gpu-g1c-collide.md). Base: gpu-g1c (G1b's tip); the browser rows need
+# the link slice's --pass switch merged in. GPU rows take gpu.lock; no 1M.
+# scope: a file is the slice's when it differs from both bases (gpu-g1c, and the develop push-once merged in).
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-lint|0|scripts/orch/node-slim.sh npm run sdk:lint
+sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
+named-tests|0|git grep -q the_collide_scan_is_stable_at_every_bucket_count -- crates/graph-sdk-js/test && git grep -q the_collide_hash_matches_the_cpu_s_cells -- crates/graph-sdk-js/test && git grep -q every_collide_ceiling_sits_under_its_guard -- crates/graph-sdk-js/test
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/src/gpu
+no-f16|0|! git grep -n -i 'f16' -- crates/graph-sdk-js/src/gpu
+caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/bounds-collide.ts && git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/collide.ts crates/graph-sdk-js/src/gpu/kernels
+no-public-surface|0|! git grep -n 'gpu' -- crates/graph-sdk-js/src/index.ts
+pass-report-shared|0|test "$(git hash-object crates/graph-sdk-js/src/gpu/pass-report.ts)" = "$(sed -n '/^   ```ts$/,/^   ```$/p' /home/dlesieur/Documents/graph_render/prompts/jobs/gpu-g1c-collide.md | sed '1d;$d' | sed 's/^   //' | git hash-object --stdin)"
+scope|0|b1=$(git merge-base HEAD gpu-g1c); b2=$(git merge-base HEAD origin/develop); test -z "$(comm -12 <(git diff --name-only "$b1" | sort) <(git diff --name-only "$b2" | sort) | grep -v -E '^(crates/graph-sdk-js/src/gpu\.ts|crates/graph-sdk-js/src/gpu/(collide|collide-api|bounds-collide|pass-report)\.ts|crates/graph-sdk-js/src/gpu/kernels/collide[a-z-]*\.wgsl\.ts|crates/graph-sdk-js/test/gpu-(collide[^/]*|wgsl\.test)\.mjs|docs/measurements/gpu-g1\.md)$' | grep -v -E '^(crates/graph-sdk-js/src/gpu/(link|link-api|bounds-link)\.ts|crates/graph-sdk-js/src/gpu/kernels/link\.wgsl\.ts|crates/graph-sdk-js/test/gpu-link[^/]*\.mjs|deploy/perf/gpu-mesh\.py|deploy/perf/gpu_mesh_[a-z_]+\.py)$')"
+file-size|0|! git ls-files crates/graph-sdk-js/src/gpu crates/graph-sdk-js/src/gpu.ts | xargs wc -l | grep -v ' total$' | awk '$1 > 300' | grep .
+
+emit|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --out target/gpu-fixtures
+gpu-js|0|scripts/orch/node-slim.sh npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir target/gpu-js
+gpu-js-imports|0|test -s target/gpu-js/gpu/collide.js && ! grep -rn -E "from ['\"][^'\"]*\.ts['\"]" target/gpu-js
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+
+collide-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass collide --only 1k,10k,50k
+collide-software|0|scripts/studio-probe.sh gpu-mesh software target/gpu-fixtures --pass collide --only 1k,10k,50k
+negctl-collide-order|0|sh -c 'flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass collide --only 1k --break collide-order > target/gpu-g1c-collide-order.log 2>&1; test $? -eq 3 && grep -q "^FAIL .*order" target/gpu-g1c-collide-order.log'
+negctl-collide-window|0|sh -c 'flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass collide --only 1k --break collide-window > target/gpu-g1c-collide-window.log 2>&1; test $? -eq 3 && grep -q -E "^FAIL .*(rms|guard)" target/gpu-g1c-collide-window.log'
