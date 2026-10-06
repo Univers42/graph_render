@@ -183,6 +183,8 @@ export function verdict(input: {
   readonly maxAbs: number;
   readonly depositedUnits: number;
   readonly repeatEqual: boolean;
+  /** Which of the two runs' columns differed, when `repeatEqual` is false. */
+  readonly repeatDetail: string;
   readonly boundsExact: boolean;
 }): { readonly pass: boolean; readonly failures: readonly string[] } {
   const failures: string[] = [];
@@ -195,7 +197,7 @@ export function verdict(input: {
     failures.push(`deposit ${where}: ${input.depositedUnits} units, not ${want}`);
   }
   if (!input.repeatEqual) {
-    failures.push(`repeat ${where}: the second run's density or delta differs from the first`);
+    failures.push(`repeat ${where}: ${input.repeatDetail}`);
   }
   if (input.rmsRel > RMS_REL_GUARD) {
     failures.push(`guard ${where}: rmsRel ${input.rmsRel} over the ${RMS_REL_GUARD} guard`);

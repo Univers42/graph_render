@@ -77,7 +77,9 @@ export function report(
   const reference = components(fixture.delta.charge.x, fixture.delta.charge.y);
   const measured = compare({ got: second.delta, reference });
   const deposited = depositedUnits(second.density);
-  const repeatEqual = sameBytes(first.density, second.density) && sameBytes(first.delta, second.delta);
+  const densityEqual = sameBytes(first.density, second.density);
+  const deltaEqual = sameBytes(first.delta, second.delta);
+  const repeatEqual = densityEqual && deltaEqual;
   const boundsExact = extentMatches(first.extent, fixture);
   const verdicted = verdict({
     n: fixture.n,
@@ -88,6 +90,7 @@ export function report(
     maxAbs: measured.maxAbs,
     depositedUnits: deposited,
     repeatEqual,
+    repeatDetail: repeatDetailFor(densityEqual, deltaEqual, first.delta, second.delta),
     boundsExact,
   });
   return {
@@ -131,6 +134,49 @@ function sameBytes(left: Int32Array | Float32Array, right: Int32Array | Float32A
     }
   }
   return true;
+}
+
+/**
+ * Which column differed, for the failure's message.
+ *
+ * Named rather than left as "density or delta": a repeat failure is a non-determinism, and a
+ * non-determinism in the density (the deposit's atomics) and one in the delta (the transform) are
+ * different faults with different fixes. The message says which, so the fix starts in the right
+ * file.
+ */
+function repeatDetailFor(
+  densityEqual: boolean,
+  deltaEqual: boolean,
+  first: Float32Array,
+  second: Float32Array,
+): string {
+  if (!densityEqual) {
+    return "the second run's density differs from the first";
+  }
+  return firstDeltaDifference(first, second);
+}
+
+/**
+ * The first index at which two runs' delta columns differ, and the two values there.
+ *
+ * A non-determinism is a statement about *where* as much as *whether*: the index says which
+ * node, and the two values say whether the difference is one rounding step (a reassociation the
+ * compiler chose differently per run — not possible here, but the number that would show it) or
+ * an O(1) one (a race). Without it, a repeat failure is a yes/no with no first place to look.
+ */
+function firstDeltaDifference(
+  left: Float32Array,
+  right: Float32Array,
+): string {
+  const count = Math.min(left.length, right.length);
+  for (let k = 0; k < count; k += 1) {
+    const a = left[k] ?? 0;
+    const b = right[k] ?? 0;
+    if (a !== b) {
+      return `the second run's delta differs from the first at component ${k} (${a} then ${b})`;
+    }
+  }
+  return "the second run's delta differs from the first";
 }
 
 /**
