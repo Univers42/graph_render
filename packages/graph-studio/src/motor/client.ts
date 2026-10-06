@@ -6,11 +6,12 @@
  * module start and one build; the studio's state never sees the gap.
  *
  * The same move frees memory. A wasm heap only grows, so a worker that built a large graph
- * holds that peak until it ends: a new source therefore starts in a new worker, and a worker
- * that trapped or failed an allocation is retired instead of asked again.
+ * holds that peak until it ends: a new source after one (`RESPAWN_FROM`) starts in a new worker,
+ * and a worker that trapped or failed an allocation is retired instead of asked again.
  */
 import type { ShownError } from "../state/errors.ts";
 import type { ParamValues, Source } from "../state/settings.ts";
+import { analysed, asked, laidOut, loaded, mismatch, published } from "./answers.ts";
 import { NO_ADAPTER_REASON } from "./live.ts";
 import type {
   AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphBatch, GraphSummary, LayoutParamSpec, Port, Request, Result,
@@ -73,6 +74,17 @@ export interface MotorClient {
   close(): void;
 }
 
+/**
+ * The nodes and links from which the next source starts in a new worker. Below it the worker is
+ * kept: the heap a small graph grew is small, and a new worker costs a module start, which was
+ * 229 of the 244 ms a 48-node document took to open (Chromium, dev server, 2026-10-06).
+ *
+ * Caveat: a count, not bytes: a graph of long ids just under it keeps more heap than the count
+ * says, until the next large load or a trap retires the worker. A streamed graph is counted by
+ * its nodes as the batches land.
+ */
+export const RESPAWN_FROM = 50_000;
+
 interface Waiting {
   readonly resolve: (result: Result) => void;
   readonly reject: (error: Error) => void;
@@ -90,16 +102,14 @@ interface State {
   loaded: Source | null;
   /** Counts loads, so a load that was overtaken leaves `loaded` to the newer one. */
   loads: number;
+  /** The worker built a graph of `RESPAWN_FROM` or more, so the next source gets a new one. */
+  heavy: boolean;
   closed: boolean;
   readonly waiting: Map<number, Waiting>;
   /** Everything the motor pushes without being asked: live frames and the force state. */
   readonly pushed: Set<(result: Result) => void>;
   /** Every way the worker can fail in the page's hearing, and nothing else. */
   readonly failures: Set<(detail: string) => void>;
-}
-
-function mismatch(wanted: string, result: Result): Error {
-  return new Error(`the motor answered ${result.type} to a request for ${wanted}`);
 }
 
 /** A trap, or an allocation the worker could not make: its heap is spent, so the worker goes. */
@@ -193,37 +203,6 @@ function fireAndForget(state: State, body: Request): void {
   state.link.port.send({ seq: state.seq, body });
 }
 
-/** The one answer of a wanted kind, or a refusal naming what came back instead. */
-function loaded(result: Result): GraphSummary {
-  if (result.type !== "loaded") throw mismatch("load", result);
-  return result.graph;
-}
-
-/** The schema of the layout asked about; a motor that names another layout is not the answer. */
-function published(result: Result, layoutId: string): readonly LayoutParamSpec[] {
-  if (result.type !== "params") throw mismatch("params", result);
-  if (result.layoutId !== layoutId) throw new Error(`the motor answered the schema of ${result.layoutId} to a request for ${layoutId}`);
-  return result.specs;
-}
-
-function laidOut(result: Result): RunReport {
-  if (result.type !== "laid-out") throw mismatch("layout", result);
-  return result.run;
-}
-
-function analysed(result: Result): AnalysisReport {
-  if (result.type !== "analysed") throw mismatch("analysis", result);
-  return result.analysis;
-}
-
-/**
- * A run's values, as the request carries them: nothing at all where there are none, so a run
- * with no values of its own sends no `params` member and the motor takes its own defaults.
- */
-function asked(params: ParamValues | undefined): { readonly params?: ParamValues } {
-  return params === undefined || Object.keys(params).length === 0 ? {} : { params };
-}
-
 /** A handler on a set of them, and the call that takes it off again. */
 function watch<Payload>(set: Set<(payload: Payload) => void>, handler: (payload: Payload) => void): () => void {
   set.add(handler);
@@ -231,20 +210,23 @@ function watch<Payload>(set: Set<(payload: Payload) => void>, handler: (payload:
 }
 
 /**
- * Loads `source` in a worker that has held no other graph. On failure the worker goes too, and
- * the next call gives a new one the graph that was loaded before.
+ * Loads `source`, in a new worker when the last graph was heavy. On failure the worker goes too,
+ * and the next call gives a new one the graph that was loaded before.
  */
 async function loadFresh(state: State, source: Source, send: () => Promise<Result>): Promise<GraphSummary> {
   state.loads += 1;
   const mine = state.loads;
   const previous = state.loaded;
   if (previous !== null) {
-    retire(state);
+    if (state.heavy) retire(state);
     state.loaded = null;
   }
   try {
     const graph = loaded(await send());
-    if (state.loads === mine) state.loaded = source;
+    if (state.loads === mine) {
+      state.loaded = source;
+      state.heavy = graph.nodeCount + graph.edgeCount >= RESPAWN_FROM;
+    }
     return graph;
   } catch (error) {
     if (state.loads === mine) {
@@ -257,7 +239,7 @@ async function loadFresh(state: State, source: Source, send: () => Promise<Resul
 
 export function createClient(spawn: Spawn, assets: Assets): MotorClient {
   const state: State = {
-    link: null, seq: 0, loaded: null, loads: 0, closed: false, waiting: new Map(), pushed: new Set(), failures: new Set(),
+    link: null, seq: 0, loaded: null, loads: 0, heavy: false, closed: false, waiting: new Map(), pushed: new Set(), failures: new Set(),
   };
   const linked = async (): Promise<Link> => {
     // WHY: a call made after `stopMotor()` can never complete, so it carries the cancellation
@@ -278,6 +260,7 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
     deltas: async (batch) => {
       const applied = await call({ type: "force.deltas", batch });
       if (applied.type !== "deltas-applied") throw mismatch("force.deltas", applied);
+      state.heavy ||= applied.nodeCount >= RESPAWN_FROM;
       return { applied: applied.applied, nodeCount: applied.nodeCount };
     },
     cancel: () => cancelWaiting(state),
