@@ -16,6 +16,12 @@ use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
 use graph_contract::notes::NoteCode;
 use history::history;
 
+/// One column as the bits the wire carries: a transpose is exact only if it moves the value
+/// itself, and two `f32` that compare equal can still be different numbers.
+fn bits(column: &[f32]) -> Vec<u32> {
+    column.iter().map(|value| value.to_bits()).collect()
+}
+
 fn vertex(id: &str, version: f64) -> NodeRecord {
     NodeRecord {
         version,
@@ -183,6 +189,7 @@ fn spacing_scales_both_axes_and_a_bad_one_is_refused() {
     let wide = LanesParams {
         lane_spacing: 2.0,
         row_spacing: 3.0,
+        horizontal: false,
     };
     let NodeGeometry::Point { x, y } = run(&t, &wide).expect("legal").nodes else {
         panic!()
@@ -194,7 +201,8 @@ fn spacing_scales_both_axes_and_a_bad_one_is_refused() {
                 &t,
                 &LanesParams {
                     lane_spacing: bad,
-                    row_spacing: 1.0
+                    row_spacing: 1.0,
+                    horizontal: false
                 }
             )
             .is_err()
@@ -204,12 +212,84 @@ fn spacing_scales_both_axes_and_a_bad_one_is_refused() {
                 &t,
                 &LanesParams {
                     lane_spacing: 1.0,
-                    row_spacing: bad
+                    row_spacing: bad,
+                    horizontal: false
                 }
             )
             .is_err()
         );
     }
+}
+
+/// The `horizontal` parameter is the whole of the change: the same rows, the same lanes, the
+/// same numbers, with x and y exchanged. `a` merges `b` and `c`, so the paths bend and the
+/// swap has interior points to move. `docs/decisions/dag-horizontal.md` condition 1.
+#[test]
+fn horizontal_draws_the_rows_along_x_bit_for_bit() {
+    let n = [
+        vertex("a", 1.0),
+        vertex("b", 2.0),
+        vertex("c", 3.0),
+        vertex("m", 4.0),
+    ];
+    let e = [
+        arc("mb", "m", "b"),
+        arc("mc", "m", "c"),
+        arc("ba", "b", "a"),
+        arc("ca", "c", "a"),
+    ];
+    let t = index_model(&n, &e).expect("fits");
+    let vertical = run(&t, &LanesParams::default()).expect("unit spacing is legal");
+    let horizontal = run(
+        &t,
+        &LanesParams {
+            horizontal: true,
+            ..LanesParams::default()
+        },
+    )
+    .expect("unit spacing is legal");
+    let NodeGeometry::Point { x: vx, y: vy } = &vertical.nodes else {
+        panic!("not Point nodes");
+    };
+    let NodeGeometry::Point { x: hx, y: hy } = &horizontal.nodes else {
+        panic!("not Point nodes");
+    };
+    assert_eq!(bits(hx), bits(vy), "the horizontal x is the vertical y");
+    assert_eq!(bits(hy), bits(vx), "the horizontal y is the vertical x");
+    let EdgeGeometry::Polyline(turned) = &horizontal.edges else {
+        panic!("not Polyline edges");
+    };
+    let EdgeGeometry::Polyline(straight) = &vertical.edges else {
+        panic!("not Polyline edges");
+    };
+    assert!(
+        !straight.pts.is_empty(),
+        "the merge bends the paths, so they carry interior points"
+    );
+    assert_eq!(turned.offsets, straight.offsets, "the CSR shape is not a coordinate");
+    assert_eq!(turned.pts.len(), straight.pts.len());
+    for (pair, plain) in turned.pts.chunks_exact(2).zip(straight.pts.chunks_exact(2)) {
+        assert_eq!(bits(pair), bits(&[plain[1], plain[0]]), "x takes y and y takes x");
+    }
+}
+
+/// `false` is the drawing that was there before the parameter existed: the default run and an
+/// explicit `horizontal: false` are one answer, so the flag cannot move a byte at its default.
+#[test]
+fn horizontal_false_is_the_default_drawing() {
+    let n = [vertex("a", 1.0), vertex("b", 2.0)];
+    let e = [arc("ab", "a", "b")];
+    let t = index_model(&n, &e).expect("fits");
+    assert_eq!(
+        run(&t, &LanesParams::default()),
+        run(
+            &t,
+            &LanesParams {
+                horizontal: false,
+                ..LanesParams::default()
+            }
+        )
+    );
 }
 
 /// The half-row bend is `(row as f32) + 0.5`, exact in `f32` only while `row < 2^23`; from
