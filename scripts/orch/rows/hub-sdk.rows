@@ -1,6 +1,6 @@
 # Rows for graph-hub slice 4 (hub-sdk). The unit rows need no hub: they run the SDK
-# tests against an in-process fake `fetch`. The two LIVE rows need slice 3's
-# containers (graph-hub, PostgreSQL, graph-server) and are marked as such.
+# tests against an in-process fake `fetch`. The two LIVE rows at the end start their own
+# graph-hub, PostgreSQL and graph-server containers (scripts/orch/hub-live.sh).
 # Run: scripts/orch/gate.sh <logdir> scripts/orch/rows/hub-sdk.rows
 #
 # negctl-*: each break must turn exactly one named test red, checked by grepping its
@@ -20,8 +20,8 @@ negctl-hub-sdk-ifmatch|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK
 hub-sdk-example|0|scripts/orch/node-slim.sh node --test --experimental-strip-types crates/graph-sdk-js/test/hub-example.test.mjs
 negctl-hub-sdk-example|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_HUB_SDK_BREAK=1 node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/hub-example.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "the example pushed a record that is not in the rows file" <<<"$out"'
 sdk-remote-regression|0|scripts/orch/node-slim.sh node --test --experimental-strip-types crates/graph-sdk-js/test/remote.test.mjs crates/graph-sdk-js/test/snapshot.test.mjs
-# ---- LIVE rows: these run once slice 3 (hub-api) lands. They need
-# scripts/orch/hub.sh up, plus its PostgreSQL and the existing graph-server. ----
-# Uncommented by slice 3 (hub-api), which writes hub-sync.rows and hub-sdk-live.rows.
-# hub-sync|0|scripts/orch/timed scripts/orch/gate.sh <logdir>/hub-sync scripts/orch/rows/hub-sync.rows
-# hub-sdk|0|scripts/orch/timed scripts/orch/gate.sh <logdir>/hub-sdk scripts/orch/rows/hub-sdk-live.rows
+# LIVE rows: each nested rows file starts its own containers through scripts/orch/hub-live.sh.
+# The nested gate.sh is not wrapped in scripts/orch/timed (the outer run holds its lock and a
+# second flock deadlocks), and gate.sh does not substitute `<logdir>`, so the paths are literal.
+hub-sync|0|scripts/orch/gate.sh target/gate-hub-sync scripts/orch/rows/hub-sync.rows
+hub-sdk|0|scripts/orch/gate.sh target/gate-hub-sdk scripts/orch/rows/hub-sdk-live.rows

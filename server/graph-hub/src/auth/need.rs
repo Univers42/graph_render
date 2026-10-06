@@ -44,7 +44,8 @@ pub fn need_for(method: &Method, ids: &Ids) -> Need {
 /// `true` when the path is one §5.2's table names, whatever the method.
 ///
 /// The shape check is separate from the need because a *wrong method* on a real path is the router's
-/// 405, and the router knows the path; the need is only asked for a request the table gives a grant.
+/// JSON 404 (`method_not_allowed_fallback`), and the router knows the path; the need is only asked
+/// for a request the table gives a grant.
 pub fn is_known_path(uri: &Uri) -> bool {
     crate::auth::path::ids_of(uri).is_ok()
 }

@@ -38,12 +38,31 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
+/// The session advisory lock `apply` holds, distinct from `pool::connect::HUB_LOCK` (the restore
+/// detector's transaction lock).
+pub const MIGRATE_LOCK: i64 = 8_675_309_002;
+
 /// Apply every migration that is not yet recorded, and return how many were applied.
 ///
-/// A second call applies zero and changes no row. The `hub_migrations` table itself is created
-/// on a connection with no transaction open, because it has to exist before anything can be
-/// recorded in it.
+/// A second call applies zero and changes no row. Two hubs starting on one database serialize on
+/// `MIGRATE_LOCK`: without it both could see a file unrecorded and the second `INSERT` would race
+/// the first's DDL.
 pub async fn apply(client: &mut Client) -> Result<u32, StoreError> {
+    client
+        .execute("SELECT pg_advisory_lock($1)", &[&MIGRATE_LOCK])
+        .await?;
+    let applied = apply_unlocked(client).await;
+    let unlocked = client
+        .execute("SELECT pg_advisory_unlock($1)", &[&MIGRATE_LOCK])
+        .await;
+    let applied = applied?;
+    unlocked?;
+    Ok(applied)
+}
+
+/// `apply`'s body. The `hub_migrations` table itself is created on a connection with no
+/// transaction open, because it has to exist before anything can be recorded in it.
+async fn apply_unlocked(client: &mut Client) -> Result<u32, StoreError> {
     client
         .batch_execute(
             "CREATE TABLE IF NOT EXISTS hub_migrations (name text PRIMARY KEY, \

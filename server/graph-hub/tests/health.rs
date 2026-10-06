@@ -24,6 +24,16 @@ async fn an_unknown_route_is_the_json_404_shape() {
     assert!(!reply.message().is_empty());
 }
 
+/// §5.2 has no `POST /v1/workspaces`, so it is a wrong method on a registered path: the same JSON
+/// 404, never a 501 that would tell a client the route is coming.
+#[tokio::test]
+async fn a_post_on_the_workspace_list_is_the_json_404_shape() {
+    let hub = hub_with_env(&[]);
+    let reply = hub.post("/v1/workspaces", "{}").await;
+    assert_eq!(reply.code(), 404);
+    assert_eq!(reply.error(), "NotFound");
+}
+
 /// The hub's own source never names the compute crate's credential check (graph-render-4f's reuse
 /// limit, `docs/decisions/graph-hub.md:120-121`): it carries the `any-key` break and the compute
 /// `App`. A source grep is the only thing that can hold a negative.

@@ -13,7 +13,7 @@
 mod check;
 mod env;
 
-pub use check::check_database;
+pub use check::{check_database, migrate_database};
 pub use env::{ConfigError, Env, Lookup, NAMES};
 
 use crate::breaks;
