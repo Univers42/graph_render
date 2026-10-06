@@ -189,22 +189,35 @@ export function select(controller: Controller, node: number): void {
   setSelection(controller, node >= 0 ? [node] : []);
 }
 
-/** Starts the move to `frame` from wherever the nodes are drawn now. */
-function startTransition(state: LoopState, frame: Frame): void {
-  state.fromX = state.x.slice();
-  state.fromY = state.y.slice();
+/** Where a move into another frame starts: one entry per node of the new frame, NaN for a node the old one lacked. */
+export interface StartColumns {
+  readonly x: Float32Array;
+  readonly y: Float32Array;
+}
+
+function carries(frame: Frame, start: StartColumns | undefined): start is StartColumns {
+  return start !== undefined && frame.nodeCount > 0 && start.x.length === frame.nodeCount && start.y.length === frame.nodeCount;
+}
+
+/** Starts the move to `frame` from `start`, or from wherever the nodes are drawn now. */
+function startTransition(state: LoopState, frame: Frame, start: StartColumns | null): void {
+  state.fromX = (start?.x ?? state.x).slice();
+  state.fromY = (start?.y ?? state.y).slice();
   state.x = state.fromX.slice();
   state.y = state.fromY.slice();
   state.transitionStart = performance.now();
-  state.fromFrame = morphSource(state.scene.frame, frame);
+  // Carried columns are in another frame's node order, so that frame's routes are not these edges.
+  state.fromFrame = start === null ? morphSource(state.scene.frame, frame) : null;
   state.eased = 0;
   state.scene = sceneOf(frame, state.scene.style, null);
 }
 
-export function showFrame(state: LoopState, frame: Frame, animate: boolean): void {
+export function showFrame(state: LoopState, frame: Frame, animate: boolean, start?: StartColumns): void {
   const resized = frame.nodeCount !== state.scene.frame.nodeCount;
-  if (animate && !resized && frame.nodeCount > 0) {
-    startTransition(state, frame);
+  if (animate && carries(frame, start)) {
+    startTransition(state, frame, start);
+  } else if (animate && !resized && frame.nodeCount > 0) {
+    startTransition(state, frame, null);
   } else {
     state.scene = sceneOf(frame, state.scene.style, null);
     state.transitionStart = -1;

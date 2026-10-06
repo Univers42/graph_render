@@ -2,6 +2,7 @@
  * The layout tween of the 2D view: the eased pose between two frames, and the node budget over
  * which the 2D painter snaps instead of easing.
  */
+import type { Camera } from "../camera.ts";
 import { TRANSITION_MS, blend, easeInOutCubic, markTween } from "../transition.ts";
 import type { PaintCounts } from "./input.ts";
 import type { LoopState } from "./loop.ts";
@@ -70,4 +71,27 @@ export function advance(state: LoopState, now: number): boolean {
   // the labels, the edges and the hit test, which are all on this side of the fence.
   state.bulk.tween = { fromX: state.fromX, fromY: state.fromY, toX: frame.x, toY: frame.y, eased };
   return true;
+}
+
+/**
+ * Re-expresses the start of a move in the camera the new frame was fitted to, so the first frame
+ * of the move is the picture that was on screen: `fromX`/`fromY` are in the world `before` drew,
+ * and each node keeps its screen point under the new camera. A node with no start (NaN, one the
+ * old drawing lacked) starts where it ends.
+ */
+export function placeStart(state: LoopState, before: Camera): void {
+  const { camera, fromX, fromY } = state;
+  const { frame } = state.scene;
+  const ratio = before.scale / camera.scale;
+  const dx = (before.x - camera.x) / camera.scale;
+  const dy = (before.y - camera.y) / camera.scale;
+  for (let node = 0; node < fromX.length; node += 1) {
+    const x = fromX[node] ?? Number.NaN;
+    const y = fromY[node] ?? Number.NaN;
+    const known = Number.isFinite(x) && Number.isFinite(y);
+    fromX[node] = known ? x * ratio + dx : (frame.x[node] ?? 0);
+    fromY[node] = known ? y * ratio + dy : (frame.y[node] ?? 0);
+  }
+  state.x.set(fromX);
+  state.y.set(fromY);
 }

@@ -16,8 +16,10 @@ import {
   type Controller, fit, moveOrbit, moveTo, pickAt, select, setPositions, setSafeArea, showFrame,
 } from "./canvas2d/controller.ts";
 import { hideNodes, togglePin } from "./canvas2d/keep.ts";
+import { startCrossFade } from "./canvas2d/crossfade.ts";
 import { invalidate } from "./canvas2d/loop.ts";
 import { rebaseLocal, setBaseStyle, showAll, showLocal } from "./canvas2d/local.ts";
+import { placeStart } from "./canvas2d/tween.ts";
 import { edgeEndsOf, nodeOpacity, edgeOpacity, labelledNodes } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";
 import { centreOf } from "./gesture.ts";
@@ -27,7 +29,7 @@ import type { LoopState } from "./canvas2d/loop.ts";
 import type { Projected } from "./three/projection.ts";
 import type { View } from "./view.ts";
 
-export type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
+export type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels" | "crossFade">;
 export type CameraApi = Omit<View, keyof SceneApi | "on" | "toPNG" | "stats" | "radii" | "destroy">;
 
 /** True while the frame on screen is 3D, which is what the orbit gestures are for. */
@@ -77,10 +79,14 @@ export function sceneApi(controller: Controller): SceneApi {
   const { state } = controller;
   return {
     setFrame: (frame, options = {}) => {
-      showFrame(state, frame, options.animate === true);
+      const before = state.camera;
+      showFrame(state, frame, options.animate === true, options.start);
       rebaseLocal(controller);
       if (options.fit === false) invalidate(state);
       else fit(controller);
+      // The fit chose a new camera; the move starts from the picture the old one drew. A 3D frame's
+      // nodes are not placed by the 2D camera, so theirs start where they were.
+      if (state.transitionStart >= 0) placeStart(state, state.orbit === null ? before : state.camera);
     },
     setStyle: (style) => {
       setBaseStyle(controller, style);
@@ -93,6 +99,10 @@ export function sceneApi(controller: Controller): SceneApi {
     setLabels: (policy: LabelPolicy) => {
       state.policy = policy;
       if (policy.budget > state.plan.node.length) state.plan = newLabelPlan(policy.budget);
+      invalidate(state);
+    },
+    crossFade: (ms) => {
+      startCrossFade(state, ms);
       invalidate(state);
     },
   };

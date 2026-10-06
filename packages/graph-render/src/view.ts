@@ -12,7 +12,7 @@
  */
 import type { Camera, FitArea, Point, Viewport, ZoomLimits } from "./camera.ts";
 import { cameraApi, sceneApi } from "./camera-api.ts";
-import { type Controller, measure, newState } from "./canvas2d/controller.ts";
+import { type Controller, type StartColumns, measure, newState } from "./canvas2d/controller.ts";
 import { type EdgeEnds } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";
 import type { LabelPolicy } from "./labels.ts";
@@ -105,10 +105,16 @@ export interface ViewEvents {
 }
 
 export interface FrameOptions {
-  /** Move the nodes from where they are. Ignored when the node count changed. */
+  /** Move the nodes from where they are. Ignored when the node count changed, unless `start` is given. */
   readonly animate?: boolean;
   /** Default true. */
   readonly fit?: boolean;
+  /**
+   * With `animate`, where each node of the new frame starts, in the world the view drew last: one
+   * entry per node of `frame`, NaN for a node the drawing on screen lacked, which starts where it
+   * ends. It moves the nodes even when the node count changed; a column of another length is ignored.
+   */
+  readonly start?: StartColumns;
 }
 
 export interface View {
@@ -116,6 +122,12 @@ export interface View {
   setStyle(style: Style): void;
   setTheme(theme: Theme): void;
   setLabels(policy: LabelPolicy): void;
+  /**
+   * Copies the picture on screen and fades it out over the next `ms` (220 by default) of repaints.
+   * A host calls it right before a change the nodes cannot move through — a style, a theme —
+   * which would otherwise cut. Without `OffscreenCanvas` it does nothing and the change cuts.
+   */
+  crossFade(ms?: number): void;
   /**
    * The frame the last `setFrame` gave the view, as the scene holds it. Read-only: it does
    * not invalidate or repaint, and before the first frame it is the empty frame. The host
