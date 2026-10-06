@@ -24,8 +24,9 @@ export interface CrossFade {
 
 /** Copies what is on screen to fade it out over the next `ms`; nothing when the engine cannot copy. */
 export function startCrossFade(state: LoopState, ms: number = CROSSFADE_MS): void {
-  // Two changes before one paint: the screen still shows the picture already copied.
-  if (state.crossFade !== null && state.crossFade.start < 0) return;
+  // A change during a fade lands under the copy already fading: a slider dragged through a dozen
+  // values costs one copy, and the picture it ends on is the one the fade uncovers.
+  if (state.crossFade !== null) return;
   const source = state.ctx.canvas;
   if (typeof OffscreenCanvas === "undefined" || !(ms > 0) || source.width === 0 || source.height === 0) return;
   const canvas = new OffscreenCanvas(source.width, source.height);

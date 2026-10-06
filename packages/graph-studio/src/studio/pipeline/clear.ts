@@ -9,12 +9,11 @@ import type { AnalysisReport, GraphSummary } from "../../motor/protocol.ts";
 import type { StudioState } from "../../state/model.ts";
 import { type Source, withSettings } from "../../state/settings.ts";
 import type { Store } from "../../state/store.ts";
-import type { Ends } from "../../source/meta.ts";
 
-/** The bytes of the last drawing, with the ends they describe; `null` when nothing is held. */
+/** The bytes of the last drawing, with the frame they decoded to; `null` when nothing is held. */
 export interface Held {
   readonly bytes: Uint8Array;
-  readonly ends: Ends;
+  readonly ends: Frame;
 }
 
 /**

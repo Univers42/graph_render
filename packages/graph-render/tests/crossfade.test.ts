@@ -89,13 +89,15 @@ test("a crossFade copies the screen, then fades the copy out over the paints tha
   assert.equal(ctx.transforms, 2, "the copy is laid in canvas pixels, whatever the camera");
 });
 
-test("two changes before a paint copy the screen once; a change after a paint copies again", () => {
+test("changes during a fade share its one copy; a change after it copies again", () => {
   withOffscreen();
   const { state } = view(painter());
   startCrossFade(state);
   startCrossFade(state);
-  assert.equal(copies, 1, "the screen still held the first picture");
   paintCrossFade(state, 0);
+  startCrossFade(state);
+  assert.equal(copies, 1, "every change before the fade ended landed under the first copy");
+  paintCrossFade(state, CROSSFADE_MS);
   startCrossFade(state);
   assert.equal(copies, 2);
 });
