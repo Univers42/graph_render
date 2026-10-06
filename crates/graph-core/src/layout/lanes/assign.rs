@@ -4,13 +4,25 @@
 //! - A vertex takes the smallest lane its incoming edges reserved for it. If there is none, it
 //!   takes the smallest free lane, or opens a new one. The other lanes reserved for it are
 //!   freed, because their edges end here.
-//! - Its first forward edge carries its own lane on.
-//! - A later forward edge shares the target's smallest reserved lane if the target has one,
-//!   and otherwise takes a free lane and reserves it.
-//! - A vertex with no forward edge frees its lane after its row.
+//!
+//! Then each forward edge of the vertex, in dense edge order. Let `S` be the target's smallest
+//! reserved lane, if the target has one. The edge **shares `S`** when `S` exists and either
+//! `S < lane(v)` — a lower column is already waiting there, so the line bends **left** into it
+//! — or `lane(v)` is already carried by an earlier edge of this vertex, which cannot be
+//! reserved twice. Otherwise the edge pushes `lane(v)` if no earlier edge took it, or takes
+//! the smallest free lane if one did. Either way the lane it chose goes into the target's
+//! reservation. (`docs/decisions/dag-lanes-merge.md`, "Addendum: rule D".)
+//!
+//! After all of the forward edges, `lane(v)` goes back to the pool if no edge took it. That
+//! is **after** the edges, never before: freeing it first puts a lane in two reservations on
+//! every merge-heavy graph.
 //!
 //! A lane inside a reservation is never free, so no vertex is placed on an edge that runs past
-//! it.
+//! it. The one thing no structural check in the tree can see is the `S < lane(v)` guard above:
+//! without it the layout shares on every reserved target and draws rule C, and `assert_sole`,
+//! `nothing_sits_on_an_edge` and the hand oracle all still pass. The evidence that the guard
+//! is there is `tests/history.rs`'s
+//! `a_line_bends_left_into_a_column_already_waiting_and_keeps_a_fresh_one_for_its_third_edge`.
 //!
 //! Ponytail (lane choice): lowest-free-lane is greedy, and minimal width is not claimed.
 //! Failing input: two lines whose lanes could interleave narrower. Direction: a wider drawing,
@@ -157,6 +169,22 @@ impl Reserved {
         );
     }
 
+    /// The give-side half of the one-reservation invariant
+    /// (`docs/decisions/dag-lanes-merge.md` condition 2). `assert_sole` checks a lane being
+    /// pushed; rule D adds the only path that hands a lane back to the pool, so the lane
+    /// going the other way has to be checked too — a lane in a reservation that is also free
+    /// is the vertex-on-an-edge bug, from the other direction. `pool` is unused in release.
+    #[cfg(debug_assertions)]
+    fn assert_unheld(&self, lane: u32) {
+        debug_assert!(
+            self.held[lane as usize] == 0,
+            "lane {lane} is given to the pool while reserved"
+        );
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn assert_unheld(&self, _lane: u32) {}
+
     #[cfg(debug_assertions)]
     fn hold(&mut self, lane: u32) {
         // Grow only: `resize` would truncate the higher lanes' counts when a lower lane is
@@ -230,21 +258,35 @@ struct State {
 }
 
 impl State {
-    /// The lane an edge from a vertex in `lane` to `late` runs down. The vertex's first edge
-    /// carries its own lane. A later edge shares `late`'s smallest reserved lane, or takes a
-    /// free lane and reserves it for `late`.
-    fn carry(&mut self, first: bool, lane: u32, late: u32) -> u32 {
-        if first {
-            self.reserved.push(late, lane, &self.pool);
-            return lane;
-        }
+    /// Rule D for one forward edge, from a vertex in `lane` to `late`. `own_taken` says
+    /// whether an earlier edge of this vertex already took `lane`, which is what tells
+    /// "the vertex's own lane is still available" from "the own lane is spoken for".
+    ///
+    /// The edge shares `late`'s smallest reserved lane when there is one and either it is
+    /// lower than `lane` — a column already waiting for `late`, so the line bends left into it
+    /// — or `lane` is already spoken for and cannot be reserved twice. Otherwise it pushes
+    /// `lane` itself, or takes a free lane when `own_taken` is set, and either way reserves
+    /// what it chose for `late`. `docs/decisions/dag-lanes-merge.md`, "Addendum: rule D".
+    fn carry(&mut self, lane: u32, late: u32, own_taken: &mut bool) -> u32 {
         let shared = self.reserved.min[late as usize];
-        if shared != NONE {
+        if shared != NONE && (shared < lane || *own_taken) {
             return shared;
         }
-        let fresh = self.pool.take();
+        let fresh = if *own_taken { self.pool.take() } else { lane };
+        *own_taken = true;
         self.reserved.push(late, fresh, &self.pool);
         fresh
+    }
+
+    /// Rule D's give-back, run **after** the vertex's forward edges: `lane` returns to the
+    /// pool only when no edge took it. Running it first — the reading of "frees it after its
+    /// row" that looks natural — puts a lane in two reservations on every merge-heavy graph
+    /// (`docs/decisions/dag-lanes-merge.md` condition 1), which `assert_unheld` and
+    /// `assert_sole` both catch in a debug build.
+    fn give_back(&mut self, lane: u32) {
+        #[cfg(debug_assertions)]
+        self.reserved.assert_unheld(lane);
+        self.pool.give(lane);
     }
 }
 
@@ -284,11 +326,12 @@ impl Drawing {
             lane = state.pool.take();
         }
         self.lane[v as usize] = lane;
-        for (k, &(edge, late)) in out.iter().enumerate() {
-            self.carried[edge as usize] = state.carry(k == 0, lane, late);
+        let mut own_taken = false;
+        for &(edge, late) in out {
+            self.carried[edge as usize] = state.carry(lane, late, &mut own_taken);
         }
-        if out.is_empty() {
-            state.pool.give(lane);
+        if !own_taken {
+            state.give_back(lane);
         }
     }
 }

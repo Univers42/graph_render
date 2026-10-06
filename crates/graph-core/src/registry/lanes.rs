@@ -20,7 +20,15 @@ const LANES: Metadata = Metadata {
     edges: EdgeGeometryKind::Polyline,
     oracle: "hand oracle on roundtrip (graph-cli snapshot_cmd::hand_oracles::lanes): the stated \
 convention restated with ordered sets instead of heaps, compared bit for bit per seed on node \
-x and y, polyline offsets and pts, and notes, at the gate's own node counts; the cycle-breaking \
+x and y, polyline offsets and pts, and notes, at the gate's own node counts. It restates the \
+lane rule as well, so it is a transcription check and NOT the evidence for it: the S < lane(v) \
+guard of rule D breaks no invariant, and this oracle agrees with the build whether that guard \
+is present or not. The evidence is the unit test \
+a_line_bends_left_into_a_column_already_waiting_and_keeps_a_fresh_one_for_its_third_edge, \
+which runs both arms of the rule in one vertex, alongside \
+three_lines_forked_from_one_base_share_the_column_waiting_for_it and the oracle's own \
+nothing_sits_on_an_edge, which reads lanes and rows rather than the assignment. The \
+cycle-breaking \
 and version-ordering paths the gate model cannot reach are covered by the unit tests \
 a_directed_cycle_is_broken_at_the_lowest_index_and_noted, \
 distinct_versions_break_a_cycle_and_the_heap_orders_by_version and \
