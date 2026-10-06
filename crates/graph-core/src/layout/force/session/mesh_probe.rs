@@ -21,8 +21,8 @@
 //! (`particle_mesh/mesh.rs:119-125`), so a start state and a settled state have different
 //! frames, different `h` and different kernel spectra. One probe is one state.
 
-use super::fidelity::{PROBE_WORKERS, charge_probe_on};
 use super::ForceSession;
+use super::fidelity::{PROBE_WORKERS, charge_probe_on};
 use crate::exec::Serial;
 use crate::layout::force::Split;
 use crate::layout::force::barnes_hut::sim::{How, Sim};

@@ -62,10 +62,13 @@ impl State {
     }
 }
 
-/// The short size tag a file name carries: `1k`, `10k`, `50k`, `1m`.
+/// The short size tag a file name carries: `1k`, `10k`, `50k`, `1m`. Thousands below a
+/// million and millions at it, because the record and every gate row name 1M as `1m` and a
+/// file called `mesh-1000k` would be read as a typo for `mesh-1k`.
 pub fn size_tag(n: u32) -> String {
     match n {
-        1_000 | 1_000_000 => format!("{}k", n / 1_000),
+        1_000_000.. => format!("{}m", n / 1_000_000),
+        1_000.. => format!("{}k", n / 1_000),
         _ => format!("{n}"),
     }
 }

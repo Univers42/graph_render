@@ -27,8 +27,6 @@ fn bits(column: &[f64]) -> Vec<u64> {
     column.iter().map(|v| v.to_bits()).collect()
 }
 
-
-
 #[test]
 fn the_three_passes_move_different_things() {
     let probe = session(5).mesh_probe().expect("a field to solve");
@@ -42,11 +40,23 @@ fn the_three_passes_move_different_things() {
     for (name, x, y) in &columns {
         assert_eq!(x.len(), n as usize, "{name}: one column per node");
         assert_eq!(y.len(), n as usize, "{name}: one column per node");
-        assert!(x.iter().chain(y.iter()).any(|v| *v != 0.0), "{name}: moved something");
+        assert!(
+            x.iter().chain(y.iter()).any(|v| *v != 0.0),
+            "{name}: moved something"
+        );
     }
-    assert_ne!(probe.link_dx, probe.collide_dx, "link and collide are not the same sum");
-    assert_ne!(probe.charge_dx, probe.link_dx, "charge and link are not the same sum");
-    assert_ne!(probe.charge_dx, probe.collide_dx, "charge and collide are not the same sum");
+    assert_ne!(
+        probe.link_dx, probe.collide_dx,
+        "link and collide are not the same sum"
+    );
+    assert_ne!(
+        probe.charge_dx, probe.link_dx,
+        "charge and link are not the same sum"
+    );
+    assert_ne!(
+        probe.charge_dx, probe.collide_dx,
+        "charge and collide are not the same sum"
+    );
 }
 
 #[test]
@@ -54,7 +64,11 @@ fn every_column_is_the_meshes_own() {
     let s = session(5);
     let probe = s.mesh_probe().expect("a field to solve");
     let (theirs_x, theirs_y) = s.charge_deltas(0.9);
-    assert_eq!(bits(&probe.charge_dx), bits(&theirs_x), "the probe and the trusted instrument must not differ by a bit on x");
+    assert_eq!(
+        bits(&probe.charge_dx),
+        bits(&theirs_x),
+        "the probe and the trusted instrument must not differ by a bit on x"
+    );
     assert_eq!(bits(&probe.charge_dy), bits(&theirs_y), "…nor on y");
 }
 
@@ -70,7 +84,10 @@ fn a_delta_is_the_pass_and_not_the_tick() {
         s.tick_no(),
     );
     let probe = s.mesh_probe().expect("a field to solve");
-    assert!(probe.charge_dx.iter().any(|v| *v != 0.0), "the probe moved something");
+    assert!(
+        probe.charge_dx.iter().any(|v| *v != 0.0),
+        "the probe moved something"
+    );
     let after = (
         s.xs().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
         s.ys().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
@@ -92,15 +109,27 @@ fn the_probe_leaves_the_next_tick_byte_identical() {
     untouched.step(1);
     assert_eq!(
         asked.xs().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-        untouched.xs().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        untouched
+            .xs()
+            .iter()
+            .map(|v| v.to_bits())
+            .collect::<Vec<_>>(),
         "the next tick's positions are the same bits"
     );
     assert_eq!(
         asked.ys().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
-        untouched.ys().iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+        untouched
+            .ys()
+            .iter()
+            .map(|v| v.to_bits())
+            .collect::<Vec<_>>(),
         "…on both axes"
     );
-    assert_eq!(asked.tick_no(), untouched.tick_no(), "the tick number did not move");
+    assert_eq!(
+        asked.tick_no(),
+        untouched.tick_no(),
+        "the tick number did not move"
+    );
 }
 
 #[test]
@@ -110,15 +139,26 @@ fn the_solution_matches_a_hand_placed_frame() {
     let frame = crate::layout::force::particle_mesh::Mesh::new(probe.side)
         .placed_over((s.xs(), s.ys()), probe.side, s.params().distance_max)
         .expect("the mesh placed a frame for the same positions");
-    assert_eq!(probe.side, frame.side, "the transform side is the mesh's own");
+    assert_eq!(
+        probe.side, frame.side,
+        "the transform side is the mesh's own"
+    );
     assert_eq!(probe.step, frame.step, "the rung is the mesh's own");
-    assert_eq!(probe.h.to_bits(), frame.h.to_bits(), "the cell size is the mesh's own");
+    assert_eq!(
+        probe.h.to_bits(),
+        frame.h.to_bits(),
+        "the cell size is the mesh's own"
+    );
     assert_eq!(
         probe.origin_x.to_bits(),
         frame.origin_x.to_bits(),
         "the origin is snapped down to a multiple of h"
     );
-    assert_eq!(probe.origin_y.to_bits(), frame.origin_y.to_bits(), "…on both axes");
+    assert_eq!(
+        probe.origin_y.to_bits(),
+        frame.origin_y.to_bits(),
+        "…on both axes"
+    );
     assert_eq!(probe.cells, frame.cells, "the cell count is the mesh's own");
     assert_eq!(probe.reach, frame.reach, "the reach is the mesh's own");
 }
@@ -127,12 +167,19 @@ fn the_solution_matches_a_hand_placed_frame() {
 fn the_tables_are_the_lengths_the_wire_declares() {
     let probe = session(11).mesh_probe().expect("a field to solve");
     let side = probe.side as usize;
-    assert!(probe.side.is_power_of_two(), "a radix-2 side is a power of two");
+    assert!(
+        probe.side.is_power_of_two(),
+        "a radix-2 side is a power of two"
+    );
     assert!((128..=1024).contains(&side), "the mesh's side clamp holds");
     assert_eq!(probe.twiddle_re.len(), side, "one twiddle per line sample");
     assert_eq!(probe.twiddle_im.len(), side, "…and one imaginary word each");
     assert_eq!(probe.spectrum_re.len(), side * side, "the spectrum is P·P");
-    assert_eq!(probe.spectrum_im.len(), side * side, "…and its imaginary half");
+    assert_eq!(
+        probe.spectrum_im.len(),
+        side * side,
+        "…and its imaginary half"
+    );
 }
 
 #[test]
@@ -144,12 +191,19 @@ fn the_graph_columns_are_the_collapsed_ones() {
     let mut seen: Vec<(u32, u32)> = Vec::with_capacity(m);
     for e in 0..m {
         let (lo, hi) = (probe.lo[e], probe.hi[e]);
-        assert!(lo < hi, "edge {e}: the lower endpoint is first, so no self-loop survives");
+        assert!(
+            lo < hi,
+            "edge {e}: the lower endpoint is first, so no self-loop survives"
+        );
         seen.push((lo, hi));
     }
     seen.sort_unstable();
     seen.dedup();
-    assert_eq!(seen.len(), m, "no two rows name the same pair, so none is duplicated");
+    assert_eq!(
+        seen.len(),
+        m,
+        "no two rows name the same pair, so none is duplicated"
+    );
 }
 
 #[test]
@@ -168,7 +222,10 @@ fn the_two_states_have_different_frames() {
 #[test]
 fn there_is_no_probe_without_a_field_to_solve() {
     let mut no_mesh = ForceSession::new(&topology(5), LiveParams::default()).expect("in range");
-    assert!(no_mesh.mesh_probe().is_none(), "a session that does not tick the mesh has no mesh to read");
+    assert!(
+        no_mesh.mesh_probe().is_none(),
+        "a session that does not tick the mesh has no mesh to read"
+    );
     // A zero reach is a *range* the live setter refuses, so the probe's own `None` arm for
     // it is reached through the frozen constructor, which checks finiteness only.
     let mut params = ForceParams::default();
@@ -176,9 +233,15 @@ fn there_is_no_probe_without_a_field_to_solve() {
     let mut no_field = ForceSession::from_frozen(&topology(5), &params)
         .expect("finite is the frozen acceptance path")
         .with_particle_mesh();
-    assert!(no_field.mesh_probe().is_none(), "a zero reach solves no field");
+    assert!(
+        no_field.mesh_probe().is_none(),
+        "a zero reach solves no field"
+    );
     no_mesh.step(1);
     no_field.step(1);
     assert!(no_mesh.mesh_probe().is_none(), "still no mesh after a tick");
-    assert!(no_field.mesh_probe().is_none(), "still no field after a tick");
+    assert!(
+        no_field.mesh_probe().is_none(),
+        "still no field after a tick"
+    );
 }

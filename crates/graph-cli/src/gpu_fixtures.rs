@@ -49,8 +49,14 @@ impl Cli {
     /// would write derived binaries somewhere nobody looks.
     pub fn run(self) -> ExitCode {
         match self {
-            Cli::EmitGpuFixtures { out: Some(dir), check: None } => write_all(&dir),
-            Cli::EmitGpuFixtures { out: None, check: Some(dir) } => check::all(&dir),
+            Cli::EmitGpuFixtures {
+                out: Some(dir),
+                check: None,
+            } => write_all(&dir),
+            Cli::EmitGpuFixtures {
+                out: None,
+                check: Some(dir),
+            } => check::all(&dir),
             Cli::EmitGpuFixtures { out: _, check: _ } => ExitCode::from(2),
         }
     }
@@ -113,4 +119,3 @@ fn one(n: u32, state: State, knobs: &mut emit::Knobs) -> Result<Case, String> {
     );
     Ok(Case { bytes, line })
 }
-
