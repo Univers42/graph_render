@@ -54,9 +54,16 @@ function planeBytes(side: number): number {
   return side * side * 8;
 }
 
-/** The per-node columns: the positions in, the increments out. */
+/**
+ * The per-node columns: the positions in, the increments out.
+ *
+ * Rounded up to a whole number of 256-node blocks, because `fold_block` reads `nodes[at]`
+ * *before* its `at < frame.n` guard — the guard is applied to the result, not the read — and
+ * the last block's `at` reaches `⌈n/256⌉·256 − 1`. The padding is read and discarded, and the
+ * buffer is `f32` so the extra nodes are zeroes, which the guard then skips.
+ */
 function nodeBytes(n: number): number {
-  return n * 8;
+  return Math.ceil(n / 256) * 256 * 8;
 }
 
 /** `⌈n/256⌉` boxes of four `f32`. */

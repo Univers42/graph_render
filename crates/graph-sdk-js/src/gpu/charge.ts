@@ -47,8 +47,10 @@ import { READ_WGSL } from "./kernels/read.wgsl.ts";
 import { ZERO_WGSL } from "./kernels/zero.wgsl.ts";
 import { loadFixture, scaleFor } from "./fixture.ts";
 import type { Fixture } from "./fixture.ts";
-import { compare, components, expectedUnits, maxAbsGuard, verdict } from "./bounds.ts";
+import { expectedUnits } from "./bounds.ts";
 import type { Arm } from "./bounds.ts";
+import { bumpDensity, readback, report } from "./readback.ts";
+import type { Ran } from "./readback.ts";
 import type {
   GPUBindGroup,
   GPUBuffer,
@@ -57,7 +59,6 @@ import type {
   GPUDevice,
   GpuHost,
 } from "./types.ts";
-import { GPUMapMode } from "./types.ts";
 
 /** What the charge arm needs from the host. No fault knob: the harness passes it separately. */
 export interface ChargeRequest {
@@ -126,12 +127,19 @@ export async function runCharge(request: ChargeRequest, fault?: string): Promise
     try {
       upload(device, buffers, fixture, code);
       const rig = build(device, buffers);
-      const first = await once(device, buffers, rig, fixture, false);
+      const first = await once(device, buffers, rig, fixture);
       if (repeat) {
-        bumpDensity(device, buffers, fixture);
+        bumpDensity(device, buffers);
       }
-      const second = await once(device, buffers, rig, fixture, repeat);
-      return report(fixture, first, second, code, marks, fallback);
+      const second = await once(device, buffers, rig, fixture);
+      return report(fixture, first, second, marks, fallback);
+    } finally {
+      destroy(buffers);
+    }
+  } finally {
+    device.destroy();
+  }
+}
     } finally {
       destroy(buffers);
     }
@@ -271,18 +279,21 @@ function build(device: GPUDevice, buffers: Buffers): Rig {
   const read = pipeline(device, READ_WGSL, "read_field", "read");
   const frame = buffers.frame;
   const nodes = buffers.nodes;
-  // The bindings a pipeline's `auto` layout actually declared, in binding order. A group is
-  // built from the buffers the shader reads and nothing else: `layout: "auto"` derives the
-  // layout from the entry point's used bindings, so a group carrying an entry the entry point
-  // does not use is a validation error, not a harmless extra.
-  const binding = (pipe: GPUComputePipeline, ...buffers: readonly GPUBuffer[]): GPUBindGroup => {
-    const entries = buffers.map((buffer, index) => ({ binding: index, resource: { buffer } }));
-    return device.createBindGroup({
+  // One bind group per pipeline, with the binding numbers the shader declares and not the
+  // position in the argument list. `layout: "auto"` derives a pipeline's layout from the
+  // bindings its entry point *uses*, so a group must carry exactly those: an entry the entry
+  // point does not use is a validation error, not a harmless extra, and a gap in the numbering
+  // is a different error again. `fold_extent` and `widen_density` skip `nodes`, so their
+  // groups are written out with the numbers the WGSL gives them.
+  const binding = (
+    pipe: GPUComputePipeline,
+    entries: readonly (readonly [number, GPUBuffer])[],
+  ): GPUBindGroup =>
+    device.createBindGroup({
       label: pipe.label ?? "bind",
       layout: pipe.getBindGroupLayout(0),
-      entries,
+      entries: entries.map(([index, buffer]) => ({ binding: index, resource: { buffer } })),
     });
-  };
   const passUniform = (index: number): GPUBuffer => {
     const buffer = buffers.framePass[index];
     if (buffer === undefined) {
@@ -298,18 +309,18 @@ function build(device: GPUDevice, buffers: Buffers): Rig {
     widen,
     fft,
     read,
-    zeroBind: binding(zero, frame, buffers.density),
-    blockBind: binding(bounds, frame, nodes, buffers.boxes),
-    extentBind: binding(extent, frame, nodes, buffers.boxes, buffers.extent),
-    depositBind: binding(deposit, frame, nodes, buffers.density),
-    widenBind: binding(widen, frame, buffers.density, buffers.field),
+    zeroBind: binding(zero, [[0, frame], [1, buffers.density]]),
+    blockBind: binding(bounds, [[0, frame], [1, nodes], [2, buffers.boxes]]),
+    extentBind: binding(extent, [[0, frame], [2, buffers.boxes], [3, buffers.extent]]),
+    depositBind: binding(deposit, [[0, frame], [1, nodes], [2, buffers.density]]),
+    widenBind: binding(widen, [[0, frame], [2, buffers.density], [3, buffers.field]]),
     fftBind: [
-      binding(fft, passUniform(0), buffers.gain, buffers.field, buffers.scratch, buffers.twiddle),
-      binding(fft, passUniform(1), buffers.gain, buffers.scratch, buffers.field, buffers.twiddle),
-      binding(fft, passUniform(2), buffers.gain, buffers.field, buffers.scratch, buffers.twiddle),
-      binding(fft, passUniform(3), buffers.gain, buffers.scratch, buffers.field, buffers.twiddle),
+      binding(fft, [[0, passUniform(0)], [1, buffers.gain], [2, buffers.field], [3, buffers.scratch], [4, buffers.twiddle]]),
+      binding(fft, [[0, passUniform(1)], [1, buffers.gain], [2, buffers.scratch], [3, buffers.field], [4, buffers.twiddle]]),
+      binding(fft, [[0, passUniform(2)], [1, buffers.gain], [2, buffers.field], [3, buffers.scratch], [4, buffers.twiddle]]),
+      binding(fft, [[0, passUniform(3)], [1, buffers.gain], [2, buffers.scratch], [3, buffers.field], [4, buffers.twiddle]]),
     ],
-    readBind: binding(read, frame, nodes, buffers.field, buffers.delta),
+    readBind: binding(read, [[0, frame], [1, nodes], [2, buffers.field], [3, buffers.delta]]),
   };
 }
 
@@ -340,16 +351,12 @@ function groupsFor(count: number): number {
 }
 
 /** One full pass: clear, fold, deposit, widen, four transforms, read. Then the read-back. */
-async function once(
-  device: GPUDevice,
-  buffers: Buffers,
-  rig: Rig,
-  fixture: Fixture,
-  second: boolean,
-): Promise<Ran> {
+async function once(device: GPUDevice, buffers: Buffers, rig: Rig, fixture: Fixture): Promise<Ran> {
   const { n, side } = fixture;
   const plane = groupsFor(side * side);
   const nodes = groupsFor(n);
+  const planeBytes = side * side * 4;
+  const nodeBytes = n * 8;
   const encoder = device.createCommandEncoder();
   // zero_density: the clear is its own dispatch, never the deposit reading what was there.
   let pass = encoder.beginComputePass();
@@ -381,158 +388,10 @@ async function once(
   pass = encoder.beginComputePass();
   dispatch(pass, rig.read, rig.readBind, nodes);
   pass.end();
-  const planeBytes = side * side * 4;
-  const nodeBytes = n * 8;
   encoder.copyBufferToBuffer(buffers.density, 0, buffers.read.density, 0, planeBytes);
   encoder.copyBufferToBuffer(buffers.delta, 0, buffers.read.delta, 0, nodeBytes);
   encoder.copyBufferToBuffer(buffers.extent, 0, buffers.read.extent, 0, 16);
   device.queue.submit([encoder.finish()]);
-  // The repeat fault compares bytes, and the second run's bytes are read after the bump the
-  // harness wrote between the two runs — so `second` only decides whether the density it
-  // returns is expected to differ, not whether it is read differently.
-  const ran = await readback(buffers, planeBytes, nodeBytes, n);
-  void second;
-  return ran;
+  return readback(buffers, planeBytes, nodeBytes);
 }
 
-/** Maps the three read-back buffers and copies their bytes out. */
-async function readback(buffers: Buffers, planeBytes: number, nodeBytes: number, n: number): Promise<Ran> {
-  await Promise.all([
-    buffers.read.density.mapAsync(GPUMapMode.READ),
-    buffers.read.delta.mapAsync(GPUMapMode.READ),
-    buffers.read.extent.mapAsync(GPUMapMode.READ),
-  ]);
-  const density = new Int32Array(buffers.read.density.getMappedRange().slice(0));
-  const delta = new Float32Array(buffers.read.delta.getMappedRange().slice(0, nodeBytes));
-  const extent = new Float32Array(buffers.read.extent.getMappedRange().slice(0));
-  buffers.read.density.unmap();
-  buffers.read.delta.unmap();
-  buffers.read.extent.unmap();
-  void planeBytes;
-  void n;
-  return { density, delta, extent };
-}
-
-/**
- * The `--break repeat` fault: `+1` into one density cell, after the first run's deposit and
- * before the second run's forward transform.
- *
- * It is a host-side write rather than a kernel because it must land between two runs of the
- * whole pass; a uniform could not, since the second run overwrites it.
- */
-function bumpDensity(device: GPUDevice, buffers: Buffers, fixture: Fixture): void {
-  device.queue.writeBuffer(buffers.density, 0, new Int32Array([1]));
-  void fixture;
-}
-
-/** Whether the two runs' bytes are equal, and the comparator's numbers against them. */
-function report(
-  fixture: Fixture,
-  first: Ran,
-  second: Ran,
-  faultCode: number,
-  marks: string,
-  fallback: boolean,
-): ChargeReport {
-  const reference = components(fixture.delta.charge.x, fixture.delta.charge.y);
-  const measured = compare({ got: second.delta, reference });
-  const deposited = depositedUnits(second.density);
-  const repeatEqual = sameBytes(first.density, second.density) && sameBytes(first.delta, second.delta);
-  const boundsExact = extentMatches(first.extent, fixture);
-  const verdicted = verdict({
-    n: fixture.n,
-    state: fixture.state,
-    arm: "hardware",
-    h: fixture.h,
-    rmsRel: measured.rmsRel,
-    maxAbs: measured.maxAbs,
-    depositedUnits: deposited,
-    repeatEqual,
-    boundsExact,
-  });
-  void faultCode;
-  return {
-    n: fixture.n,
-    state: fixture.state,
-    side: fixture.side,
-    rmsAbs: measured.rmsAbs,
-    rmsRef: measured.rmsRef,
-    rmsRel: measured.rmsRel,
-    maxAbs: measured.maxAbs,
-    depositedUnits: deposited,
-    repeatEqual,
-    boundsExact,
-    pass: verdicted.pass,
-    failures: verdicted.failures,
-    marks,
-    fallback,
-    maxAbsGuard: fixture.n === 1_000_000 ? maxAbsGuard(fixture.h) : 0,
-  };
-}
-
-/** `Σ density` over the whole buffer, in `f64` so the total is exact at 1M. */
-function depositedUnits(density: Int32Array): number {
-  let total = 0;
-  for (let k = 0; k < density.length; k += 1) {
-    total += density[k] ?? 0;
-  }
-  return total;
-}
-
-/** Byte equality of two typed arrays, not numeric equality — the point of the repeat check. */
-function sameBytes(left: Int32Array | Float32Array, right: Int32Array | Float32Array): boolean {
-  if (left.length !== right.length) {
-    return false;
-  }
-  const a = new Uint8Array(left.buffer, left.byteOffset, left.byteLength);
-  const b = new Uint8Array(right.buffer, right.byteOffset, right.byteLength);
-  for (let k = 0; k < a.length; k += 1) {
-    if (a[k] !== b[k]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * `boundsExact`: the device's `f32` min/max equal the host's, bit for bit.
- *
- * The host's are taken over `Math.fround` of the same fixture positions, so this measures the
- * *narrowing and the fold*, not whether the CPU's `f64` bounds would survive `f32` — that is a
- * different question and one this tier does not answer. The comparison is on `Uint32` views of
- * the two `Float32Array`s, so `-0.0` against `+0.0` is a difference, which is what "bit for bit"
- * has to mean here.
- */
-function extentMatches(got: Float32Array, fixture: Fixture): boolean {
-  const host = hostExtent(fixture);
-  const mine = new Uint32Array(got.buffer, got.byteOffset, 4);
-  const theirs = new Uint32Array(host.buffer, host.byteOffset, 4);
-  for (let k = 0; k < 4; k += 1) {
-    if (mine[k] !== theirs[k]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/** `(min x, min y, max x, max y)` over `Math.fround` of the fixture's positions. */
-function hostExtent(fixture: Fixture): Float32Array {
-  let loX = Number.POSITIVE_INFINITY;
-  let loY = Number.POSITIVE_INFINITY;
-  let hiX = Number.NEGATIVE_INFINITY;
-  let hiY = Number.NEGATIVE_INFINITY;
-  for (let k = 0; k < fixture.n; k += 1) {
-    const x = Math.fround(fixture.posX[k] ?? 0);
-    const y = Math.fround(fixture.posY[k] ?? 0);
-    if (x < loX) loX = x;
-    if (y < loY) loY = y;
-    if (x > hiX) hiX = x;
-    if (y > hiY) hiY = y;
-  }
-  return Float32Array.from([loX, loY, hiX, hiY]);
-}
-
-/** The exact total a fixture must deposit, for the report's own cross-check. */
-export function expectedTotal(n: number): number {
-  return expectedUnits(n);
-}
