@@ -6,27 +6,9 @@
 
 use axum::body::Body;
 
+pub use crate::support::fixtures::epoch_of;
 use crate::support::fixtures::{MANIFEST, batch, ready};
 use crate::support::{Hub, Reply};
-
-/// The workspace's own epoch, as `GET /v1/workspaces` publishes it.
-///
-/// WHY the listing and not `/graph`: an epoch is drawn by the database's clock (`hub_next_epoch`,
-/// microseconds), so a fixture cannot name one and must read it. The listing answers from the
-/// workspace row alone, where `/graph` reads the change log — which matters for
-/// `changes_returns_410_for_a_cursor_below_what_is_kept`, which has just emptied that log.
-pub async fn epoch_of(hub: &Hub, ws: &str) -> String {
-    let reply = hub.get_with("/v1/workspaces").await;
-    assert_eq!(reply.code(), 200, "{}", reply.body());
-    let value: serde_json::Value = serde_json::from_str(&reply.body()).expect("a JSON list");
-    let row = value["workspaces"]
-        .as_array()
-        .expect("a workspaces array")
-        .iter()
-        .find(|row| row["id"] == ws)
-        .unwrap_or_else(|| panic!("the listing holds {ws}"));
-    row["epoch"].as_u64().expect("an epoch").to_string()
-}
 
 /// A workspace with `count` records, which is the fixture every read case starts from.
 pub async fn loaded(hub: &Hub, ws: &str, plugin: &str, count: usize) {
