@@ -142,17 +142,17 @@ fn check_finite(case: &Case<'_>, dx: &[f64], dy: &[f64]) -> Result<(), String> {
     let probe = case.probe;
     finite("positions", case.xs.iter().chain(case.ys))?;
     for (name, column) in [
-        ("strength", &probe.strength),
-        ("twiddles", &probe.twiddle_re),
-        ("twiddles", &probe.twiddle_im),
-        ("spectrum", &probe.spectrum_re),
-        ("spectrum", &probe.spectrum_im),
-        ("link", &probe.link_dx),
-        ("link", &probe.link_dy),
+        ("strength", probe.strength.as_slice()),
+        ("twiddles", probe.twiddle_re.as_slice()),
+        ("twiddles", probe.twiddle_im.as_slice()),
+        ("spectrum", probe.spectrum_re.as_slice()),
+        ("spectrum", probe.spectrum_im.as_slice()),
+        ("link", probe.link_dx.as_slice()),
+        ("link", probe.link_dy.as_slice()),
         ("charge", dx),
         ("charge", dy),
-        ("collide", &probe.collide_dx),
-        ("collide", &probe.collide_dy),
+        ("collide", probe.collide_dx.as_slice()),
+        ("collide", probe.collide_dy.as_slice()),
     ] {
         finite(name, column.iter())?;
     }

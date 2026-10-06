@@ -35,7 +35,13 @@ pub fn all(dir: &Path) -> ExitCode {
     };
     let mut worst: u8 = 0;
     for (name, n, state) in names {
-        worst = worst.max(compare_one(dir, &name, n, state, &mut knobs));
+        let want = Wanted {
+            dir,
+            name: &name,
+            n,
+            state,
+        };
+        worst = worst.max(compare_one(want, &mut knobs));
     }
     ExitCode::from(worst)
 }
@@ -143,5 +149,11 @@ fn report(path: &Path, stored: &[u8], produced: &[u8]) -> u8 {
 /// disagree about what a case is.
 fn produced(n: u32, state: State, knobs: &mut Knobs) -> Result<Vec<u8>, String> {
     let (session, probe) = settle::case(n, state)?;
-    emit::write(&probe, session.xs(), session.ys(), state, knobs)
+    let case = emit::Case {
+        probe: &probe,
+        xs: session.xs(),
+        ys: session.ys(),
+        state,
+    };
+    emit::write(&case, knobs)
 }

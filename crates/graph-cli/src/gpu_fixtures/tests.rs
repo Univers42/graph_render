@@ -26,8 +26,13 @@ fn written(n: u32, state: State) -> (Vec<u8>, Vec<u32>, Vec<f64>) {
 /// The same, with a deliberate fault switched on.
 fn written_with(n: u32, state: State, knobs: &mut emit::Knobs) -> (Vec<u8>, Vec<u32>, Vec<f64>) {
     let (session, probed) = probe(n);
-    let bytes = emit::write(&probed, session.xs(), session.ys(), state, knobs)
-        .expect("the probe's columns are finite");
+    let case = emit::Case {
+        probe: &probed,
+        xs: session.xs(),
+        ys: session.ys(),
+        state,
+    };
+    let bytes = emit::write(&case, knobs).expect("the probe's columns are finite");
     let words = emit::header_words(&bytes);
     let reals = emit::header_reals(&bytes);
     (bytes, words, reals)
@@ -63,8 +68,8 @@ fn a_written_fixture_round_trips() {
 
 #[test]
 fn the_header_carries_the_state_and_the_rung() {
-    let (_, start_words, start_reals) = written(N, State::Start);
-    let (_, settled_words, settled_reals) = written(N, State::Settled);
+    let (_, start_words, _) = written(N, State::Start);
+    let (_, settled_words, _) = written(N, State::Settled);
     assert_eq!(start_words[6], 0, "start is state 0");
     assert_eq!(settled_words[6], 1, "settled is state 1");
     assert_eq!(
@@ -84,27 +89,32 @@ fn the_header_carries_the_state_and_the_rung() {
         Some(State::Settled),
         "the name names its state"
     );
-    // The two states carry independent frames, and the rung ladder is a quarter octave, so
-    // the cell size is `2^(step/4)` exactly. This asserts the relation per file rather than
-    // that the two files differ: at 64 nodes 100 ticks need not cross a rung, and the
-    // graph-core test `the_two_states_have_different_frames` is where a crossing is pinned.
-    for reals in [&start_reals, &settled_reals] {
-        assert!(reals[0] > 0.0, "each file carries a positive cell size");
-    }
-    // The rung is not a multiple of four: `frame::place` starts at
-    // `floor(4 * log2(span / side))` and climbs by one until the frame fits, so the cell
-    // size is `2^(step/4)` and `step` itself is whatever integer rung that landed on.
-    for (words, reals) in [
-        (&start_words, &start_reals),
-        (&settled_words, &settled_reals),
-    ] {
-        let step = f64::from(words[8] as i32);
-        assert_eq!(
-            reals[0],
-            libm::exp2(step / 4.0),
-            "h is the rung's own 2^(step/4)"
-        );
-    }
+}
+
+/// The rung word and the cell size it implies, as a pair the header's own words give. The
+/// rung is **not** a multiple of four: `frame::place` starts at
+/// `floor(4 * log2(span / side))` and climbs by one until the frame fits, so `h` is
+/// `2^(step/4)` and `step` is whatever integer rung that landed on.
+fn rung_and_h(words: &[u32], reals: &[f64]) -> (i32, f64) {
+    let step = words[8] as i32;
+    assert!(reals[0] > 0.0, "each file carries a positive cell size");
+    assert_eq!(
+        reals[0],
+        libm::exp2(f64::from(step) / 4.0),
+        "h is the rung's own 2^(step/4)"
+    );
+    (step, reals[0])
+}
+
+#[test]
+fn each_state_carries_its_own_frame() {
+    // Asserted per file, and not that the two files differ: at 64 nodes 100 ticks need not
+    // cross a rung. `the_two_states_have_different_frames` in graph-core is where a crossing
+    // is pinned, on a model large enough to cross one.
+    let (_, start_words, start_reals) = written(N, State::Start);
+    let (_, settled_words, settled_reals) = written(N, State::Settled);
+    let _ = rung_and_h(&start_words, &start_reals);
+    let _ = rung_and_h(&settled_words, &settled_reals);
 }
 
 #[test]
@@ -122,13 +132,13 @@ fn no_column_holds_a_non_finite_value() {
         assert!(column.iter().all(|v| v.is_finite()), "{name} is all finite");
     }
     probed.charge_dy[0] = f64::NAN;
-    let refused = emit::write(
-        &probed,
-        session.xs(),
-        session.ys(),
-        State::Start,
-        &mut emit::Knobs::none(),
-    );
+    let case = emit::Case {
+        probe: &probed,
+        xs: session.xs(),
+        ys: session.ys(),
+        state: State::Start,
+    };
+    let refused = emit::write(&case, &mut emit::Knobs::none());
     let refusal = refused.expect_err("a non-finite column is a refusal, not a written byte");
     assert!(
         refusal.contains("finite"),
@@ -136,18 +146,12 @@ fn no_column_holds_a_non_finite_value() {
     );
 }
 
-#[test]
-fn every_integer_on_the_wire_is_u32() {
-    // The rule is about *integers on the wire*, so what is forbidden is a width no field
-    // may have. Two names are not fields and are exempt by name, each for its reason:
-    // `u8` is the element type of the byte buffer and of the four magic bytes, and
-    // `HEADER_LEN` is a `usize` because it indexes a `Vec<u8>` in Rust and is never
-    // written. Every integer *field* is `u32`; `i32` appears once, in `rung_word`, as the
-    // two's-complement cast the rung needs, and the wire still receives a `u32`.
-    // Only the writer half of the file is scanned — everything above the marker the writer
-    // names. The two `u32_at`/`f64_at` readers below it take `usize` offsets because they
-    // index a `Vec<u8>`, and they read rather than write, so D6 does not reach them.
-    const EXEMPT: &str = "pub const HEADER_LEN: usize = 64;";
+/// The writer's half of `emit.rs`: everything above the marker the writer itself names.
+///
+/// Only the writer half is in scope. The two `u32_at`/`f64_at` readers below the marker take
+/// `usize` offsets because they index a `Vec<u8>`, and they read rather than write, so D6
+/// does not reach them.
+fn writer_source() -> &'static str {
     const MARKER: &str = "// END OF THE WRITER";
     let source = include_str!("emit.rs");
     let writer = source.split_once(MARKER).map_or(source, |(head, _)| head);
@@ -159,12 +163,28 @@ fn every_integer_on_the_wire_is_u32() {
         source.len() > writer.len(),
         "and the readers are below the marker"
     );
-    for (at, line) in writer.lines().enumerate() {
+    writer
+}
+
+/// The integer widths a wire field may never have. `usize`/`isize` are the machine words D6
+/// exists to keep off a wire, and the 16- and 64-bit types are widths the format does not
+/// use at all. `u8` is absent because it is not an integer here — it is the element type of
+/// the byte buffer and of the four magic bytes, neither of which is a field.
+const FORBIDDEN: [&str; 6] = ["usize", "isize", "u64", "u16", "i64", "i16"];
+
+#[test]
+fn no_integer_width_but_u32_reaches_the_wire() {
+    // `HEADER_LEN` is a `usize` because it indexes a `Vec<u8>` in Rust and is never written,
+    // so it is exempt by name. Every integer *field* is `u32`; `i32` appears once, in
+    // `rung_word`, as the two's-complement cast the rung needs, and the wire still receives
+    // a `u32`.
+    const EXEMPT: &str = "pub const HEADER_LEN: usize = 64;";
+    for (at, line) in writer_source().lines().enumerate() {
         let code = line.split("//").next().unwrap_or(line).trim();
         if code == EXEMPT {
             continue;
         }
-        for bad in ["usize", "isize", "u64", "u16", "i64", "i16"] {
+        for bad in FORBIDDEN {
             assert!(
                 !code.contains(bad),
                 "emit.rs:{} names {bad}, and only u32 goes on the wire: {line}",
@@ -172,7 +192,14 @@ fn every_integer_on_the_wire_is_u32() {
             );
         }
     }
-    // And the two functions that put integers on the wire take `u32` and nothing else.
+}
+
+/// The writers themselves: the two that put integers on the wire take `u32` and nothing
+/// else, and the two that put floats take `f64`. This is the positive half of the width
+/// rule — the grep above says no *other* width appears, this says the right ones do.
+#[test]
+fn the_two_writers_of_each_width_take_that_width() {
+    let source = writer_source();
     let puts: Vec<&str> = source
         .lines()
         .filter(|l| l.trim_start().starts_with("fn put_u"))
