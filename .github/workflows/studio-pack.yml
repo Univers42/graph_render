@@ -118,7 +118,9 @@ jobs:
       - name: Byte-identical to the commit's own studio-pack.sh
         run: |
           git worktree add --detach "$RUNNER_TEMP/upstream" "$COMMIT"
-          "$RUNNER_TEMP/upstream/scripts/studio-pack.sh" target/pack
+          # From inside the worktree: scripts/orch/gr mounts the cwd's git top-level, not the
+          # script's, so run from the main checkout it built main's tree (run 37690199241).
+          cd "$RUNNER_TEMP/upstream" && scripts/studio-pack.sh target/pack
           packs=("$RUNNER_TEMP"/upstream/target/pack/graph-studio-*/)
           ((${#packs[@]} == 1)) || { echo "::error::expected one pack directory, got ${packs[*]}"; exit 1; }
           diff -r "${packs[0]}" "$RUNNER_TEMP/pack-a"
