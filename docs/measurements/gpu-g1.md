@@ -223,6 +223,81 @@ back a spectrum for a frame the convolution never ran on.
 settle runs on it: 333 s for all eight files. That is a generator's cost, paid once per gate
 run, and not a tick's.
 
+## G1b — the charge pass, measured
+
+The browser runs the particle mesh's charge pass — bounds, deposit, the FFT with the kernel, the
+field read — and matches the CPU's own per-node velocity increments, the `.gmfx` fixtures G1a
+landed. The gate is `docs/decisions/gpu-force-tier.md:74`: "rms bound, repeat equal,
+broken-butterfly control red". The dispatch mirrors `mesh.rs:151-215` operation for operation:
+bounds, deposit, then `Fft::forward` (`fft.rs:107-113`: rows over `cells`, columns over `side`)
+and `Fft::inverse` (`fft.rs:119-126`: rows over `side` with the kernel multiply, columns over
+`cells`), then the CIC read scaled by `charge·alpha`.
+
+### The two arms
+
+| arm | adapter | vendor/architecture | fallback |
+|---|---|---|---|
+| hardware | AMD RX 6600 (RADV) | amd/rdna-2 | false |
+| software | SwiftShader | google/swiftshader | true |
+
+### The measured ceilings
+
+`bounds.ts` holds one table keyed by `(arm, n, state)`. Each row is the measured `rmsRel` and
+`maxAbs` rounded **up** to two significant digits, so a later run of the same arm on the same
+device sits at or under its own row. The arm is held to its own row.
+
+| arm | n | state | rmsRel | maxAbs | rmsRef | depositedUnits | wallMs |
+|---|---|---|---|---|---|---|---|
+| hardware | 1000 | start | 1.4533e-07 | 7.62939e-05 | 99.3811 | 2097152000 | 13.4 |
+| hardware | 1000 | settled | 3.1431e-07 | 3.43323e-05 | 21.4479 | 2097152000 | 13.9 |
+| hardware | 10000 | start | 4.40041e-07 | 0.000152588 | 66.8159 | 1310720000 | 16.6 |
+| hardware | 10000 | settled | 5.99767e-07 | 0.000106812 | 38.2461 | 1310720000 | 53.1 |
+| hardware | 50000 | start | 2.31603e-06 | 0.000492096 | 45.0539 | 1638400000 | 23.7 |
+| hardware | 50000 | settled | 2.25643e-06 | 0.000620037 | 53.8775 | 1638400000 | 21.7 |
+| hardware | 1000000 | start | 7.48186e-05 | 0.00897522 | 21.3442 | 2048000000 | 237.2 |
+| hardware | 1000000 | settled | 3.64338e-05 | 0.0235653 | 108.145 | 2048000000 | 196.7 |
+| software | 1000 | start | 1.8763e-07 | 7.62939e-05 | 99.3811 | 2097152000 | 676.9 |
+| software | 1000 | settled | 3.80306e-07 | 4.57764e-05 | 21.4479 | 2097152000 | 674.8 |
+| software | 10000 | start | 4.5318e-07 | 0.000167847 | 66.8159 | 1310720000 | 678.0 |
+| software | 10000 | settled | 6.02914e-07 | 0.000120163 | 38.2461 | 1310720000 | 656.2 |
+| software | 50000 | start | 2.31441e-06 | 0.000495911 | 45.0539 | 1638400000 | 794.0 |
+| software | 50000 | settled | 2.22571e-06 | 0.000598907 | 53.8775 | 1638400000 | 798.6 |
+
+The 1M software rows were not run.
+
+### The guards
+
+Two guards, both derived, and a breach of either is a stop, not a re-tune.
+
+- `rmsRel ≤ 1e-4` at every fixture. That is 1.5 orders of magnitude under the mesh's own best
+  error against the exact all-pairs sum, `3.6e-3` rms.
+- At the two 1M fixtures, the `maxAbs` guard. The old guard was
+  `|charge| · (2⁻¹¹/√3) / h²` — `4.96e-5` settled, `3.50e-5` start — and the kernel breached it
+  476× and 256×. Amendment 2 (`docs/decisions/gpu-g1.md`) re-derived it as
+  `|charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6`, with `‖g‖₂ = P · ‖spectrum‖₂` from the fixture's own
+  spectrum section. The propagation factor is the kernel's 2-norm, not `1/h²` (about 100×
+  smaller), and the peak factor `6` is `√(2·ln 2n)` = 5.39 at n = 1e6, rounded up. That gives
+  `3.17e-2` settled (`‖g‖₂` 0.2085) and `2.61e-2` start (`‖g‖₂` 0.1712). The kernel sits under
+  both, by 1.34× and 2.9×.
+
+Caveat: these are one device's numbers on one driver stack. A driver update re-measures them; it
+does not widen them. The per-arm rows are the decision: a software adapter's `f32` is the same
+`f32`, but its reassociation and its transcendentals are not the hardware's, and the record's
+claim is per-device repeatability, not cross-device equality.
+
+### The controls
+
+Each control must be caught by its own check (exit 3 and the named failure), not by a crash.
+
+| control | fault | exit | named failure |
+|---|---|---|---|
+| negctl-butterfly | butterfly | 3 | rms |
+| negctl-deposit | deposit | 3 | rms |
+| negctl-repeat | repeat | 3 | repeat |
+| negctl-weight | weight | 3 | deposit |
+| negctl-bounds | bounds | 3 | bounds |
+| negctl-no-device | (none — `GM_GPU_BREAK=1`) | 3 | refusal: software adapter |
+
 ## G1c — the link pass, measured
 
 The link pass on the device (`crates/graph-sdk-js/src/gpu/link.ts`, kernel
@@ -416,3 +491,81 @@ is the hash, the scan, the scatter's order, the reads, the push and the sum. The
 breach on `mesh-1k-settled` was not a defect in that transcription — the `f32` reference reproduces
 it — it was the relative-only guard being too tight for a fixture whose reference is near zero; the
 mixed guard (Amendment 1) absorbs it, and all six fixtures pass on both arms.
+
+## G1c — the 1M rows and the collide floor
+
+Amendment 3 (`docs/decisions/gpu-g1.md`) adds the collide guard's input floor: the device narrows
+every position to `f32` before it hashes or resolves, and that rounding scales with the coordinate
+extent, not with the collide radius, so Amendment 1's `P = reach / 2` scale missed it. The guard
+becomes `rmsAbs ≤ floorRms + 1e-4 · rmsRef + k_c · 5 · 2⁻²³ · P`, relative form
+`1e-4 + (floorRms + k_c · 5 · 2⁻²³ · P) / rmsRef`. `floorRms` is measured on the host in `f64` with
+the grid the device sorts with, as `k_c` already is.
+
+### The orchestrator's 1M measurement (hardware, `amd/rdna-2`, 2026-10-06)
+
+| pass | fixture | rmsAbs | rmsRef | rmsRel | maxAbs |
+|---|---|---:|---:|---:|---:|
+| link | `mesh-1m-settled` | 1.51605e-5 | 145.159 | 1.04441e-7 | 9.76562e-4 |
+| link | `mesh-1m-start` | 5.95736e-5 | 801.34 | 7.43424e-8 | 4.88281e-4 |
+| collide | `mesh-1m-settled` | 6.75245e-4 | 36.1809 | 1.8663e-5 | 0.209986 |
+| collide | `mesh-1m-start` | 2.39858e-4 | 0.319593 | 7.505127e-4 | 1.61097e-3 |
+
+Link passes both 1M fixtures. Collide passes `mesh-1m-settled` and, with the floor, now passes
+`mesh-1m-start`: at `floorRms = 0` its Amendment-1 guard is 3.387e-4 against the measured `rmsRel`
+7.505e-4, and at its own floor 2.399e-4 the guard is 1.089e-3, which the arm sits under.
+
+### The host floor against the numpy (b) column
+
+`harness/gpu-collide-host.mjs` runs the CPU's `resolve` in `f64` over every emitted fixture and
+prints the reproduction maxAbs, the floor, `k_c` and `rmsRef`. The floor is `collideFloor`: the rms
+of `hostCollide` on the `f32`-narrowed positions against `hostCollide` on the `f64` positions.
+
+| fixture | host `floorRms` | numpy (b) | `k_c` | reproduce maxAbs |
+|---|---:|---:|---:|---:|
+| `mesh-1k-start` | 6.89323e-6 | 6.893e-6 | 8 | 0 |
+| `mesh-1k-settled` | 3.86507e-6 | — | 4 | 0 |
+| `mesh-10k-start` | 2.15591e-5 | — | 8 | 0 |
+| `mesh-10k-settled` | 1.83955e-5 | — | 9 | 0 |
+| `mesh-50k-start` | 5.42625e-5 | 5.426e-5 | 8 | 0 |
+| `mesh-50k-settled` | 7.26989e-5 | — | 23 | 0 |
+| `mesh-1m-start` | 2.39858e-4 | 2.399e-4 | 8 | 1.78e-15 |
+| `mesh-1m-settled` | 6.75210e-4 | 6.752e-4 | 119 | 5.68e-14 |
+
+The host floor matches the numpy (b) column to three significant figures at every fixture the
+numpy analysis ran, and `k_c` matches (8, 8, 8, 119). Every reproduction is under
+`1e-12 · max(1, max|reference|)`, so the transcription is right.
+
+### The new guard per fixture
+
+`1e-4 + (floorRms + k_c · 5 · 2⁻²³ · 16) / rmsRef`, with each fixture's own `floorRms`, `k_c` and
+`rmsRef`:
+
+| fixture | `k_c` | `floorRms` | `rmsRef` | guard |
+|---|---:|---:|---:|---:|
+| `mesh-1k-start` | 8 | 6.89e-6 | 1.72612 | 1.48e-4 |
+| `mesh-1k-settled` | 4 | 3.86e-6 | 0.007189 | 5.94e-3 |
+| `mesh-10k-start` | 8 | 2.15e-5 | 1.00834 | 1.97e-4 |
+| `mesh-10k-settled` | 9 | 1.83e-5 | 2.6824 | 1.39e-4 |
+| `mesh-50k-start` | 8 | 5.42e-5 | 0.67192 | 2.94e-4 |
+| `mesh-50k-settled` | 23 | 7.26e-5 | 9.91163 | 1.35e-4 |
+| `mesh-1m-start` | 8 | 2.39e-4 | 0.319593 | 1.09e-3 |
+| `mesh-1m-settled` | 119 | 6.75e-4 | 36.1809 | 1.50e-4 |
+
+Caveat: `k_c` and `floorRms` are the fixture's own, from one start, as Amendment 3 states. Another
+seed's are recomputed, never carried over.
+
+### The rows
+
+`bounds-collide.ts` gains `hardware:1000000:0` and `hardware:1000000:1` from the table above
+(`rmsRel` and `maxAbs` rounded up to two significant digits; `k_c`, `rmsRef` and `floorRms` from the
+host run), and every existing row gains its `floorRms` rounded down to three significant digits.
+`bounds-link.ts` gains the two 1M link rows the same way, with `k = 173` from `measuredK` on the
+1M fixtures.
+
+| arm | `n` | state | ceiling `rmsRel` | ceiling `maxAbs` | `k_c` | `floorRms` | guard | verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| hardware | 1 000 000 | 0 | 7.6e-4 | 1.7e-3 | 8 | 2.39e-4 | 1.09e-3 | PASS |
+| hardware | 1 000 000 | 1 | 1.9e-5 | 0.21 | 119 | 6.75e-4 | 1.50e-4 | PASS |
+
+The 1M GPU rows themselves are the orchestrator's (`gpu-g1c-floor-1m.rows`); this slice fills the
+ceiling rows and the guard from the host run and the orchestrator's table.

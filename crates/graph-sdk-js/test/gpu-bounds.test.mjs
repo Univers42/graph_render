@@ -17,6 +17,7 @@ import {
   ceilings,
   compare,
   expectedUnits,
+  kernelNorm,
   maxAbsGuard,
   verdict,
 } from "../src/gpu/bounds.ts";
@@ -26,8 +27,8 @@ const CLEAN = {
   n: 10_000,
   state: 0,
   arm: "hardware",
-  h: 26.908685288118864,
-  rmsRel: 1e-6,
+  kernelNorm: 0.2,
+  rmsRel: 1e-7,
   maxAbs: 1e-9,
   depositedUnits: expectedUnits(10_000),
   repeatEqual: true,
@@ -71,18 +72,42 @@ test("every_ceiling_sits_under_its_guard", () => {
     );
     const at1m = key.includes(":1000000:");
     if (at1m) {
-      // The 1M guard is per-fixture because the two 1M files have different frames, so the
-      // arm's ceiling is checked against the guard for the h it was measured at. The settled
-      // file's h is 22.627 and the start file's is 26.909, and the tighter h gives the looser
-      // guard, so the start file's is the one that binds.
-      const h = key.endsWith(":0") ? 26.908685288118864 : 22.627416997969522;
-      const guard = maxAbsGuard(h);
+      // The 1M guard is per-fixture because the two 1M files have different spectra, so the
+      // arm's ceiling is checked against the guard for the kernel norm it was measured at.
+      // Amendment 2 derives ‖g‖₂ = P·‖spectrum‖₂ as 0.1712 start and 0.2085 settled, and the
+      // guard is |charge·alpha|·(2⁻¹¹/√3)·‖g‖₂·6 — 2.61e-2 start, 3.17e-2 settled.
+      const norm = key.endsWith(":0") ? 0.1712 : 0.2085;
+      const guard = maxAbsGuard(norm);
       assert.ok(
         row.maxAbs <= guard,
         `${key}: measured maxAbs ${row.maxAbs} is over the derived 1M guard ${guard}`,
       );
     }
   }
+});
+
+test("the_charge_guard_reads_the_kernel_norm", () => {
+  // Amendment 2's guard: |charge·alpha|·(2⁻¹¹/√3)·‖g‖₂·6, with ‖g‖₂ = P·‖spectrum‖₂ read from
+  // the fixture's own spectrum section. A toy spectrum whose 2-norm is known: side 2 and
+  // spectrum [3, 4, 0, 0] (imaginary zero) has ‖spectrum‖₂ = 5, so ‖g‖₂ = 2·5 = 10.
+  const side = 2;
+  const re = Float64Array.from([3, 4, 0, 0]);
+  const im = Float64Array.from([0, 0, 0, 0]);
+  const norm = kernelNorm(side, re, im);
+  assert.equal(norm, 10, "the toy spectrum's kernel norm must be P times the spectrum's 2-norm");
+  const guard = maxAbsGuard(norm);
+  const want = 90 * (2 ** -11 / Math.sqrt(3)) * 10 * 6;
+  assert.ok(
+    Math.abs(guard - want) <= 1e-12 * want,
+    `the guard must be the quantum times the kernel norm times the peak; got ${guard}, want ${want}`,
+  );
+  // The guard reads the norm: doubling the spectrum's norm doubles the guard, which is the
+  // property that makes it a bound on the field the kernel actually produces.
+  const doubled = kernelNorm(side, Float64Array.from([6, 8, 0, 0]), im);
+  assert.ok(
+    Math.abs(maxAbsGuard(doubled) / guard - 2) < 1e-12,
+    "doubling the spectrum's norm must double the guard",
+  );
 });
 
 test("the_exact_deposit_total_is_n_times_the_scale", () => {

@@ -103,7 +103,7 @@ def charge_fields(report, ms):
         f"rmsRel={report['rmsRel']:.6g} maxAbs={report['maxAbs']:.6g} "
         f"depositedUnits={report['depositedUnits']} repeatEqual={report['repeatEqual']} "
         f"boundsExact={report['boundsExact']} maxAbsGuard={report['maxAbsGuard']:.6g} "
-        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} ms={ms:.1f}"
+        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} wallMs={ms * 1000:.1f}"
     )
 
 
@@ -115,5 +115,5 @@ def pass_fields(report, ms):
         f"rmsAbs={report['rmsAbs']:.6g} rmsRef={report['rmsRef']:.6g} "
         f"rmsRel={report['rmsRel']:.6g} maxAbs={report['maxAbs']:.6g} "
         f"repeatEqual={report['repeatEqual']} exact={exact or '(none)'} "
-        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} ms={ms:.1f}"
+        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} wallMs={ms * 1000:.1f}"
     )

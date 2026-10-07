@@ -20,10 +20,11 @@ base64: at 1M the file is 100.7 MiB and a base64 handoff is a 134 MiB string thr
 `import()` (`fixtures/gpu/README.md:188-191`).
 
 Per fixture one line, `PASS <name> …` or `FAIL <name> <failures> …`, with every report field.
-The arm is held to its own measured ceiling row in `bounds.ts`, and the guards are the derived
-ones: `rmsRel ≤ 1e-4` at every fixture, and at the two 1M fixtures
-`maxAbs ≤ |charge| · (2⁻¹¹/√3) / h²` with `h` from the fixture header. Link is held to
-`bounds-link.ts`: its own rows, and `rmsRel ≤ k_measured · 5 · 2⁻²³`.
+The wall time is `wallMs`, in milliseconds. The arm is held to its own measured ceiling row in
+`bounds.ts`, and the guards are the derived ones: `rmsRel ≤ 1e-4` at every fixture, and at the
+two 1M fixtures `maxAbs ≤ |charge·alpha| · (2⁻¹¹/√3) · ‖g‖₂ · 6` with `‖g‖₂ = P · ‖spectrum‖₂`
+from the fixture's own spectrum section.
+Link is held to `bounds-link.ts`: its own rows, and `rmsRel ≤ k_measured · 5 · 2⁻²³`.
 
 Exit: 0 every fixture passed · 3 any fixture failed, any refusal, or a limit the pass needs is
 below what the device reports · 2 the harness could not run. The software refusal is the

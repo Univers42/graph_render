@@ -182,22 +182,23 @@ test("the_collide_guard_reads_the_measured_crowd", () => {
   const reference = components(refX, refY);
   const rmsRef = compare({ got: reference, reference }).rmsRef;
   assert.equal(rmsRef, 1, "the toy reference's rms is 1");
-  // The guard is 1e-4 + k_c * 5 * 2^-23 * P / rmsRef, with P = reach/2.
-  const guard = collideGuard(3, grid.reach, rmsRef);
-  const want = 1e-4 + (3 * 5 * 2 ** -23 * (grid.reach / 2)) / rmsRef;
+  // The guard is 1e-4 + (floorRms + k_c * 5 * 2^-23 * P) / rmsRef, with P = reach/2. The toy's
+  // coordinates are f32-exact, so its floor is 0.
+  const guard = collideGuard(3, grid.reach, rmsRef, 0);
+  const want = 1e-4 + (0 + 3 * 5 * 2 ** -23 * (grid.reach / 2)) / rmsRef;
   assert.equal(guard, want, "the guard is the measured crowd's bound");
 });
 
 test("every_collide_ceiling_sits_under_its_guard", () => {
   for (const [key, row] of Object.entries(collideCeilings())) {
     assert.match(key, /^(hardware|software):\d+:[01]$/, `${key}: a row is keyed (arm, n, state)`);
-    const guard = collideGuard(row.k_c, 32, row.rmsRef);
+    const guard = collideGuard(row.k_c, 32, row.rmsRef, row.floorRms);
     assert.ok(row.rmsRel <= guard, `${key}: rmsRel ${row.rmsRel} is over the guard ${guard}`);
     assert.ok(Number.isFinite(row.maxAbs) && row.maxAbs > 0, `${key}: maxAbs ${row.maxAbs}`);
   }
   // A missing row is guard only: n = 7 has no fixture, so no row.
-  const clean = { n: 7, state: 0, arm: "hardware", rmsRel: 0, rmsRef: 1, k_c: 0, reach: 32, maxAbs: 1, repeatEqual: true, order: null };
-  const guard = collideGuard(0, 32, 1);
+  const clean = { n: 7, state: 0, arm: "hardware", rmsRel: 0, rmsRef: 1, k_c: 0, reach: 32, maxAbs: 1, floorRms: 0, repeatEqual: true, order: null };
+  const guard = collideGuard(0, 32, 1, 0);
   assert.deepEqual(collideVerdict({ ...clean, rmsRel: guard / 2 }).failures, []);
   const over = collideVerdict({ ...clean, rmsRel: guard * 2 });
   assert.equal(over.pass, false, "a breached guard fails the case");
