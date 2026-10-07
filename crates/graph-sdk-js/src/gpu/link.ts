@@ -68,6 +68,8 @@ export interface LinkCsr {
 export interface LinkBuffers {
   /** The positions, `x, y` interleaved, `f32`, narrowed from the fixture once. */
   readonly positions: GPUBuffer;
+  /** The velocities the gather adds to the positions (`link.rs:184-193`); zero in the probe. */
+  readonly velocities: GPUBuffer;
   /** The per-node link increment the gather writes, `2n` components. */
   readonly delta: GPUBuffer;
   /** The read-back buffer for the probe's two runs. */
@@ -82,8 +84,8 @@ export interface LinkBuffers {
  */
 export interface LinkStage {
   readonly delta: GPUBuffer;
-  /** The link frame uniform, whose `alpha` field the tick updates every tick. */
-  readonly frame: GPUBuffer;
+  /** Rewrites the uniform's `alpha`, which the tick decays every tick; the probe's is 1. */
+  setAlpha(alpha: number): void;
   encode(encoder: GPUCommandEncoder): void;
 }
 
@@ -112,6 +114,7 @@ export function buildLinkStage(
   for (let node = 0; node < fixture.n; node += 1) {
     positions.set([fixture.posX[node] ?? 0, fixture.posY[node] ?? 0], node * 2);
   }
+  device.queue.writeBuffer(buffers.positions, 0, positions);
   // The link frame: `n`, `fault`, a pad and `alpha`. The probe leaves `alpha` at 1; the tick
   // rewrites the `alpha` word every tick as it decays.
   const frameWords = new ArrayBuffer(16);
@@ -121,19 +124,22 @@ export function buildLinkStage(
   frameInts[1] = faultCode;
   frameFloats[3] = 1;
   const frame = uploaded(device, frameWords, GPUBufferUsage.UNIFORM);
-  const inputs = [frameWords, positions, csr.start, csr.edges, ends, geometry].map((data, binding) =>
-    binding === 0 ? frame : uploaded(device, data, GPUBufferUsage.STORAGE));
+  const tables = [csr.start, csr.edges, ends, geometry].map((data) => uploaded(device, data, GPUBufferUsage.STORAGE));
+  const inputs = [frame, buffers.positions, ...tables, buffers.delta, buffers.velocities];
   const module = device.createShaderModule({ label: "link", code: LINK_WGSL });
   const pipeline = device.createComputePipeline({
     label: "link",
     layout: "auto",
     compute: { module, entryPoint: "link_gather" },
   });
-  const entries = [...inputs, buffers.delta].map((buffer, binding) => ({ binding, resource: { buffer } }));
+  const entries = inputs.map((buffer, binding) => ({ binding, resource: { buffer } }));
   const bind = device.createBindGroup({ label: "link", layout: pipeline.getBindGroupLayout(0), entries });
   return {
     delta: buffers.delta,
-    frame,
+    setAlpha(alpha: number): void {
+      frameFloats[3] = alpha;
+      device.queue.writeBuffer(frame, 0, frameWords);
+    },
     encode(encoder: GPUCommandEncoder): void {
       const pass = encoder.beginComputePass();
       dispatch(pass, pipeline, bind, groupsFor(fixture.n));
@@ -172,10 +178,12 @@ export async function runLink(request: LinkRequest, fault?: string): Promise<Pas
 /** The link buffers: the positions, the delta and the read-back. */
 function createLinkBuffers(device: GPUDevice, fixture: Fixture): LinkBuffers {
   const bytes = fixture.n * 8;
-  const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
+  const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
   const mapped = GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST;
   return {
     positions: device.createBuffer({ label: "link-positions", size: bytes, usage: storage }),
+    // WebGPU zero-fills a new buffer, so the probe's velocities are the at-rest zeros.
+    velocities: device.createBuffer({ label: "link-velocities", size: bytes, usage: storage }),
     delta: device.createBuffer({ label: "link-delta", size: bytes, usage: storage }),
     read: device.createBuffer({ label: "link-read", size: bytes, usage: mapped }),
   };
@@ -184,6 +192,7 @@ function createLinkBuffers(device: GPUDevice, fixture: Fixture): LinkBuffers {
 /** Destroys the link buffers, for the `finally` of a run. */
 function destroyLinkBuffers(buffers: LinkBuffers): void {
   buffers.positions.destroy();
+  buffers.velocities.destroy();
   buffers.delta.destroy();
   buffers.read.destroy();
 }

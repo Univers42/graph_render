@@ -3,7 +3,8 @@
  *
  * The tick's claim to be "resident" is these buffers: allocated once per graph, reused across
  * ticks, never reallocated. The charge buffers (`buffers.ts`) are the largest part; the tick
- * adds the velocities, the pins, the link delta and the positions read-back.
+ * adds the velocities, the pins, the link delta, the collide's buffers (`collide-stage.ts`) and
+ * the positions read-back.
  *
  * The velocities start at zero — the fixture's state is at rest — and the pins are `NaN`
  * everywhere, the CPU's `None` (`motion.rs:64-66`): the fixtures carry no pins, so the
@@ -17,6 +18,9 @@
 
 import { create, destroy } from "./buffers.ts";
 import type { Buffers } from "./buffers.ts";
+import type { Grid } from "./collide-grid.ts";
+import { allocateCollide } from "./collide-stage.ts";
+import type { CollideBuffers } from "./collide-stage.ts";
 import { GPUBufferUsage } from "./types.ts";
 import type { GPUBuffer, GPUDevice } from "./types.ts";
 
@@ -28,6 +32,8 @@ export interface ResidentBuffers extends Buffers {
   readonly pins: GPUBuffer;
   /** The link pass's per-node increment, `2n` components. */
   readonly linkDelta: GPUBuffer;
+  /** The collide stage's buffers; its `nodes` is the projection `x + v` the tick writes. */
+  readonly collide: CollideBuffers;
   /** The read-back buffer for the positions, for the centre and the final output. */
   readonly readPositions: GPUBuffer;
 }
@@ -39,10 +45,12 @@ export interface ResidentBuffers extends Buffers {
  * uploaded by the charge stage's build. The link delta and the read-back are left for their
  * first dispatch.
  */
-export function createResident(device: GPUDevice, n: number, side: number): ResidentBuffers {
+export function createResident(device: GPUDevice, n: number, side: number, grid: Grid): ResidentBuffers {
   const charge = create(device, n, side, 4);
   const bytes = n * 8;
-  const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC;
+  // COPY_DST because the host writes the starting velocities and pins: a write to a buffer
+  // without it is a validation error, and WebGPU reports one only to an error scope.
+  const storage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST;
   const mapped = GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST;
   const velocities = device.createBuffer({ label: "velocities", size: bytes, usage: storage });
   device.queue.writeBuffer(velocities, 0, new Float32Array(n * 2));
@@ -53,6 +61,7 @@ export function createResident(device: GPUDevice, n: number, side: number): Resi
     velocities,
     pins,
     linkDelta: device.createBuffer({ label: "link-delta", size: bytes, usage: storage }),
+    collide: allocateCollide(device, n, grid),
     readPositions: device.createBuffer({ label: "read-positions", size: bytes, usage: mapped }),
   };
 }
@@ -63,5 +72,6 @@ export function destroyResident(buffers: ResidentBuffers): void {
   buffers.velocities.destroy();
   buffers.pins.destroy();
   buffers.linkDelta.destroy();
+  Object.values(buffers.collide).forEach((buffer) => buffer.destroy());
   buffers.readPositions.destroy();
 }

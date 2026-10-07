@@ -53,13 +53,16 @@
 import { Refusal, open } from "./adapter.ts";
 import { create, destroy } from "./buffers.ts";
 import type { Buffers } from "./buffers.ts";
-import { loadFixture, scaleFor } from "./fixture.ts";
+import { refreshKernel } from "./charge-kernel.ts";
+import { uploadConstants, writeFrames } from "./charge-upload.ts";
+import { loadFixture } from "./fixture.ts";
 import type { Fixture } from "./fixture.ts";
 import type { Arm } from "./bounds.ts";
 import { bumpDensity, readback, report } from "./readback.ts";
 import type { Ran } from "./readback.ts";
 import { build, dispatch, groupsFor } from "./pipelines.ts";
 import type { GPUBuffer, GPUCommandEncoder, GPUDevice, GpuHost } from "./types.ts";
+import type { Frame } from "./frame.ts";
 
 /** What the charge arm needs from the host. No fault knob: the harness passes it separately. */
 export interface ChargeRequest {
@@ -100,13 +103,16 @@ export interface ChargeReport {
  * The charge stage: built once per graph, encodes its dispatches into a given encoder.
  *
  * `encodeDeposit` runs the clear, the bounds fold (when `fold` is set) and the deposit.
- * `encodeTransform` runs the widening, the four transforms and the field read, then copies the
- * three read-back columns. The probe submits the two halves separately so the repeat fault has
- * an inside to write into; the tick submits them together.
+ * `encodeTransform` runs the widening, the four transforms and the field read; the probe copies
+ * the three read-back columns after it, and the tick reads none of them. The probe submits the
+ * two halves separately so the repeat fault has an inside to write into; the tick submits them
+ * together. `place` rewrites the uniforms for a new frame and `alpha` (`charge-upload.ts`).
  */
 export interface ChargeStage {
   /** The per-node increment the read writes, `2n` components, for the tick's merge. */
   readonly delta: GPUBuffer;
+  /** Rewrites the five uniforms for a frame and an `alpha`: the tick's, every tick. */
+  place(frame: Frame, alpha: number): void;
   encodeDeposit(encoder: GPUCommandEncoder, fold: boolean): void;
   encodeTransform(encoder: GPUCommandEncoder): void;
 }
@@ -138,13 +144,23 @@ export function buildChargeStage(
   fixture: Fixture,
   faultCode: number,
 ): ChargeStage {
-  upload(device, buffers, fixture, faultCode);
+  uploadConstants(device, buffers, fixture);
   const rig = build(device, buffers);
+  // The kernel the fixture carries is its own rung's; a frame on another rung refreshes it.
+  let rung = rungOf(fixture);
+  const place = (frame: Frame, alpha: number): void => {
+    const at = { ...frame, charge: CHARGE_ALPHA * alpha, fault: faultCode };
+    if (rungOf(frame) !== rung) {
+      refreshKernel(device, buffers, rig, { fixture, place: at });
+      rung = rungOf(frame);
+    }
+    writeFrames(device, buffers, fixture, at);
+  };
+  place(fixture, 1);
   const { side } = fixture;
-  const planeBytes = side * side * 4;
-  const nodeBytes = fixture.n * 8;
   return {
     delta: buffers.delta,
+    place,
     encodeDeposit(encoder: GPUCommandEncoder, fold: boolean): void {
       // zero_density: the clear is its own dispatch, never the deposit reading what was there.
       let pass = encoder.beginComputePass();
@@ -180,9 +196,6 @@ export function buildChargeStage(
       pass = encoder.beginComputePass();
       dispatch(pass, rig.read, rig.readBind, groupsFor(fixture.n));
       pass.end();
-      encoder.copyBufferToBuffer(buffers.density, 0, buffers.read.density, 0, planeBytes);
-      encoder.copyBufferToBuffer(buffers.delta, 0, buffers.read.delta, 0, nodeBytes);
-      encoder.copyBufferToBuffer(buffers.extent, 0, buffers.read.extent, 0, 16);
     },
   };
 }
@@ -247,88 +260,14 @@ async function runChargeOnce(
   device.queue.submit([encoder.finish()]);
   encoder = device.createCommandEncoder();
   stage.encodeTransform(encoder);
+  encoder.copyBufferToBuffer(buffers.density, 0, buffers.read.density, 0, planeBytes);
+  encoder.copyBufferToBuffer(buffers.delta, 0, buffers.read.delta, 0, nodeBytes);
+  encoder.copyBufferToBuffer(buffers.extent, 0, buffers.read.extent, 0, 16);
   device.queue.submit([encoder.finish()]);
   return readback(buffers, planeBytes, nodeBytes);
 }
 
-/** The `f32` uploads. Every narrowing in the whole pass happens here, once. */
-function upload(device: GPUDevice, buffers: Buffers, fixture: Fixture, faultCode: number): void {
-  const { side } = fixture;
-  device.queue.writeBuffer(buffers.nodes, 0, pairs(fixture.posX, fixture.posY));
-  device.queue.writeBuffer(buffers.twiddle, 0, pairs(fixture.twiddleRe, fixture.twiddleIm));
-  const gain = new Float32Array(side * side * 2);
-  for (let k = 0; k < side * side; k += 1) {
-    gain[k * 2] = Math.fround(fixture.spectrumRe[k] ?? 0);
-    gain[k * 2 + 1] = Math.fround(fixture.spectrumIm[k] ?? 0);
-  }
-  device.queue.writeBuffer(buffers.gain, 0, gain);
-  // The stage uniforms. `live`, `mode` and `inverse` are the only per-pass fields and the four
-  // transforms each get their own buffer, because the CPU's two transforms take a different
-  // `live` count for each of their two passes (fft/pass.rs:112-125).
-  writeFrame(device, buffers.frame, fixture, faultCode, fixture.cells, 0, 0);
-  const plan: readonly (readonly [number, number])[] = [
-    [0, fixture.cells],
-    [2, fixture.side],
-    [1, fixture.side],
-    [2, fixture.cells],
-  ];
-  for (let index = 0; index < plan.length; index += 1) {
-    const entry = plan[index];
-    const buffer = buffers.framePass[index];
-    if (entry === undefined || buffer === undefined) {
-      throw new Refusal(`gpu: no uniform for transform pass ${index}`);
-    }
-    const [mode, live] = entry;
-    // inverse is 1 for the two passes of Fft::inverse, which are plan[2] and plan[3].
-    const inverse = index < 2 ? 0 : 1;
-    writeFrame(device, buffer, fixture, faultCode, live, mode, inverse);
-  }
-}
-
-/** Two `Float64Array`s interleaved and narrowed to `f32`, `x` then `y`. */
-function pairs(x: Float64Array, y: Float64Array): Float32Array {
-  const out = new Float32Array(x.length * 2);
-  for (let k = 0; k < x.length; k += 1) {
-    out[k * 2] = Math.fround(x[k] ?? 0);
-    out[k * 2 + 1] = Math.fround(y[k] ?? 0);
-  }
-  return out;
-}
-
-/**
- * One 64-byte uniform, sixteen 4-byte members, in the prelude's field order.
- *
- * `inv_scale` is `1/scale` and is exact: `scaleFor` returns a power of two, so the widening in
- * `widen_density` is a single exact multiply rather than a division per sample.
- */
-function writeFrame(
-  device: GPUDevice,
-  buffer: GPUBuffer,
-  fixture: Fixture,
-  faultCode: number,
-  live: number,
-  mode: number,
-  inverse: number,
-): void {
-  const words = new ArrayBuffer(64);
-  const ints = new Uint32Array(words);
-  const floats = new Float32Array(words);
-  const scale = scaleFor(fixture.n) ?? 1;
-  ints[0] = fixture.n;
-  ints[1] = fixture.side;
-  ints[2] = Math.log2(fixture.side);
-  ints[3] = fixture.cells;
-  ints[4] = scale;
-  ints[5] = Math.ceil(fixture.n / 256);
-  ints[6] = live;
-  ints[7] = mode;
-  ints[8] = inverse;
-  ints[9] = faultCode;
-  ints[10] = 0;
-  floats[11] = fixture.h;
-  floats[12] = fixture.originX;
-  floats[13] = fixture.originY;
-  floats[14] = CHARGE_ALPHA;
-  floats[15] = 1 / scale;
-  device.queue.writeBuffer(buffer, 0, words);
+/** What `Kernel::refresh` keys its spectrum on, beside the fixed law (`kernel.rs:48-53`). */
+function rungOf(frame: Frame): string {
+  return `${frame.step}:${frame.reach}`;
 }

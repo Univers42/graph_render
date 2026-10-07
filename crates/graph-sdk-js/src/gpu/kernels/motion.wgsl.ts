@@ -20,7 +20,8 @@
  * from the one being transcribed, and a different order is a different sum.
  *
  * **The bindings.** `frame` (0) and `nodes` (1) come from the prelude; the motion passes add
- * `motion` (2), `velocities` (3), `delta` (4), `positions` (5), `pins` (6) and `shift` (7).
+ * `motion` (2), `velocities` (3), `delta` (4), `positions` (5), `pins` (6), `shift` (7), the
+ * collide's increment (8) and the collide's input, `projected` (9).
  * The two writing kernels go through `positions`, never `nodes`: a buffer bound read-only and
  * read-write in the same pass is a validation error, so a kernel that writes positions cannot
  * also read the read-only `nodes` binding over the same buffer. With `layout: "auto"` an
@@ -70,6 +71,12 @@ struct ShiftFrame {
 @group(0) @binding(5) var<storage, read_write> positions: array<vec2<f32>>;
 @group(0) @binding(6) var<storage, read> pins: array<vec2<f32>>;
 @group(0) @binding(7) var<uniform> shift: ShiftFrame;
+// The collide pass's per-node increment, merged into the velocities by integrate. Zero
+// when collide is off, so the same kernel serves both.
+@group(0) @binding(8) var<storage, read> collideDelta: array<vec2<f32>>;
+// The collide's input: collide::apply projects p = x + v before it builds its grid
+// (particle_mesh/motion.rs:136-149), after the centre has shifted x.
+@group(0) @binding(9) var<storage, read_write> projected: array<vec2<f32>>;
 
 // step::merge's velocity half (motion.rs:51-63): v = vx[i], then v += delta[i]. One
 // invocation per node, each writing only its own output.
@@ -83,8 +90,11 @@ fn velocity_merge(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 // Sim::integrate (motion.rs:64-66 and :86-93), both halves in one node's expression: the
-// velocity is decayed, or zeroed when the axis is pinned; the position is placed at the pin,
-// or moved by the velocity. The pin is NaN for "no pin" — the CPU's None — per axis.
+// collide's delta is merged onto the velocity first (motion.rs:152-154, the collided half
+// of integrate), then the velocity is decayed, or zeroed when the axis is pinned; the
+// position is placed at the pin, or moved by the velocity. The pin is NaN for "no pin" — the
+// CPU's None — per axis. The collide delta is zero when collide is off, so the same kernel
+// serves both.
 @compute @workgroup_size(256)
 fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
   let i = id.x;
@@ -92,12 +102,28 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
     return;
   }
   let p = positions[i];
-  let v = velocities[i];
+  let v = velocities[i] + collideDelta[i];
   let pin = pins[i];
-  let vx = isnan(pin.x) ? v.x * motion.decay : 0.0;
-  let vy = isnan(pin.y) ? v.y * motion.decay : 0.0;
-  velocities[i] = vec2<f32>(vx, vy);
-  positions[i] = vec2<f32>(isnan(pin.x) ? p.x + vx : pin.x, isnan(pin.y) ? p.y + vy : pin.y);
+  let free = vec2<bool>(is_nan(pin.x), is_nan(pin.y));
+  let decayed = select(vec2<f32>(0.0, 0.0), v * motion.decay, free);
+  velocities[i] = decayed;
+  positions[i] = select(pin, p + decayed, free);
+}
+
+// The NaN test on the bits: WGSL has no isnan, and a float comparison x != x may be folded
+// away, since the spec lets an implementation assume no NaN reaches an expression.
+fn is_nan(x: f32) -> bool {
+  return (bitcast<u32>(x) & 0x7fffffffu) > 0x7f800000u;
+}
+
+// Collide's projection (particle_mesh/motion.rs:136-149): p = x + v, pins ignored.
+@compute @workgroup_size(256)
+fn project(@builtin(global_invocation_id) id: vec3<u32>) {
+  let i = id.x;
+  if (i >= frame.n) {
+    return;
+  }
+  projected[i] = positions[i] + velocities[i];
 }
 
 // Sim::center's shift half (motion.rs:109-113): x[i] = x[i] - by, with the host's mean.

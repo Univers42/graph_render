@@ -80,6 +80,7 @@ export function centreShiftF64(posX: Float64Array, posY: Float64Array, n: number
 export interface MotionStage {
   merge(encoder: GPUCommandEncoder, delta: GPUBuffer): void;
   centre(encoder: GPUCommandEncoder, by: { dx: number; dy: number }): void;
+  project(encoder: GPUCommandEncoder): void;
   integrate(encoder: GPUCommandEncoder): void;
 }
 
@@ -88,6 +89,10 @@ export interface MotionBuffers {
   readonly positions: GPUBuffer;
   readonly velocities: GPUBuffer;
   readonly pins: GPUBuffer;
+  /** The collide pass's per-node increment, merged into the velocities by `integrate`. */
+  readonly collideDelta: GPUBuffer;
+  /** The collide pass's input, `x + v`, which `project` writes. */
+  readonly projected: GPUBuffer;
 }
 
 /**
@@ -95,17 +100,20 @@ export interface MotionBuffers {
  *
  * The `pins` buffer is `NaN` everywhere — the fixtures carry no pins — so the integrate's pin
  * branch never fires; the kernel is still written for the pinned case, because the CPU's
- * integrate is (`motion.rs:64-66`).
+ * integrate is (`motion.rs:64-66`). `decay` is `VELOCITY_DECAY` except under the harness's
+ * `tick-decay` fault.
  */
 export function buildMotionStage(
   device: GPUDevice,
   buffers: MotionBuffers,
   n: number,
+  decay: number,
 ): MotionStage {
   const module = device.createShaderModule({ label: "motion", code: MOTION_WGSL });
   const merge = pipeline(device, module, "velocity_merge", "motion-merge");
   const integrate = pipeline(device, module, "integrate", "motion-integrate");
   const centre = pipeline(device, module, "centre_shift", "motion-centre");
+  const project = pipeline(device, module, "project", "motion-project");
   // The prelude Frame's `n`, for the kernels' guard. The motion kernels read `frame.n`, so the
   // stage carries a 64-byte uniform with it; the other fields are unused by these three.
   const frame = uniform(device, "motion-frame", 64, (ints) => {
@@ -114,7 +122,7 @@ export function buildMotionStage(
   // The motion uniform: `n` and the decay, narrowed once.
   const motion = uniform(device, "motion-uniform", 16, (ints, floats) => {
     ints[0] = n;
-    floats[1] = VELOCITY_DECAY;
+    floats[1] = decay;
   });
   const shift = device.createBuffer({ label: "motion-shift", size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const mergeBinds = new Map<GPUBuffer, GPUBindGroup>();
@@ -156,6 +164,21 @@ export function buildMotionStage(
       dispatch(pass, centre, bind, groupsFor(n));
       pass.end();
     },
+    project(encoder: GPUCommandEncoder): void {
+      const bind = device.createBindGroup({
+        label: "motion-project",
+        layout: project.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: frame } },
+          { binding: 3, resource: { buffer: buffers.velocities } },
+          { binding: 5, resource: { buffer: buffers.positions } },
+          { binding: 9, resource: { buffer: buffers.projected } },
+        ],
+      });
+      const pass = encoder.beginComputePass();
+      dispatch(pass, project, bind, groupsFor(n));
+      pass.end();
+    },
     integrate(encoder: GPUCommandEncoder): void {
       const bind = device.createBindGroup({
         label: "motion-integrate",
@@ -166,6 +189,7 @@ export function buildMotionStage(
           { binding: 3, resource: { buffer: buffers.velocities } },
           { binding: 5, resource: { buffer: buffers.positions } },
           { binding: 6, resource: { buffer: buffers.pins } },
+          { binding: 8, resource: { buffer: buffers.collideDelta } },
         ],
       });
       const pass = encoder.beginComputePass();

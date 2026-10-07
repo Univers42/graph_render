@@ -23,6 +23,7 @@ import { COLLIDE_SCATTER_WGSL } from "../src/gpu/kernels/collide-scatter.wgsl.ts
 import { DEPOSIT_WGSL } from "../src/gpu/kernels/deposit.wgsl.ts";
 import { FFT_WGSL } from "../src/gpu/kernels/fft.wgsl.ts";
 import { LINK_WGSL } from "../src/gpu/kernels/link.wgsl.ts";
+import { MOTION_WGSL } from "../src/gpu/kernels/motion.wgsl.ts";
 import { READ_WGSL } from "../src/gpu/kernels/read.wgsl.ts";
 import { ZERO_WGSL } from "../src/gpu/kernels/zero.wgsl.ts";
 
@@ -42,6 +43,7 @@ const PASS_SOURCES = [
   { name: "collide-scan", code: COLLIDE_SCAN_WGSL },
   { name: "collide-scatter", code: COLLIDE_SCATTER_WGSL },
   { name: "collide-resolve", code: COLLIDE_RESOLVE_WGSL },
+  { name: "motion", code: MOTION_WGSL },
 ];
 
 test("every_kernel_is_256_wide_and_f32", () => {
@@ -58,4 +60,11 @@ test("every_stage_of_the_charge_pass_has_a_kernel", () => {
     SOURCES.map((source) => source.name),
     ["zero", "bounds", "deposit", "fft", "read"],
   );
+});
+
+test("a_conditional_operator_is_refused", () => {
+  // The third rule's own negative: the motion kernel with a ternary in it, as it first was.
+  const broken = MOTION_WGSL.replace("select(pin, p + decayed, free)", "free.x ? p + decayed : pin");
+  assert.notEqual(broken, MOTION_WGSL, "the rewrite must land, or this case proves nothing");
+  assert.deepEqual(scanWgsl([{ name: "motion", code: broken }]), ["motion: a conditional operator, which WGSL does not have"]);
 });

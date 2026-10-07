@@ -13,7 +13,8 @@
  * same `nodes[hi] - nodes[lo]`, so they compute the same force bit for bit; the edge's square
  * root and division run twice, once per end, which is the price of having no atomics.
  *
- * **The same expressions, in the same order.** `d = p[hi] - p[lo]`, `l = sqrt(d·d)`,
+ * **The same expressions, in the same order.** `p = x + v` per end (`link.rs:184-193`; the
+ * probe's velocities are zero, so its bytes are the at-rest ones), `d = p[hi] - p[lo]`, `l = sqrt(d·d)`,
  * `factor = (l - distance) / l · strength`, `f = d · factor`, then `+f·(1 - b)` at the lower
  * end and `-f·b` at the higher one. The CPU's `(-f)·b` and the kernel's `f·(-b)` are the same
  * IEEE754 number, so negating the weight instead of the force moves no bit. `alpha` is 1 at
@@ -53,6 +54,7 @@ struct LinkFrame {
 @group(0) @binding(4) var<storage, read> ends: array<vec2<u32>>;
 @group(0) @binding(5) var<storage, read> geometry: array<vec4<f32>>;
 @group(0) @binding(6) var<storage, read_write> delta: array<vec2<f32>>;
+@group(0) @binding(7) var<storage, read> velocities: array<vec2<f32>>;
 
 const FAULT_BIAS: u32 = ${LINK_FAULT_BIAS}u;
 
@@ -77,7 +79,7 @@ fn link_gather(@builtin(global_invocation_id) id: vec3<u32>) {
     let e = row_edge[at];
     let pair = ends[e];
     let g = geometry[e];
-    let d = nodes[pair.y] - nodes[pair.x];
+    let d = (nodes[pair.y] + velocities[pair.y]) - (nodes[pair.x] + velocities[pair.x]);
     if (d.x == 0.0 && d.y == 0.0) {
       continue;
     }

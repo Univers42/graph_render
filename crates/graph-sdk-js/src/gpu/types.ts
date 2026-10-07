@@ -70,7 +70,15 @@ export interface GPUDevice {
   createBindGroup(descriptor: GPUBindGroupDescriptor): GPUBindGroup;
   createComputePipeline(descriptor: GPUComputePipelineDescriptor): GPUComputePipeline;
   createCommandEncoder(): GPUCommandEncoder;
+  /** WebGPU reports a validation error nowhere unless a scope catches it. */
+  pushErrorScope(filter: "validation" | "out-of-memory" | "internal"): void;
+  popErrorScope(): Promise<GPUError | null>;
   destroy(): void;
+}
+
+/** What an error scope caught. */
+export interface GPUError {
+  readonly message: string;
 }
 
 /** The queue: uploads and submissions, in that order. */

@@ -12,6 +12,10 @@
 //    (`gpu-adapter.md:130-131`), so an f16 path would be a hardware-only path by
 //    construction — and `src/gpu/types.ts` declares no f16 type at all to take one.
 //
+// 3. No `?` outside a comment. WGSL has no conditional operator (`select` is the form), and
+//    `a ? b : c` is a parse error that the device reports only to an error scope: the tick's
+//    first motion kernel carried one, and every dispatch it fed was silently refused.
+//
 // The second rule is a substring test, not a token test, and deliberately so: it is the same
 // test the `no-f16` gate row runs over `src/gpu`, so a kernel and its row cannot disagree
 // about what "mentions f16" means.
@@ -28,7 +32,7 @@ export const WG = 256;
 export function scanWgsl(sources) {
   const problems = [];
   for (const source of sources) {
-    problems.push(...widthProblems(source), ...precisionProblems(source));
+    problems.push(...widthProblems(source), ...precisionProblems(source), ...conditionalProblems(source));
   }
   return problems;
 }
@@ -54,4 +58,10 @@ function precisionProblems(source) {
   return source.code.toLowerCase().includes("f16")
     ? [`${source.name}: the source mentions f16`]
     : [];
+}
+
+/** The `?` tokens in `source` outside its `//` comments, if any. */
+function conditionalProblems(source) {
+  const code = source.code.split("\n").map((line) => line.replace(/\/\/.*$/, "")).join("\n");
+  return code.includes("?") ? [`${source.name}: a conditional operator, which WGSL does not have`] : [];
 }
