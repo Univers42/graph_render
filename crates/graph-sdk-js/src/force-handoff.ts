@@ -3,7 +3,7 @@
 // edge's strength.
 //
 // Not exported from `index.ts`: this is the GPU tier's read view over the session, not part of
-// the published SDK surface, and nothing in this package calls it yet. It is a separate module
+// the published SDK surface; `force-gpu.ts` reads it for a GPU mesh's link pass. It is a separate module
 // from `force-columns.ts` for the same reason that file is separate from `force.ts`: the columns
 // are a different problem from the verbs, and the one place a caller is handed a window over
 // the motor's own simulation state gets one owner per kind of window.

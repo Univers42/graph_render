@@ -17,6 +17,7 @@ export { serveHelper, type HelperStart, type MotorThreads } from "./threads.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, type ForceStart, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
+export { GpuMesh } from "./gpu/live.ts";
 export { Motor, createMotor } from "./motor.ts";
 export type { GraphBatch } from "./extend.ts";
 export { encodeColumns, ColumnsEncoderError } from "./columns.ts";

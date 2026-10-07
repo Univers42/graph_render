@@ -27,8 +27,9 @@ import { INVALID_HANDLE_CODE, frame, type Loaded } from "./calls.ts";
 import { ForceColumns } from "./force-columns.ts";
 import { SessionCalls } from "./force-calls.ts";
 import { PARAMS_BYTES, asU32, decodeParams, mergeParams, withStagedParams } from "./force-params.ts";
-import type { ForceParams, ForceSessionId, ForceTick, Handle } from "./types.ts";
-import { createForceSession, type ForceStart } from "./force-create.ts";
+import type { ForceParams, ForceSessionId, ForceTick, GpuMeshOptions, Handle } from "./types.ts";
+import { configureOrRelease, createForceSession, type ForceStart } from "./force-create.ts";
+import { type Attached, type GpuMesh, driveOnGpu } from "./force-gpu.ts";
 
 export { PARAMS_BYTES, decodeParams, encodeParams } from "./force-params.ts";
 export type { ForceStart } from "./force-create.ts";
@@ -48,6 +49,10 @@ export class ForceSession {
   readonly #calls: SessionCalls;
   /** The session's two position columns, and D9's gate in front of them (`force-columns.ts`). */
   readonly #columns: ForceColumns;
+  /** Whether it ticks the particle mesh, the one engine a GPU mesh can drive. */
+  readonly #mesh: boolean;
+  /** The GPU mesh last handed this session, freed with it (`force-gpu.ts`). */
+  #gpu: Attached | null = null;
 
   /** @internal — use {@link Motor.forceSession}. Never throws for a load failure (the motor
    *  has already been asked, and this only reaches the ABI once it has answered): every refusal
@@ -58,22 +63,8 @@ export class ForceSession {
     this.#id = createForceSession(loaded, graph, start);
     this.#calls = new SessionCalls(loaded, this.#id);
     this.#columns = new ForceColumns(loaded, this.#id);
-    if (params === undefined) return;
-    try {
-      this.setParams(params);
-    } catch (error) {
-      // A refusal here would otherwise leave a session this caller never received a handle to.
-      // `release()` may itself refuse; that refusal must not replace the one the caller is
-      // here for, which is about their parameters and not about this cleanup. A session the
-      // module would not give back stays live inside the module until it is torn down, which
-      // is strictly better than losing the diagnostic.
-      try {
-        this.release();
-      } catch {
-        /* the original refusal is the one the caller must see */
-      }
-      throw error;
-    }
+    this.#mesh = start.engine === "particle_mesh";
+    if (params !== undefined) configureOrRelease(() => { this.setParams(params); }, () => { this.release(); });
   }
 
   /** This session's id, for a host keeping its own map of them. Never reissued after
@@ -279,9 +270,20 @@ export class ForceSession {
     );
     this.#columns.forget();
     this.#calls.close();
+    this.#gpu?.abandon();
   }
 
-
+  /** Hands this `particle_mesh` session to a {@link GpuMesh} that ticks it on the device
+   *  (`docs/decisions/gpu-g1d.md`; what it holds and drops: `gpu/live.ts`). With no adapter the
+   *  handle still resolves and ticks the session on the CPU, its `tier` and `reason` saying so.
+   *  While it drives, this session's verbs refuse with `GpuMeshRefusedError` and its reads stay
+   *  open; the mesh's `release()` hands it back. Refused: a `barnes_hut` session, one already
+   *  driven, one released. */
+  async gpuMesh(options: GpuMeshOptions = {}): Promise<GpuMesh> {
+    const own = { calls: this.#calls, loaded: this.#loaded, id: this.#id, mesh: this.#mesh };
+    this.#gpu = await driveOnGpu(this, own, options);
+    return this.#gpu.mesh;
+  }
   /** Every read of the session's own columns goes through here, so a session the module has
    *  already dropped flips this object's liveness exactly once, wherever the read happened —
    *  and only here, which is why `force-columns.ts` reports a dead session as

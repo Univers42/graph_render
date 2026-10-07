@@ -90,7 +90,9 @@ export interface GPUError {
 
 /** The queue: uploads and submissions, in that order. */
 export interface GPUQueue {
-  writeBuffer(buffer: GPUBuffer, offset: number, data: BufferSource): void;
+  /** WebGPU's `AllowSharedBufferSource`: the bytes are copied at the call, so a view over any
+   *  buffer is taken. Not `BufferSource`, which TypeScript 5.9's DOM narrows to `ArrayBuffer`. */
+  writeBuffer(buffer: GPUBuffer, offset: number, data: ArrayBuffer | ArrayBufferView): void;
   submit(buffers: readonly GPUCommandBuffer[]): void;
 }
 
