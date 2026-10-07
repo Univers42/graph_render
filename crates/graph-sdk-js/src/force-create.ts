@@ -31,3 +31,21 @@ export function createForceSession(loaded: Loaded, graph: Handle, start: ForceSt
   if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`graph handle ${String(graph)} is not live`, code);
   throw new ForceSessionRefusedError(`${name} refused (${codeName(code)})`, code);
 }
+
+/** Applies a new session's parameters, releasing it if they are refused: a refusal here would
+ *  otherwise leave a session the caller never received a handle to. `release` may itself
+ *  refuse; that refusal must not replace the one the caller is here for, which is about their
+ *  parameters and not about this cleanup. A session the module would not give back stays live
+ *  inside the module until it is torn down, which is strictly better than losing the diagnostic. */
+export function configureOrRelease(configure: () => void, release: () => void): void {
+  try {
+    configure();
+  } catch (error) {
+    try {
+      release();
+    } catch {
+      /* the original refusal is the one the caller must see */
+    }
+    throw error;
+  }
+}

@@ -14,6 +14,9 @@ import { type Attached, attachGpuMesh } from "./gpu/live-attach.ts";
 import type { MeshSession } from "./gpu/live-session.ts";
 import { deviceOpener, liveFault } from "./gpu/live-driver.ts";
 
+export type { Attached } from "./gpu/live-attach.ts";
+export type { GpuMesh } from "./gpu/live.ts";
+
 /** What only the session can hand over: its calls, its storage, and the engine it ticks. */
 export interface Ownership {
   readonly calls: SessionCalls;

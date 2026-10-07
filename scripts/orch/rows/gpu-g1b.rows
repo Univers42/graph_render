@@ -10,7 +10,7 @@ no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- c
 no-f16|0|! git grep -n -i 'f16' -- crates/graph-sdk-js/src/gpu
 no-wrong-bounds|0|! git grep -n -E '8e-7|k = 4|√2 · 2⁻¹¹' -- crates/graph-sdk-js/src/gpu
 caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/bounds.ts
-no-public-surface|0|! git grep -n 'gpu' -- crates/graph-sdk-js/src/index.ts
+public-surface|0|scripts/orch/node-slim.sh node --experimental-strip-types -e 'import("/w/crates/graph-sdk-js/src/index.ts").then((m) => { const k = Object.keys(m).filter((n) => /gpu/i.test(n)).sort().join(","); if (k !== "GPU_ENGINES,GpuMesh,GpuMeshRefusedError") { console.error(k); process.exit(1); } })' && test "$(git grep -h -o -E 'export (type|interface) Gpu[A-Za-z]*' -- crates/graph-sdk-js/src/types.ts | sort | tr '\n' ,)" = "export interface GpuMeshOptions,export type GpuTier,"
 scope|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" -- crates/graph-core crates/graph-cli fixtures app packages src package.json package-lock.json deploy/serve.py)"
 
 # The fixtures (all eight; only the 1k pair is committed) and the page's JS.

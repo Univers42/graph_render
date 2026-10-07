@@ -9,7 +9,7 @@ named-tests|0|for t in the_host_collide_reproduces_the_fixture the_collide_floor
 no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/src/gpu
 no-f16|0|! git grep -n -i 'f16' -- crates/graph-sdk-js/src/gpu
 caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/collide-host.ts && git grep -q 'Amendment 3' -- crates/graph-sdk-js/src/gpu/bounds-collide.ts
-no-public-surface|0|! git grep -n 'gpu' -- crates/graph-sdk-js/src/index.ts
+public-surface|0|scripts/orch/node-slim.sh node --experimental-strip-types -e 'import("/w/crates/graph-sdk-js/src/index.ts").then((m) => { const k = Object.keys(m).filter((n) => /gpu/i.test(n)).sort().join(","); if (k !== "GPU_ENGINES,GpuMesh,GpuMeshRefusedError") { console.error(k); process.exit(1); } })' && test "$(git grep -h -o -E 'export (type|interface) Gpu[A-Za-z]*' -- crates/graph-sdk-js/src/types.ts | sort | tr '\n' ,)" = "export interface GpuMeshOptions,export type GpuTier,"
 pass-report-shared|0|git diff --quiet gpu-g1c -- crates/graph-sdk-js/src/gpu/pass-report.ts
 scope|0|test -z "$(git diff --name-only "$(git merge-base HEAD gpu-g1c)" | grep -v -E '^(crates/graph-sdk-js/src/gpu/(collide-host|bounds-collide|bounds-link)\.ts|crates/graph-sdk-js/test/gpu-collide(-floor)?\.test\.mjs|harness/gpu-collide-host\.mjs|docs/measurements/gpu-g1\.md)$')"
 file-size|0|! git ls-files crates/graph-sdk-js/src/gpu crates/graph-sdk-js/src/gpu.ts crates/graph-sdk-js/test/gpu-collide.test.mjs crates/graph-sdk-js/test/gpu-collide-floor.test.mjs harness/gpu-collide-host.mjs | xargs wc -l | grep -v ' total$' | awk '$1 > 300' | grep .

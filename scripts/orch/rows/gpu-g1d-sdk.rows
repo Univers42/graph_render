@@ -1,0 +1,28 @@
+# gpu-g1d-sdk — ForceSession.gpuMesh(), its one-driver rule and CPU fallbacks, and the studio's GPU
+# toggle, off by default (docs/decisions/gpu-g1d.md). Base: gpu-g1d-motor (the session's velocity
+# and simple-graph views). GPU rows take gpu.lock and need GM_GPU=1.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+fmt|0|scripts/orch/gr cargo fmt --all --check
+wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-lint|0|scripts/orch/node-slim.sh npm run sdk:lint
+sdk-test|0|scripts/orch/node-slim.sh npm run -s sdk:test > target/gpu-g1d-sdk.log 2>&1; test "$(grep -c '^not ok' target/gpu-g1d-sdk.log)" -eq 0 && grep -q '^# pass' target/gpu-g1d-sdk.log
+sdk-smoke|0|scripts/orch/node-slim.sh npm run sdk:smoke
+studio-check|0|scripts/studio.sh check
+
+# The published GPU names are exactly these five: three values, two types.
+public-surface|0|scripts/orch/node-slim.sh node --experimental-strip-types -e 'import("/w/crates/graph-sdk-js/src/index.ts").then((m) => { const k = Object.keys(m).filter((n) => /gpu/i.test(n)).sort().join(","); if (k !== "GPU_ENGINES,GpuMesh,GpuMeshRefusedError") { console.error(k); process.exit(1); } })' && test "$(git grep -h -o -E 'export (type|interface) Gpu[A-Za-z]*' -- crates/graph-sdk-js/src/types.ts | sort | tr '\n' ,)" = "export interface GpuMeshOptions,export type GpuTier,"
+named-tests|0|for t in a_gpu_engine_is_refused_by_create_force_session a_session_without_an_adapter_falls_back_to_the_cpu_mesh_and_moves while_a_mesh_drives_the_session_its_verbs_refuse_and_its_reads_stay_open a_barnes_hut_session_is_refused_a_gpu_mesh a_session_released_under_its_mesh_frees_it a_lost_device_resumes_from_the_last_readback no_adapter_falls_back_to_the_cpu_mesh_and_says_so set_params_rebuilds_the_rig_at_the_new_law; do git grep -q "$t" -- crates/graph-sdk-js/test || exit 1; done; for t in the_first_tick_opens_the_mesh_and_the_ticks_after_it_run_on_it a_frame_while_a_batch_is_in_flight_starts_none a_session_without_a_gpu_arm_ticks_on_the_cpu_and_says_why a_grow_on_the_mesh_is_awaited_before_the_node_count_is_answered the_gpu_switch_is_drawn_off_by_default the_theta_knob_says_it_does_nothing_on_the_gpu_arm a_gpu_frame_names_the_arm_it_ticks_on; do git grep -q "$t" -- packages/graph-studio/tests || exit 1; done
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/force-gpu.ts crates/graph-sdk-js/src/force-calls.ts crates/graph-sdk-js/src/force-handoff.ts crates/graph-sdk-js/src/gpu packages/graph-studio/src/motor/gpuPort.ts packages/graph-studio/src/motor/forceOpen.ts
+caveats|0|git grep -q 'Caveat:' -- crates/graph-sdk-js/src/gpu/live.ts && git grep -q 'Caveat:' -- packages/graph-studio/src/motor/gpuPort.ts
+file-size|0|! git ls-files crates/graph-sdk-js/src packages/graph-studio/src deploy/perf | xargs wc -l | grep -v ' total$' | awk '$1 > 300' | grep .
+off-by-default|0|git grep -q 'gpu: false' -- packages/graph-studio/src/motor/bridge.ts
+
+# The browser half: the live twin at 1k and 10k, its negative control, and the no-adapter fallback.
+emit|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-gpu-fixtures --out target/gpu-fixtures
+gpu-js|0|scripts/orch/node-slim.sh npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit false --rewriteRelativeImportExtensions --outDir target/gpu-js
+gpu-js-imports|0|test -s target/gpu-js/gpu/live-probe.js && ! grep -rn -E "from ['\"][^'\"]*\.ts['\"]" target/gpu-js
+live-hardware|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass live --ticks 1 --only 1k,10k
+negctl-live-params|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass live --ticks 1 --only 1k --break params; test $? -ne 0
+negctl-no-adapter|0|flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 GM_GPU_BREAK=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass live --ticks 1 --only 1k; test $? -eq 3
+live-1m|0|test "$(free -g | awk '/^Mem:/{print $7}')" -ge 12 && flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 PERF_MEMORY=12g scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass live --ticks 21 --only 1m
