@@ -1,0 +1,4 @@
+# gpu-g1d-1m — the live twin at 1M: ms per tick through ForceSession.gpuMesh(). Run alone, by hand,
+# when the host has 12 GB available (docs/measurements/gpu-g1.md, "G1d live twin").
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+live-1m|0|test "$(free -g | awk '/^Mem:/{print $7}')" -ge 12 && flock -w 3600 /home/dlesieur/goinfre/orch/queue/gpu.lock env GM_GPU=1 PERF_MEMORY=12g scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass live --ticks 21 --only 1m

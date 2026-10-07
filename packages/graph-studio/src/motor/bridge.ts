@@ -36,8 +36,10 @@ export interface LiveDeps {
   readonly unavailable?: () => string | null;
   /** The worker failing where the page can hear it; the watchdog's other way in. */
   readonly onFail?: (handler: (detail: string) => void) => () => void;
-  /** One line in the console: why a live session ended, or which arm it ticks on; absent in a bare test. */
+  /** One line in the console naming why a live session ended, shown as an error; absent in a bare test. */
   readonly report?: (reason: string) => void;
+  /** One line in the console that is news, not a failure: which arm the forces tick on. */
+  readonly inform?: (line: string) => void;
   /**
    * The structure snapshot the worker rebuilt after a delta batch, so the new nodes are drawn.
    * Absent where nothing draws: the frames still paint.
@@ -196,7 +198,7 @@ function noteArm(desk: Desk, deps: LiveDeps, tier: ForceTier | null | undefined)
   const line = tier.tier === "gpu" ? `forces tick on the GPU (${tier.marks})` : `GPU forces run on the CPU: ${tier.reason}`;
   if (line === desk.arm) return;
   desk.arm = line;
-  deps.report?.(line);
+  deps.inform?.(line);
 }
 
 /**

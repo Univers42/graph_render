@@ -55,7 +55,7 @@ export interface LiveReport {
  * The one-tick ceiling, from the measurement in `docs/measurements/gpu-g1.md` ("G1d live
  * twin"), with its margin stated there.
  */
-export const LIVE_CEILING = 2e-4;
+export const LIVE_CEILING = 3e-5;
 
 /** Every parameter the device reads, moved off its default and inside its range. */
 const CUSTOM: Partial<ForceParams> = {
@@ -69,9 +69,13 @@ const CUSTOM: Partial<ForceParams> = {
   distance_max: 400,
 };
 
+/** One motor per page: the SDK loads one module per session, and each fixture hands the bytes over afresh. */
+let pageMotor: Promise<Motor> | null = null;
+
 export async function runLive(request: LiveRequest, fault?: string | null): Promise<LiveReport> {
   const fixture = loadFixture(request.fixture);
-  const motor = await createMotor(request.wasm);
+  pageMotor ??= createMotor(request.wasm);
+  const motor = await pageMotor;
   const graph = motor.buildColumns(encodeColumns(documentOf(fixture)));
   const host: GpuHost = request.host ?? navigator;
   const arm = request.arm === "hardware" ? "hardware" : "any";

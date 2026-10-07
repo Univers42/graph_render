@@ -45,6 +45,8 @@ export interface Studio {
    * the reader has to be told. Never a promise, so a caller in an event handler can ignore it.
    */
   note: (reason: string) => void;
+  /** One line in the log that no command asked for and that is news, not a failure. */
+  tell: (line: string) => void;
   /** Opens the motor and, unless `draw` is false, draws the settings' source. */
   start(draw?: boolean): Promise<LogEntry>;
   neighbours(node: number): readonly number[];
@@ -165,13 +167,16 @@ function copyText(store: Store<StudioState>, text: string): void {
  * should be — the panel is greyed until a new layout starts a new session.
  */
 function note(store: Store<StudioState>, desk: Desk, reason: string): void {
-  desk.seq += 1;
   const shown: ShownError = { title: "MotorWorkerLost", code: null, detail: reason, hint: MOTOR_HINT };
-  const entry: LogEntry = {
-    seq: desk.seq, command: "forces.animate", ok: false, ms: 0, message: reason,
-    digest: null, notes: [], error: shown,
-  };
-  store.update((state) => withEntry({ ...state, error: shown }, entry));
+  logLine(store, desk, { command: "forces.animate", message: reason, error: shown });
+}
+
+/** An entry no command asked for; an `error` is also raised as the banner. */
+function logLine(store: Store<StudioState>, desk: Desk, line: Pick<LogEntry, "command" | "message" | "error">): void {
+  desk.seq += 1;
+  const entry: LogEntry = { ...line, seq: desk.seq, ok: line.error === null, ms: 0, digest: null, notes: [] };
+  const { error } = line;
+  store.update((state) => withEntry(error === null ? state : { ...state, error }, entry));
 }
 
 /**
@@ -233,6 +238,7 @@ export function createStudio(deps: StudioDeps): Studio {
     }),
     start: (draw = true) => start(desk, draw),
     note: (reason) => note(store, desk, reason),
+    tell: (line) => { logLine(store, desk, { command: "forces.gpu", message: line, error: null }); },
     neighbours: (node) => context.neighbours(node),
     copy: (text) => copyText(store, text),
     dismiss: () => store.update((state) => ({ ...state, error: null })),

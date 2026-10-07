@@ -176,12 +176,14 @@ test("the_gpu_switch_is_off_by_default_and_on_restarts_the_settle_on_the_gpu", (
 
 test("a_fallback_to_the_cpu_is_said_once_in_the_console", () => {
   const said: string[] = [];
+  const failed: string[] = [];
   let listener: (result: Result) => void = () => undefined;
-  createLiveBridge({
+  const bridge = createLiveBridge({
     send: () => undefined,
     onPush: (handler) => { listener = handler; return () => undefined; },
     paint: () => undefined,
-    report: (line) => said.push(line),
+    report: (line) => failed.push(line),
+    inform: (line) => said.push(line),
   });
   const tiered = (tier: string, reason: string): Result => ({
     type: "force-frame", frame: { ...frame(0.5), tier: { tier, reason, marks: "" } },
@@ -189,5 +191,7 @@ test("a_fallback_to_the_cpu_is_said_once_in_the_console", () => {
   for (const result of [tiered("opening", ""), tiered("cpu-no-adapter", "no navigator.gpu"), tiered("cpu-no-adapter", "no navigator.gpu")]) {
     listener(result);
   }
+  bridge.destroy();
   assert.deepEqual(said, ["GPU forces run on the CPU: no navigator.gpu"]);
+  assert.deepEqual(failed, [], "the arm is news, not a failure");
 });

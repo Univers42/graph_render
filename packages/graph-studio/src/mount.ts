@@ -113,6 +113,8 @@ interface Shown {
   studio: Studio | null;
   /** One line in the console log, naming why a live session ended. */
   note(reason: string): void;
+  /** One line in the console log that is not a failure. */
+  tell(line: string): void;
 }
 
 /**
@@ -154,6 +156,7 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, 
     // The structure a delta batch needs drawn; the frames above are drawn up to its count.
     structure: (run) => page.structure(run),
     report: (reason) => shown.note(reason),
+    inform: (line) => shown.tell(line),
   });
   wires.bridge = bridge;
   return { view, bridge, page };
@@ -216,7 +219,11 @@ export function release(parts: Building): void {
 function studioOf(host: HTMLElement, options: StudioElementOptions, canvas: HTMLCanvasElement): Parts {
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
   // The view is made before the studio, and the ids live in the studio's state: read late.
-  const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
+  const shown: Shown = {
+    studio: null,
+    note: (reason) => shown.studio?.note(reason),
+    tell: (line) => shown.studio?.tell(line),
+  };
   const { view, bridge, page } = livePair(canvas, client, shown, options.backend ?? "auto");
   const storage = pageStorage(host);
   const studio = createStudio({

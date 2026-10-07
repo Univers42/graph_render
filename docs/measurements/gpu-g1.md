@@ -661,3 +661,42 @@ Both are under the 100 ms budget, with the two read-backs included.
 - The 1M one-tick displacement was not measured: `gpu-stress` folds stress by BFS, which is the
   caveat in its header; 1k to 50k is the evidence.
 - One device (`amd/rdna-2`). Another adapter's time is its own measurement.
+
+## G1d live twin — `ForceSession.gpuMesh()` against the CPU mesh
+
+`--pass live` (`crates/graph-sdk-js/src/gpu/live-probe.ts`), 2026-10-07, tree `e14b1aa7` plus the
+probe's one-motor-per-page fix, `amd/rdna-2` hardware adapter, under `gpu.lock`. Two particle-mesh
+sessions start from the same spiral: A ticks once through the public `gpuMesh()`, B once on the
+CPU, and the number is `rms(A − B) / rms(B − start)` over the `2n` components (`gpu_stress.rs`'s
+metric). `relDefault` is at the default parameters; `relCustom` at a set that moves every
+parameter the device reads (gravity 0.1, collide 8, charge −150, cutoff 400, link 40 / 0.3,
+centre 0.8, decay 0.5). The positions are the session's own, so a fixture's `start` and
+`settled` give the same numbers; only `start` is listed. Three rounds, identical to the digit.
+
+| n | relDefault | relCustom | ms/tick r1 | r2 | r3 | median |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1k | 3.426e-07 | 5.652e-07 | 4.621 | 4.645 | 4.548 | **4.621** |
+| 10k | 2.617e-06 | 7.381e-07 | 5.484 | 4.972 | 5.028 | **5.028** |
+| 50k | 3.130e-06 | 1.940e-06 | 6.098 | 6.023 | 6.141 | **6.098** |
+
+**Ceiling: `LIVE_CEILING = 3e-5`**, about 10× the worst measured value (3.13e-6 at 50k). The
+live arm refreshes its kernel spectrum on the device when the rung moves, which carries about
+`log₂P` roundings where the G1c fixture tick carried none (`gpu-g1d.md` condition 10); at these
+sizes that term stays under the G1c tick's own 1.55e-5.
+
+ms/tick is one batch of 20 ticks after the measured one, divided by 20, with the batch's
+position write-back included. The host was loaded (another VM resident, 9 GB available), so the
+medians are the claim and the spread is the host's.
+
+### The controls
+
+| control | result |
+|---|---|
+| `--break params` (the device keeps the frozen law after `setParams`) | exit 3: `relCustom = 2.787e-01` at 1k, four orders over the ceiling; `relDefault` unchanged |
+| `GM_GPU_BREAK=1` (software adapter under `hardware`) | exit 3: `asked for the GPU and got a software adapter: swiftshader, fallback=True` |
+
+### Not run
+
+- 1M: row `live-1m` needs 12 GB available and the host had 9 (a 14 GB VM was resident). The
+  G1c 1M tick (72.9 ms) is the nearest evidence; the live arm adds one position write-back per
+  batch, 8 MB at 1M.

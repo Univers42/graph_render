@@ -125,6 +125,7 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
 scripts/studio-smoke.sh       # the load smoke over app/dist: no page error, no banner, a node drawn
 STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect non-zero
 scripts/studio-backend.sh      # the WebGL2 layer against Canvas2D: pixel parity, `auto`, the fallback, a lost context; STUDIO_BACKEND_BREAK=1 for its negative control
+GM_GPU=1 scripts/studio-gpu.sh # the Forces panel's GPU switch on the host's GPU, under gpu.lock; GM_GPU_BREAK=1 for its negative control
 
 # the memory guard (docs/decisions/memory-guard.md; the header of each script is its manual)
 scripts/orch/drun <docker run args>        # the only way to start a container: gm.slice, oom-score-adj 500, 4g default
