@@ -1,0 +1,170 @@
+# Publishes the studio pack of one commit as ghcr.io/univers42/graph-studio-pack:sha-<commit>,
+# a FROM-scratch image holding the six pack files under /pack/ (docs/contract/packaging.md).
+#
+# Manual only. The commit is built from `git archive`, with packaging/ from the ref this
+# workflow runs on, so a commit older than the workflow can be packed. The commit must be a
+# full sha reachable from develop or main. A tag is written once and never moved; there is
+# no :latest.
+#
+# Three builds before anything is pushed: the Dockerfile twice (the second with no cache, so a
+# cold cargo and build-std run must agree with the first), then the commit's own
+# scripts/studio-pack.sh as the oracle — the published pack must be byte-identical to it. After
+# the push the image is pulled back by digest and compared with the first build.
+#
+# Ponytail: all builds run on one runner on one day, so they cannot catch drift in what apt or
+# the registries serve between days — only what varies inside one build. The tag-existence check
+# reads GHCR's error text; an answer it does not recognise as "absent" fails the run.
+#
+# Every action is pinned to a full commit sha with its version in a comment.
+
+name: studio-pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full 40-hex graph_render commit to pack (reachable from develop or main)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: studio-pack-${{ inputs.commit }}
+  cancel-in-progress: false
+
+env:
+  COMMIT: ${{ inputs.commit }}
+  IMAGE: ghcr.io/univers42/graph-studio-pack
+
+jobs:
+  pack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Validate the commit input
+        run: |
+          [[ $COMMIT =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::commit must be a full lowercase 40-hex sha, got '$COMMIT'"; exit 1; }
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reachable from develop or main
+        run: |
+          git cat-file -e "$COMMIT^{commit}" || { echo "::error::$COMMIT is not in this repository's history"; exit 1; }
+          git merge-base --is-ancestor "$COMMIT" origin/develop ||
+            git merge-base --is-ancestor "$COMMIT" origin/main ||
+            { echo "::error::$COMMIT is reachable from neither origin/develop nor origin/main"; exit 1; }
+
+      # Tracked files only: no .git, no submodule, nothing the commit did not commit.
+      - name: Archive the commit
+        run: |
+          mkdir "$RUNNER_TEMP/tree"
+          git archive "$COMMIT" | tar -x -C "$RUNNER_TEMP/tree"
+
+      # packaging/studio-pack.Dockerfile mirrors these files as they are at 77b68d9b. A commit
+      # whose copy differs would be packed by a stale mirror, so it is refused here, before an
+      # hour of building; update the Dockerfile and these sums together.
+      - name: Recipe matches the mirror
+        working-directory: ${{ runner.temp }}/tree
+        run: |
+          sha256sum -c --strict - <<'SUMS'
+          82ed220894f046f52875635c5cc18631f79dcbf82a1c93ee256cfa571f8126a4  scripts/studio-pack.sh
+          7c02695dedb34186f43aae2e0571a3146981d9243f88110e5425a921ba045e51  scripts/orch/wasm-threads.sh
+          522a1f7129c7086d776b74a9173227c66a1630f4cb9f5ea04f67dff48e07e668  docker/rust.Dockerfile
+          44504494f468fd7e3de00e328deeb2fbe325f2f38ab27c12691360a170b06314  docker/wasm-threads.Dockerfile
+          534d81f7ff402a094c1c929e0ea574ffea31d4d90175ca09f8c5c4416414521d  app/vite.pack.config.ts
+          SUMS
+          build_wasm="  \"\$gr\" cargo build -p graph-wasm --target wasm32-unknown-unknown --release"
+          grep -qxF "$build_wasm" scripts/studio.sh ||
+            { echo "::error::scripts/studio.sh build_wasm changed; the Dockerfile's serial cargo build mirrors it"; exit 1; }
+          # image.sh moves for unrelated reasons, so only its node pin is compared.
+          ours=$(sed -n 's/^ARG NODE_IMAGE=//p' "$GITHUB_WORKSPACE/packaging/studio-pack.Dockerfile")
+          theirs=$(sed -n "s/^export GM_NODE_IMAGE=\${NODE_IMAGE:-\(.*\)}\$/\1/p" scripts/orch/image.sh)
+          [[ -n $ours && $ours == "$theirs" ]] ||
+            { echo "::error::NODE_IMAGE: the Dockerfile has '$ours', the commit's scripts/orch/image.sh has '$theirs'"; exit 1; }
+
+      - name: Log in to ghcr.io
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Tag is not published yet
+        run: |
+          if out=$(docker buildx imagetools inspect "$IMAGE:sha-$COMMIT" 2>&1); then
+            echo "::error::$IMAGE:sha-$COMMIT already exists; a published tag is never rewritten"; exit 1
+          fi
+          grep -qiE 'not found|manifest unknown|name unknown' <<<"$out" ||
+            { echo "::error::cannot tell whether $IMAGE:sha-$COMMIT exists: $out"; exit 1; }
+          echo "absent: $out"
+
+      - name: Build twice and compare
+        run: |
+          build() {
+            docker buildx build "$@" --target pack-files \
+              --build-context ctl=packaging --build-arg GRAPH_RENDER_SHA="$COMMIT" \
+              -f packaging/studio-pack.Dockerfile "$RUNNER_TEMP/tree"
+          }
+          build --output "type=local,dest=$RUNNER_TEMP/pack-a"
+          build --no-cache --output "type=local,dest=$RUNNER_TEMP/pack-b"
+          diff -r "$RUNNER_TEMP/pack-a" "$RUNNER_TEMP/pack-b"
+
+      - name: Byte-identical to the commit's own studio-pack.sh
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/upstream" "$COMMIT"
+          "$RUNNER_TEMP/upstream/scripts/studio-pack.sh" target/pack
+          packs=("$RUNNER_TEMP"/upstream/target/pack/graph-studio-*/)
+          ((${#packs[@]} == 1)) || { echo "::error::expected one pack directory, got ${packs[*]}"; exit 1; }
+          diff -r "${packs[0]}" "$RUNNER_TEMP/pack-a"
+
+      - name: Push
+        run: |
+          docker buildx build --push --provenance=false --sbom=false --target image \
+            --build-context ctl=packaging \
+            --build-arg GRAPH_RENDER_SHA="$COMMIT" \
+            --build-arg RECIPE_REV="$GITHUB_SHA" \
+            --build-arg SOURCE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --metadata-file "$RUNNER_TEMP/meta.json" \
+            -t "$IMAGE:sha-$COMMIT" \
+            -f packaging/studio-pack.Dockerfile "$RUNNER_TEMP/tree"
+
+      - name: Pushed bytes equal the verified build
+        run: |
+          digest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/meta.json")
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest in the build metadata"; exit 1; }
+          echo "DIGEST=$digest" >>"$GITHUB_ENV"
+          docker pull "$IMAGE@$digest"
+          id=$(docker create "$IMAGE@$digest" none)
+          docker cp "$id:/pack" "$RUNNER_TEMP/pushed"
+          docker rm "$id"
+          diff -r "$RUNNER_TEMP/pack-a" "$RUNNER_TEMP/pushed"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### graph-studio-pack"
+            echo
+            echo "- commit (revision): \`$COMMIT\`"
+            echo "- recipe_rev (this workflow): \`$GITHUB_SHA\`"
+            if [[ -n ${DIGEST-} ]]; then
+              echo "- pushed: \`$IMAGE@$DIGEST\` as \`:sha-$COMMIT\`"
+            else
+              echo "- nothing pushed"
+            fi
+            echo
+            if [[ -d $RUNNER_TEMP/pack-a ]]; then
+              echo '| file | bytes | sha256 |'
+              echo '|---|---:|---|'
+              for f in "$RUNNER_TEMP"/pack-a/*; do
+                echo "| \`${f##*/}\` | $(wc -c <"$f") | \`$(sha256sum "$f" | cut -d' ' -f1)\` |"
+              done
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
