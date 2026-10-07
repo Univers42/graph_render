@@ -1,0 +1,29 @@
+# gpu-g1d-motor — the GPU tier's live input: graph-core's simple_edges/vxs/vys, four wasm
+# exports at ABI 2, the SDK's views (prompts/jobs/gpu-g1d-motor.md, docs/decisions/gpu-g1d.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3 scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
+negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
+
+# The SDK reads the new exports from the real module.
+wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-lint|0|scripts/orch/node-slim.sh npm run sdk:lint
+sdk-test|0|scripts/orch/node-slim.sh npm run -s sdk:test > target/gpu-g1d-motor-sdk.log 2>&1; test "$(grep -c '^not ok' target/gpu-g1d-motor-sdk.log)" -eq 0 && grep -q '^# pass' target/gpu-g1d-motor-sdk.log
+sdk-smoke|0|scripts/orch/node-slim.sh npm run sdk:smoke
+
+# The brief's own shape: three pub methods and no new type, no escape hatches, the named tests.
+pub-surface|0|test "$(git grep -h -E '^\s*pub (struct|enum|fn|type|const|trait) ' -- crates/graph-core/src/layout/force/session/columns.rs | wc -l)" -eq 3 && git grep -q 'pub fn simple_edges' -- crates/graph-core/src/layout/force/session/columns.rs
+no-allow|0|! git grep -n -E '#\[(allow|doc\(hidden\))|\bunsafe\b' -- crates/graph-core/src/layout/force/session/columns.rs crates/graph-core/src/layout/force/session/columns
+abi-unchanged|0|git grep -q 'pub const ABI_VERSION: u32 = 2;' -- crates/graph-wasm/src/lib.rs && ! git grep -n 'particle_mesh_gpu' -- docs/contract/wasm-abi.md
+exports-documented|0|for e in gm_force_session_velocity_ptr gm_force_session_velocity_len gm_force_session_edge_ptr gm_force_session_edge_len; do git grep -q "fn $e(" -- crates/graph-wasm/src && git grep -q "\`$e\`" -- docs/contract/wasm-abi.md && git grep -q "$e" -- crates/graph-sdk-js/src/wasm.ts crates/graph-sdk-js/test/stub-module.mjs || exit 1; done
+named-tests|0|for t in simple_edges_are_the_probes_own a_fresh_session_is_at_rest the_velocities_move_with_a_tick the_accessors_leave_the_next_tick_byte_identical; do git grep -q "fn $t" -- crates/graph-core || exit 1; done; for t in the_velocity_columns_are_the_sessions_own the_edge_columns_are_the_simple_graph a_bad_axis_or_column_reads_zero a_dead_session_reads_zero; do git grep -q "fn $t" -- crates/graph-wasm || exit 1; done; for t in the_edges_are_the_simple_graph a_fresh_session_is_at_rest velocities_move_after_a_tick a_non_finite_velocity_written_through_the_view_is_refused; do git grep -q "$t" -- crates/graph-sdk-js/test/force-handoff.test.mjs || exit 1; done
+not-public|0|! git grep -n 'force-handoff' -- crates/graph-sdk-js/src/index.ts
+no-assert|0|! git grep -n -E '\bas [A-Z]|as unknown|: any\b|eslint-disable' -- crates/graph-sdk-js/src/force-handoff.ts crates/graph-sdk-js/src/force-columns.ts
+file-size|0|! wc -l crates/graph-core/src/layout/force/session.rs crates/graph-core/src/layout/force/session/columns.rs crates/graph-core/src/layout/force/session/columns/tests.rs crates/graph-wasm/src/session.rs crates/graph-wasm/src/session/handoff.rs crates/graph-wasm/src/session/tests/handoff.rs crates/graph-wasm/src/exports/session_handoff.rs crates/graph-sdk-js/src/force-handoff.ts crates/graph-sdk-js/src/force-columns.ts crates/graph-sdk-js/src/force.ts crates/graph-sdk-js/src/wasm.ts | grep -v ' total$' | awk '$1 > 300' | grep .
+scope|0|b=$(git merge-base HEAD origin/develop); test -z "$(git diff --name-only "$b" | grep -v -E '^(crates/graph-core/src/layout/force/session\.rs|crates/graph-core/src/layout/force/session/columns(\.rs|/tests\.rs)|crates/graph-wasm/src/session\.rs|crates/graph-wasm/src/session/handoff\.rs|crates/graph-wasm/src/session/tests\.rs|crates/graph-wasm/src/session/tests/handoff\.rs|crates/graph-wasm/src/exports/mod\.rs|crates/graph-wasm/src/exports/session_handoff\.rs|docs/contract/wasm-abi\.md|crates/graph-sdk-js/src/wasm\.ts|crates/graph-sdk-js/src/force-columns\.ts|crates/graph-sdk-js/src/force\.ts|crates/graph-sdk-js/src/force-handoff\.ts|crates/graph-sdk-js/test/stub-module\.mjs|crates/graph-sdk-js/test/force-handoff\.test\.mjs|prompts/jobs/gpu-g1d-.*\.md|scripts/orch/rows/gpu-g1d-.*\.rows|docs/decisions/gpu-g1d\.md)$')"
