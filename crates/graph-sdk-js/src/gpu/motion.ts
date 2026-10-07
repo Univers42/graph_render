@@ -78,6 +78,8 @@ export function centreShiftF64(posX: Float64Array, posY: Float64Array, n: number
  * between two buffers pays two. The tick uses two (link, charge), so it pays two.
  */
 export interface MotionStage {
+  /** Rewrites the uniform's `alpha`, which the gravity term scales by; the tick's, every tick. */
+  setAlpha(alpha: number): void;
   merge(encoder: GPUCommandEncoder, delta: GPUBuffer): void;
   centre(encoder: GPUCommandEncoder, by: { dx: number; dy: number }): void;
   project(encoder: GPUCommandEncoder): void;
@@ -100,14 +102,14 @@ export interface MotionBuffers {
  *
  * The `pins` buffer is `NaN` everywhere — the fixtures carry no pins — so the integrate's pin
  * branch never fires; the kernel is still written for the pinned case, because the CPU's
- * integrate is (`motion.rs:64-66`). `decay` is `VELOCITY_DECAY` except under the harness's
- * `tick-decay` fault.
+ * integrate is (`motion.rs:64-66`). `law.decay` is the law's `velocity_decay` except under the
+ * harness's `tick-decay` fault; `law.gravity` is `0` for every `.gmfx`.
  */
 export function buildMotionStage(
   device: GPUDevice,
   buffers: MotionBuffers,
   n: number,
-  decay: number,
+  law: { readonly decay: number; readonly gravity: number },
 ): MotionStage {
   const module = device.createShaderModule({ label: "motion", code: MOTION_WGSL });
   const merge = pipeline(device, module, "velocity_merge", "motion-merge");
@@ -119,14 +121,23 @@ export function buildMotionStage(
   const frame = uniform(device, "motion-frame", 64, (ints) => {
     ints[0] = n;
   });
-  // The motion uniform: `n` and the decay, narrowed once.
-  const motion = uniform(device, "motion-uniform", 16, (ints, floats) => {
-    ints[0] = n;
-    floats[1] = decay;
+  // The motion uniform: `n`, the decay, the gravity and the tick's alpha, narrowed once.
+  const motionWords = new ArrayBuffer(16);
+  new Uint32Array(motionWords)[0] = n;
+  const motionFloats = new Float32Array(motionWords);
+  motionFloats[1] = law.decay;
+  motionFloats[2] = law.gravity;
+  motionFloats[3] = 1;
+  const motion = uniform(device, "motion-uniform", 16, (ints) => {
+    ints.set(new Uint32Array(motionWords));
   });
   const shift = device.createBuffer({ label: "motion-shift", size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const mergeBinds = new Map<GPUBuffer, GPUBindGroup>();
   return {
+    setAlpha(alpha: number): void {
+      motionFloats[3] = alpha;
+      device.queue.writeBuffer(motion, 0, motionWords);
+    },
     merge(encoder: GPUCommandEncoder, delta: GPUBuffer): void {
       let bind = mergeBinds.get(delta);
       if (bind === undefined) {

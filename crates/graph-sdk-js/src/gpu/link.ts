@@ -14,8 +14,8 @@
  *
  * ## The per-edge constants, narrowed once
  *
- * `edge_geometry` (`barnes_hut/link.rs:47-63`) under the frozen parameters
- * (`params.rs:69-70`): `distance = 60 / max(0.4, s)`, `strength = min(0.7, 0.15 · s)`, and
+ * `edge_geometry` (`barnes_hut/link.rs:47-63`) under the fixture's law (`law.ts`; the frozen
+ * set gives `distance = 60 / max(0.4, s)`, `strength = min(0.7, 0.15 · s)`), and
  * the bias `b = deg(lo) / (deg(lo) + deg(hi))` over the simple graph's degrees, which are the
  * CSR's row lengths. All four — with `1 - b` — are computed in `f64` and narrowed once, by
  * the `Float32Array` store on upload (the same rounding as `Math.fround`), as the positions
@@ -44,6 +44,7 @@ import { loadFixture } from "./fixture.ts";
 import type { Fixture } from "./fixture.ts";
 import { LINK_FAULT_BIAS, LINK_FRAME_BYTES, LINK_WGSL } from "./kernels/link.wgsl.ts";
 import type { PassReport } from "./pass-report.ts";
+import { lawOf } from "./law.ts";
 import { dispatch, groupsFor } from "./pipelines.ts";
 import { GPUBufferUsage, GPUMapMode } from "./types.ts";
 import type { GPUBuffer, GPUCommandEncoder, GPUDevice, GpuHost } from "./types.ts";
@@ -88,10 +89,6 @@ export interface LinkStage {
   setAlpha(alpha: number): void;
   encode(encoder: GPUCommandEncoder): void;
 }
-
-/** The frozen `link_distance` and `link_strength_scale` (`params.rs:69-70`). */
-const LINK_DISTANCE = 60;
-const LINK_STRENGTH_SCALE = 0.15;
 
 /** The `--break` faults this pass knows, by the uniform code each sets. */
 const FAULTS: Readonly<Record<string, number>> = { "link-bias": LINK_FAULT_BIAS };
@@ -240,8 +237,9 @@ export function linkCsr(lo: Uint32Array, hi: Uint32Array, n: number): LinkCsr {
 }
 
 /** Per edge `(lo, hi)` and `(distance, strength, b, 1 - b)`, computed in `f64`, narrowed once. */
-function edgeTables(fixture: Fixture, csr: LinkCsr): { ends: Uint32Array; geometry: Float32Array } {
+export function edgeTables(fixture: Fixture, csr: LinkCsr): { ends: Uint32Array; geometry: Float32Array } {
   const { m, edgeLo, edgeHi, edgeStrength } = fixture;
+  const { link_distance: distance, link_strength_scale: scale } = lawOf(fixture);
   const degree = (node: number): number => (csr.start[node + 1] ?? 0) - (csr.start[node] ?? 0);
   const ends = new Uint32Array(m * 2);
   const geometry = new Float32Array(m * 4);
@@ -251,7 +249,7 @@ function edgeTables(fixture: Fixture, csr: LinkCsr): { ends: Uint32Array; geomet
     const s = edgeStrength[edge] ?? 0;
     const b = degree(lo) / (degree(lo) + degree(hi));
     ends.set([lo, hi], edge * 2);
-    geometry.set([LINK_DISTANCE / Math.max(0.4, s), Math.min(0.7, LINK_STRENGTH_SCALE * s), b, 1 - b], edge * 4);
+    geometry.set([distance / Math.max(0.4, s), Math.min(0.7, scale * s), b, 1 - b], edge * 4);
   }
   return { ends, geometry };
 }

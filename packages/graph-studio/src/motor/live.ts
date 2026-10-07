@@ -92,6 +92,20 @@ export interface LiveForce {
   params?(): ForceParams;
   /** The knobs last set on this port, which the next session over the graph starts with. */
   knobs?(): ForceKnobs;
+  /** The arm the session ticks on, or null on a port with no GPU arm (`gpuPort.ts`). */
+  tier?(): ForceTier | null;
+  /** The grow still on its way into the session, or null; awaited before a node count is read. */
+  settled?(): Promise<void> | null;
+}
+
+/** The arm a GPU-armed session ticked its last batch on, in the SDK's words (`GpuMesh`). */
+export interface ForceTier {
+  /** `gpu`, a CPU tier the mesh fell back to, or `opening` before the device answered. */
+  readonly tier: string;
+  /** Why the tier is not `gpu`; empty on the GPU. */
+  readonly reason: string;
+  /** `vendor/architecture` of the adapter, empty when there was none. */
+  readonly marks: string;
 }
 
 /** The wire's own parameter names, in `LiveParams`' declaration order. */
@@ -122,6 +136,9 @@ export interface ForcePort {
   /** Every parameter the motor holds, read back through the ABI rather than copied. */
   params(): ForceParams;
   release(): void;
+  /** Present on the GPU arm only (`gpuPort.ts`), as on `LiveForce`. */
+  tier?(): ForceTier;
+  settled?(): Promise<void> | null;
 }
 
 /**

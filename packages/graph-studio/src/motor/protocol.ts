@@ -2,7 +2,7 @@
  * What crosses between the studio and the motor's worker. The motor runs where it cannot
  * freeze the page, so everything it is asked and everything it answers is one of these.
  */
-import type { ForceKnobs } from "./live.ts";
+import type { ForceKnobs, ForceTier } from "./live.ts";
 import type { EdgeKind, NodeKind } from "../source/ingest.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { ShownError } from "../state/errors.ts";
@@ -133,7 +133,8 @@ export type Request =
   | ForceRequest;
 
 export type ForceRequest =
-  | { readonly type: "force.start" }
+  // `gpu`: the arm every session from now on ticks on (`forceOpen.ts`); absent keeps the arm.
+  | { readonly type: "force.start"; readonly gpu?: boolean }
   | { readonly type: "force.settle" }
   | { readonly type: "force.drag"; readonly id: string; readonly x: number; readonly y: number }
   | { readonly type: "force.release"; readonly id: string }
@@ -158,6 +159,8 @@ export interface ForceFrame {
   readonly alpha: number;
   /** False on the last frame: the loop has stopped and costs nothing until the next request. */
   readonly running: boolean;
+  /** The arm the session ticks on; absent or null on the CPU arm. */
+  readonly tier?: ForceTier | null;
 }
 
 export type Result =

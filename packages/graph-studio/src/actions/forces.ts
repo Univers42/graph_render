@@ -33,7 +33,17 @@ export interface ForceLink {
    * need it and refuse without it.
    */
   readonly drawn?: () => number | null;
+  /** Whether the settle ticks on the GPU arm; absent on a link that has none. */
+  readonly gpu?: () => boolean;
+  /** Moves the settle onto the GPU arm or off it, restarting it there as Animate does. */
+  readonly setGpu?: (on: boolean) => void;
 }
+
+/** What `forces.gpu` refuses with on a link that has no GPU arm. */
+export const NO_GPU_LINK = "this studio's motor has no GPU arm";
+
+/** Why Accuracy is off on the GPU arm: a control that moves nothing must say so. */
+export const THETA_ON_GPU = "Accuracy is Barnes-Hut's theta, and the GPU arm ticks the particle mesh, which has none";
 
 export const NO_FORCE_LINK: ForceLink = {
   disabled: () => NO_ADAPTER_REASON,
@@ -77,7 +87,7 @@ function knob<Context>(link: ForceLink, spec: Knob): ForceAction<Context> {
   const ends = [faced(face, KNOB_LIMITS[name].min), faced(face, KNOB_LIMITS[name].max)].map(tidy);
   return {
     id, alias, title, section: SECTION,
-    available: () => link.disabled(),
+    available: () => link.disabled() ?? (name === "theta" && link.gpu?.() === true ? THETA_ON_GPU : null),
     params: [{
       name: "value", kind: "number", title, control: "slider", min: Math.min(...ends), max: Math.max(...ends), step,
       value: (state) => tidy(faced(face, link.knobs(state)[name])),
@@ -187,6 +197,19 @@ function controlActions<Context>(link: ForceLink): readonly ForceAction<Context>
         const on = flagArg(args, "on");
         link.animate(on);
         return { message: on ? "forces animate on" : "forces animate off" };
+      },
+    },
+    {
+      // Off by default. On restarts the settle on the device; a browser with no adapter keeps
+      // the toggle on and ticks on the CPU, and the strip and the console say so (`gpuPort.ts`).
+      id: "forces.gpu", alias: "gpuforces", title: "GPU forces", section: SECTION,
+      available: () => link.disabled(),
+      params: [{ name: "on", kind: "flag", title: "GPU forces", control: "toggle", value: () => link.gpu?.() ?? false }],
+      run: (_context, args) => {
+        if (link.setGpu === undefined) throw new ActionRefusal("unavailable", NO_GPU_LINK);
+        const on = flagArg(args, "on");
+        link.setGpu(on);
+        return { message: on ? "forces gpu on" : "forces gpu off" };
       },
     },
     {

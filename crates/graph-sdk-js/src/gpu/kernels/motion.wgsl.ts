@@ -45,15 +45,16 @@ import { NODES_WGSL, PRELUDE_WGSL } from "./prelude.wgsl.ts";
 export const MOTION_WGSL = `${PRELUDE_WGSL}
 ${NODES_WGSL}
 
-// The motion passes' own uniform: the node count and the integrate's decay, narrowed once
-// from the f64 0.58 (params.rs:73) by the host's Float32Array store. Separate from the
-// charge Frame because the motion passes are a different dispatch with a different uniform
-// surface; the guard reads frame.n, the charge Frame's own, and motion.n mirrors it.
+// The motion passes' own uniform: the node count, the integrate's decay (the f64 0.58 of
+// params.rs:73 at the frozen set), the gravity and this tick's alpha, each narrowed once by
+// the host's Float32Array store. Separate from the charge Frame because the motion passes are
+// a different dispatch with a different uniform surface; the guard reads frame.n, the charge
+// Frame's own, and motion.n mirrors it.
 struct MotionFrame {
   n: u32,
   decay: f32,
-  pad0: f32,
-  pad1: f32,
+  gravity: f32,
+  alpha: f32,
 };
 
 // The centre's shift, as two f32s: the host's f64 mean (sim.rs:236) narrowed once. Two
@@ -102,7 +103,14 @@ fn integrate(@builtin(global_invocation_id) id: vec3<u32>) {
     return;
   }
   let p = positions[i];
-  let v = velocities[i] + collideDelta[i];
+  // gravity::apply (session/gravity.rs) runs after collide's projection and before its merge
+  // (particle_mesh.rs:194-197), in x.js's order, and is skipped at zero: (0 - x) * 0.0 is a
+  // signed zero that would change the bytes.
+  var v = velocities[i];
+  if (motion.gravity > 0.0) {
+    v = v + (vec2<f32>(0.0, 0.0) - p) * motion.gravity * motion.alpha;
+  }
+  v = v + collideDelta[i];
   let pin = pins[i];
   let free = vec2<bool>(is_nan(pin.x), is_nan(pin.y));
   let decayed = select(vec2<f32>(0.0, 0.0), v * motion.decay, free);

@@ -7,16 +7,18 @@
  * `regrid` uploads a grid and the jiggle's tick: the probe's grid is the fixture's, once; the
  * tick's is derived from the read-back of the positions the collide reads, every tick.
  *
- * Caveat: the row table's buffer is sized once, at `ROW_SLACK` times the first grid's rows,
- * because a bigger table would need new bind groups. A layout that grows taller than that is
- * refused by `regrid` rather than hashed into rows the table does not hold. The upgrade path is
- * rebuilding the bind groups when the table grows.
+ * The row table's buffer starts at `ROW_SLACK` times the first grid's rows. A layout that grows
+ * taller than that gets a new table, `ROW_SLACK` times the new grid's rows, and the seven bind
+ * groups are rebuilt over it — a live layout spreads for hundreds of ticks, so a refusal here
+ * would end a session mid-run (`docs/decisions/gpu-g1d.md`). The stage owns that grown buffer,
+ * and `destroy` frees it.
  */
 
 import { Refusal } from "./adapter.ts";
 import { gridFor, scanPlan } from "./collide-grid.ts";
 import type { Grid } from "./collide-grid.ts";
 import type { Fixture } from "./fixture.ts";
+import { FROZEN_LAW, lawOf } from "./law.ts";
 import { COLLIDE_HASH_WGSL } from "./kernels/collide-hash.wgsl.ts";
 import { COLLIDE_RESOLVE_WGSL } from "./kernels/collide-resolve.wgsl.ts";
 import { COLLIDE_SCAN_WGSL } from "./kernels/collide-scan.wgsl.ts";
@@ -46,6 +48,8 @@ export interface CollideStage {
   /** Uploads a grid over the positions in `nodes`, and the tick the jiggle is keyed on. */
   regrid(grid: Grid, tick: number): void;
   encode(encoder: GPUCommandEncoder): void;
+  /** Frees the row table a `regrid` grew, if one did; `buffers.rows` stays the caller's. */
+  destroy(): void;
 }
 
 /** The buffers the collide stage reads and writes, built once per graph. */
@@ -65,20 +69,31 @@ export function buildCollideStage(
   fixture: Fixture,
   faultCode: number,
 ): CollideStage {
-  const grid = gridFor(fixture.posX, fixture.posY);
+  const grid = gridFor(fixture.posX, fixture.posY, radiusOf(fixture));
   const xy = new Float32Array(fixture.n * 2);
   for (let k = 0; k < fixture.n; k += 1) {
     xy[k * 2] = Math.fround(fixture.posX[k] ?? 0);
     xy[k * 2 + 1] = Math.fround(fixture.posY[k] ?? 0);
   }
   device.queue.writeBuffer(buffers.nodes, 0, xy);
-  const regrid = (next: Grid, tick: number): void => uploadGrid(device, buffers, next, [fixture.n, tick, faultCode]);
+  let bound = buffers;
+  let stages = build(device, bound, fixture.n, grid.buckets);
+  const regrid = (next: Grid, tick: number): void => {
+    if (next.rows.byteLength > bound.rows.size) {
+      if (bound.rows !== buffers.rows) bound.rows.destroy();
+      bound = { ...buffers, rows: rowBuffer(device, next.rows.length * ROW_SLACK) };
+      stages = build(device, bound, fixture.n, next.buckets);
+    }
+    uploadGrid(device, bound, next, [fixture.n, tick, faultCode]);
+  };
   regrid(grid, 0);
-  const stages = build(device, buffers, fixture.n, grid.buckets);
   return {
     delta: buffers.delta,
     nodes: buffers.nodes,
     regrid,
+    destroy(): void {
+      if (bound.rows !== buffers.rows) bound.rows.destroy();
+    },
     encode(encoder: GPUCommandEncoder): void {
       device.queue.writeBuffer(buffers.counts, 0, new Uint32Array(grid.buckets));
       for (const { pipe, bind, groups } of stages) {
@@ -116,10 +131,26 @@ export function allocateCollide(device: GPUDevice, n: number, grid: Grid): Colli
   };
 }
 
+/**
+ * The radius a rig over `fixture` sizes its collide grid at (`collide.rs:262`): the law's, or
+ * the frozen one when the law's is `0` — the CPU's skip, where the tick never runs the stage
+ * and a grid at `0` would saturate every row index (`collide-grid.ts`).
+ */
+export function radiusOf(fixture: Fixture): number {
+  const radius = lawOf(fixture).collide_radius;
+  return radius > 0 ? radius : FROZEN_LAW.collide_radius;
+}
+
+/** A row table of `rows` words, as `allocateCollide` makes one. */
+function rowBuffer(device: GPUDevice, rows: number): GPUBuffer {
+  const usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+  return device.createBuffer({ label: "collide-rows", size: Math.max(4, rows * 4), usage });
+}
+
 /** The row table and the 64-byte uniform in the prelude's order; `keys` is `n`, the tick, the fault. */
 function uploadGrid(device: GPUDevice, buffers: CollideBuffers, grid: Grid, keys: readonly [number, number, number]): void {
   if (grid.rows.byteLength > buffers.rows.size) {
-    throw new Refusal(`gpu: the layout outgrew the collide row table: ${grid.rows.length} rows, room for ${buffers.rows.size / 4}`);
+    throw new Refusal(`gpu: the collide row table holds ${buffers.rows.size / 4} rows and the grid has ${grid.rows.length}`);
   }
   const [n, tick, code] = keys;
   device.queue.writeBuffer(buffers.rows, 0, grid.rows);

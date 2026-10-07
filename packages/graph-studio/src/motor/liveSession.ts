@@ -161,5 +161,8 @@ export function createLiveForce(deps: MotorForceDeps): LiveForce {
     ...deltas,
     params: () => state.session.params(),
     knobs: () => state.knobs,
+    // Read per call: "Animate" can swap the session onto the other arm.
+    tier: () => state.session.tier?.() ?? null,
+    settled: () => state.session.settled?.() ?? null,
   };
 }

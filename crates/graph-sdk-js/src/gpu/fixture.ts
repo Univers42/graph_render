@@ -18,6 +18,8 @@
  *   are then silently wrong — the failure mode `docs/contract/binary-layout.md` is about.
  */
 
+import type { ForceParams } from "../types.ts";
+
 /** One `.gmfx`, as the header's words plus typed-array views over its own bytes. */
 export interface Fixture {
   /** Node count `n`. */
@@ -52,6 +54,11 @@ export interface Fixture {
   readonly spectrumIm: Float64Array;
   /** The three passes' own increments from rest, per node in row order. */
   readonly delta: Readonly<Record<Pass, { x: Float64Array; y: Float64Array }>>;
+  /**
+   * The parameters a rig over this graph runs at. Never in a `.gmfx`, which is at
+   * `FROZEN_LAW` (`law.ts`); set by the live arm, whose graph is a session's.
+   */
+  readonly law?: Readonly<ForceParams> | undefined;
 }
 
 /** Which of the mesh's three gathered passes a delta column is. */

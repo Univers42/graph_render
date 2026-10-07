@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { ALPHA_MIN, HIDDEN, batchBar, settleBar } from "../src/ui/progress.ts";
+import { ALPHA_MIN, HIDDEN, batchBar, frameBar, settleBar } from "../src/ui/progress.ts";
 
 test("a hot simulation is a full bar, a cold one is empty, and both are shown", () => {
   assert.equal(settleBar(1, true).visible, true);
@@ -45,4 +45,13 @@ test("a batch run shows the same bar with no fraction of its own", () => {
 test("the label says what is running, and the settled bar says nothing", () => {
   assert.equal(settleBar(0.4, true).label, "settling");
   assert.equal(HIDDEN.label, "");
+});
+test("a_gpu_frame_names_the_arm_it_ticks_on", () => {
+  const at = (tier: string): string => frameBar({
+    xs: new Float32Array(0), ys: new Float32Array(0), alpha: 0.5, running: true, tier: { tier, reason: "", marks: "" },
+  }).label;
+  assert.deepEqual(["gpu", "opening", "cpu-no-adapter", "cpu-device-lost"].map(at), [
+    "settling on the GPU", "opening the GPU", "settling on the CPU", "settling on the CPU",
+  ]);
+  assert.equal(frameBar({ xs: new Float32Array(0), ys: new Float32Array(0), alpha: 0.5, running: true }).label, "settling");
 });

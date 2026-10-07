@@ -75,6 +75,8 @@ export interface GPUDevice {
   createBindGroup(descriptor: GPUBindGroupDescriptor): GPUBindGroup;
   createComputePipeline(descriptor: GPUComputePipelineDescriptor): GPUComputePipeline;
   createCommandEncoder(): GPUCommandEncoder;
+  /** Settles when the device is lost — destroyed, reset by the driver, or taken by the OS. */
+  readonly lost: Promise<{ readonly message: string }>;
   /** WebGPU reports a validation error nowhere unless a scope catches it. */
   pushErrorScope(filter: "validation" | "out-of-memory" | "internal"): void;
   popErrorScope(): Promise<GPUError | null>;

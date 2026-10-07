@@ -9,15 +9,22 @@
 // "call, and do not touch the answer" without each of them re-deciding that.
 
 import { toU32, type RawExports } from "./wasm.ts";
-import { ForceSessionRefusedError, InvalidSessionError, codeName } from "./errors.ts";
+import { ForceSessionRefusedError, GpuMeshRefusedError, InvalidSessionError, codeName } from "./errors.ts";
 import { INVALID_SESSION_CODE, invoke, lastError, type Loaded } from "./calls.ts";
 import type { ForceSessionId } from "./types.ts";
 
-/** One live session's calls, and whether it is still live. */
+/** What a session still answers while a GPU mesh drives it: its parameters, and its release. */
+const UNDRIVEN: ReadonlySet<string> = new Set(["gm_force_session_params", "gm_force_session_release"]);
+
+/** One live session's calls, whether it is still live, and whether a GPU mesh drives it. */
 export class SessionCalls {
   readonly #loaded: Loaded;
   readonly #id: ForceSessionId;
   #live = true;
+  /** Set while a `GpuMesh` drives the session (`force-gpu.ts`): one driver, so no verb from
+   *  anyone else can move state the device holds and is about to overwrite. */
+  #driven = false;
+  #lifted = false;
 
   constructor(loaded: Loaded, id: ForceSessionId) {
     this.#loaded = loaded;
@@ -56,6 +63,9 @@ export class SessionCalls {
    *  recorded code names otherwise. */
   call(exportName: string, call: (exports: RawExports) => number): number {
     this.requireLive();
+    if (this.#driven && !this.#lifted && !UNDRIVEN.has(exportName)) {
+      throw new GpuMeshRefusedError(`${exportName}: a GPU mesh drives this session; use its verbs, or release it first`);
+    }
     const word = invoke(exportName, () => call(this.#loaded.exports));
     if (word !== 0) return word;
     const code = lastError(this.#loaded.exports);
@@ -74,6 +84,26 @@ export class SessionCalls {
   dead(): InvalidSessionError {
     this.#live = false;
     return new InvalidSessionError(`force session ${String(this.#id)} is not live (never issued, or released)`, INVALID_SESSION_CODE);
+  }
+
+  get driven(): boolean {
+    return this.#driven;
+  }
+
+  /** A GPU mesh takes the session (`true`) or hands it back (`false`). */
+  drive(on: boolean): void {
+    this.#driven = on;
+  }
+
+  /** Runs `call` as the driving mesh, past the refusal everyone else meets. Synchronous, so no
+   *  other caller can run while the refusal is lifted. */
+  lift<T>(call: () => T): T {
+    this.#lifted = true;
+    try {
+      return call();
+    } finally {
+      this.#lifted = false;
+    }
   }
 
   /** Marks the session gone after a release this SDK performed — the one place liveness ends

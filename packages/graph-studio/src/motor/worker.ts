@@ -68,8 +68,9 @@ if (isWorkerScope(scope)) {
   // The session is made before the host that could stop its loop, so the notice runs over
   // one cell: a graph replaced mid-settle must not leave the loop stepping a dead session.
   const notice: { host: ForceHost | null } = { host: null };
-  // The gate's negative control, set by the page that asked for it and read by the grow.
-  const gate: { breakDeltas: boolean } = { breakDeltas: false };
+  // The gate's negative control, set by the page that asked for it and read by the grow; and
+  // the GPU arm, set by the toggle's restart and read by every session made after it.
+  const gate: { breakDeltas: boolean; gpu: boolean } = { breakDeltas: false, gpu: false };
   const session = createSession({
     motorFrom,
     fetchText,
@@ -78,6 +79,7 @@ if (isWorkerScope(scope)) {
     now: () => performance.now(),
     onForget: () => notice.host?.forget(),
     breakDeltas: () => gate.breakDeltas,
+    gpu: () => gate.gpu,
     onRenew: () => notice.host?.renew(),
   });
   const forces = createForceHost(() => session.forces(), {
@@ -93,7 +95,10 @@ if (isWorkerScope(scope)) {
     session,
     (message, transfer) => scope.postMessage(message, transfer),
     forces,
-    (request) => { if (request.type === "open") gate.breakDeltas = request.breakDeltas === true; },
+    (request) => {
+      if (request.type === "open") gate.breakDeltas = request.breakDeltas === true;
+      if (request.type === "force.start" && request.gpu !== undefined) gate.gpu = request.gpu;
+    },
   );
   scope.onmessage = (event) => {
     if (isRequest(event.data)) pump(event.data);

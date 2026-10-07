@@ -162,3 +162,32 @@ test("every force run starts the loop, even one that reports the same layout as 
   ran("layout.force.particle_mesh");
   assert.equal(starts(), 2, "nothing starts once the watch is over");
 });
+
+test("the_gpu_switch_is_off_by_default_and_on_restarts_the_settle_on_the_gpu", () => {
+  const { bridge, sent } = rig();
+  const { gpu, setGpu } = bridge.link;
+  assert.ok(gpu !== undefined && setGpu !== undefined, "the page's link has the GPU arm");
+  assert.equal(gpu(), false, "off by default");
+  setGpu(true);
+  assert.deepEqual(sent.at(-1), { type: "force.start", gpu: true });
+  assert.equal(gpu(), true);
+  assert.equal(bridge.link.animating(), true, "the restart is a settle the strip waits for");
+});
+
+test("a_fallback_to_the_cpu_is_said_once_in_the_console", () => {
+  const said: string[] = [];
+  let listener: (result: Result) => void = () => undefined;
+  createLiveBridge({
+    send: () => undefined,
+    onPush: (handler) => { listener = handler; return () => undefined; },
+    paint: () => undefined,
+    report: (line) => said.push(line),
+  });
+  const tiered = (tier: string, reason: string): Result => ({
+    type: "force-frame", frame: { ...frame(0.5), tier: { tier, reason, marks: "" } },
+  });
+  for (const result of [tiered("opening", ""), tiered("cpu-no-adapter", "no navigator.gpu"), tiered("cpu-no-adapter", "no navigator.gpu")]) {
+    listener(result);
+  }
+  assert.deepEqual(said, ["GPU forces run on the CPU: no navigator.gpu"]);
+});

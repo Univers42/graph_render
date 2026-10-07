@@ -5,7 +5,7 @@
     GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --only 1k --break butterfly
     GM_GPU=1 scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass link --break link-bias
 
-`--pass charge|link|collide` (default `charge`) picks the module the page imports and its
+`--pass charge|link|collide|tick|live` (default `charge`) picks the module the page imports and its
 `run<Pass>` export; argv, the page call and the printed line are `gpu_mesh_args.py`'s.
 
 Build first (scripts/studio.sh build). Serves the repository root on 127.0.0.1 — a secure
@@ -221,7 +221,7 @@ def main():
     args = parse_args(sys.argv)
     if args is None:
         print("gpu-mesh: usage: gpu-mesh.py software|hardware DIR "
-              "[--only 1k,10k,50k,1m] [--break FAULT] [--pass charge|link|collide|tick] "
+              "[--only 1k,10k,50k,1m] [--break FAULT] [--pass charge|link|collide|tick|live] "
               "[--ticks T]",
               file=sys.stderr)
         return 2
@@ -240,7 +240,7 @@ def main():
           + (f" --only {','.join(only)}" if only else "")
           + (f" --break {fault}" if fault else "")
           + (f" --pass {pass_name}" if pass_name != "charge" else "")
-          + (f" --ticks {ticks}" if pass_name == "tick" else ""))
+          + (f" --ticks {ticks}" if pass_name in ("tick", "live") else ""))
     try:
         label, report = first_adapter(sets, url)
         if report is None:

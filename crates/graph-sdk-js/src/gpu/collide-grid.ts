@@ -39,10 +39,14 @@ export function scanPlan(buckets: number): { readonly blocks: number; readonly c
   return { blocks, chunk: Math.ceil(blocks / 256) };
 }
 
-/** The grid over one fixture's positions. */
-export function gridFor(posX: Float64Array, posY: Float64Array): Grid {
+/**
+ * The grid over one fixture's positions, at `radius` (`collide.rs:262`). A radius of `0` is
+ * the CPU's skip (`d2 == 0`), which the tick honours before it asks for a grid; one is never
+ * built at `0`, where `1 / reach` is infinite and every row index saturates.
+ */
+export function gridFor(posX: Float64Array, posY: Float64Array, radius: number = COLLIDE_RADIUS): Grid {
   const n = posX.length;
-  const diameter = 2 * COLLIDE_RADIUS;
+  const diameter = 2 * radius;
   const d2 = diameter * diameter;
   const reach = Math.sqrt(d2);
   const [lowX, lowY] = finiteMinimum(posX, posY);

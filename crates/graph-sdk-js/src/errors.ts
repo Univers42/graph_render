@@ -191,3 +191,13 @@ export class InvalidSessionError extends GraphMotorError {
 export class ForceSessionRefusedError extends GraphMotorError {
   override name = "ForceSessionRefusedError";
 }
+
+/** A GPU mesh was refused before it touched a device: the session is not a particle-mesh
+ *  session, is released, or is already driven by a GPU mesh; or a CPU-only verb (`tick`,
+ *  `grow`) was called on a session a GPU mesh drives; or `particle_mesh_gpu` was passed as an
+ *  engine, which is not a session engine but a driver started with `ForceSession.gpuMesh`.
+ *  `code` is `undefined`: the module was never asked. A missing or software adapter is not
+ *  this error — it is a GPU mesh on a CPU tier that says why. */
+export class GpuMeshRefusedError extends GraphMotorError {
+  override name = "GpuMeshRefusedError";
+}

@@ -6,6 +6,7 @@
 // `codegen::outputs()`), never a hand-copied duplicate of its interfaces.
 import type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader } from "../../graph-contract/generated/snapshot-header.d.ts";
 import type { MotorThreads } from "./threads.ts";
+import type { GpuHost } from "./gpu/types.ts";
 
 export type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader };
 
@@ -194,7 +195,25 @@ export interface ForceTick {
 /** The tick a {@link ForceSessionId}'s session runs: Barnes-Hut's quadtree
  * (`layout.force.barnes_hut`), or the particle mesh's FFT grid (`layout.force.particle_mesh`),
  * `O(n)` per tick and the one for graphs past about 50k nodes. The two are different bytes. */
-export type ForceEngine = "barnes_hut" | "particle_mesh";
+export type ForceEngine = "barnes_hut" | "particle_mesh" | "particle_mesh_gpu";
+
+/** The engines that are not a session's own tick but a driver over one: `particle_mesh_gpu` is
+ *  a particle-mesh session ticked on WebGPU, started with `ForceSession.gpuMesh()` on a
+ *  `particle_mesh` session. `Motor.forceSession` refuses them with `GpuMeshRefusedError`. */
+export const GPU_ENGINES: readonly ForceEngine[] = ["particle_mesh_gpu"];
+
+/** Where a GPU mesh's ticks run: on the device, or on the session's CPU tick and why —
+ *  no usable adapter (`cpu-no-adapter`), or a device lost mid-run (`cpu-device-lost`). */
+export type GpuTier = "gpu" | "cpu-no-adapter" | "cpu-device-lost";
+
+/** How `ForceSession.gpuMesh` opens its device. */
+export interface GpuMeshOptions {
+  /** `"hardware"` (the default) refuses a software adapter — SwiftShader, llvmpipe, a fallback
+   *  adapter — to the CPU tier, which is faster than a CPU emulating a GPU; `"any"` takes it. */
+  readonly arm?: "hardware" | "any";
+  /** The object carrying `gpu`: `navigator` when omitted, a literal in a test. */
+  readonly host?: GpuHost;
+}
 
 /** Where a new session's nodes start: the engine's own spiral over the topology, or the node
  * centres of the graph's last layout run (`gm_force_session_create_warm`), which continues the

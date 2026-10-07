@@ -176,7 +176,7 @@ test("the forces actions are registered once each, in one section, under ids tha
   assert.deepEqual(ids, [
     "forces.center", "forces.repel", "forces.link", "forces.distance", "forces.spacing", "forces.friction",
     "forces.cooling", "forces.range", "forces.accuracy", "forces.spread", "forces.compact",
-    "forces.reset", "forces.animate", "forces.pause", "forces.resume",
+    "forces.reset", "forces.animate", "forces.gpu", "forces.pause", "forces.resume",
   ]);
   assert.equal(new Set(ids).size, ids.length, "an id twice would throw at registry build");
   for (const action of forces) {

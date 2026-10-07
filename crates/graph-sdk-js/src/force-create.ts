@@ -1,9 +1,9 @@
 // Which `gm_force_session_create*` export makes a session, and the typed refusal when the
 // motor says no. Split out of `force.ts` for the house line cap.
 import { toU32 } from "./wasm.ts";
-import { ForceSessionRefusedError, InvalidHandleError, codeName } from "./errors.ts";
+import { ForceSessionRefusedError, GpuMeshRefusedError, InvalidHandleError, codeName } from "./errors.ts";
 import { INVALID_HANDLE_CODE, invoke, lastError, type Loaded } from "./calls.ts";
-import type { ForceEngine, ForceSeed, ForceSessionId, Handle } from "./types.ts";
+import { GPU_ENGINES, type ForceEngine, type ForceSeed, type ForceSessionId, type Handle } from "./types.ts";
 
 /** How {@link Motor.forceSession} starts a session: its tick and where its nodes start. */
 export interface ForceStart {
@@ -15,6 +15,9 @@ export interface ForceStart {
  *  export per engine. A dead graph handle throws `InvalidHandleError`, any other refusal
  *  `ForceSessionRefusedError`; neither leaves a session behind. */
 export function createForceSession(loaded: Loaded, graph: Handle, start: ForceStart): ForceSessionId {
+  if (start.engine !== undefined && GPU_ENGINES.includes(start.engine)) {
+    throw new GpuMeshRefusedError(`${start.engine} is not a session engine: start a particle_mesh session and call gpuMesh() on it`);
+  }
   const { exports } = loaded;
   const mesh = start.engine === "particle_mesh" ? 1 : 0;
   const warm = start.seed === "layout";

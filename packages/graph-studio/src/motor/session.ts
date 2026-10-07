@@ -11,6 +11,8 @@ import type { ParamValues, Source } from "../state/settings.ts";
 import {
   DEFAULT_KNOBS, type ForceEngine, type ForceParams, type ForcePort, type ForceSeed, type Growable, type LiveForce,
 } from "./live.ts";
+import { openForce, startSession } from "./forceOpen.ts";
+import type { GpuArmed } from "./gpuPort.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphBatch, GraphSummary, LayoutParamSpec, RunReport } from "./protocol.ts";
 import { type Live, type Shot, runAnalysis, snapshot } from "./run.ts";
@@ -66,7 +68,9 @@ export interface MotorLike<Handle> {
    */
   extendColumns?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
-  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): (ForcePort & Growable<Handle>) | null;
+  forceSession?(
+    handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed,
+  ): (ForcePort & Growable<Handle> & GpuArmed<Handle>) | null;
 }
 
 export interface SessionDeps<Handle> {
@@ -93,6 +97,8 @@ export interface SessionDeps<Handle> {
    * out, a re-layout tells `onForget`.
    */
   readonly onRenew?: () => void;
+  /** True puts the next force session made on the GPU arm (`forceOpen.ts`); read per session. */
+  readonly gpu?: () => boolean;
 }
 
 export interface Session {
@@ -160,7 +166,7 @@ function appendBatch<Handle>(motor: MotorLike<Handle>, built: Built<Handle>, bat
 function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null, deps: SessionDeps<Handle>): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
-  built.forced ??= startSession(motor, built);
+  built.forced ??= startSession(motor, built, deps);
   if (built.forced === null) return null;
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
   // when one changes, so a fresh object per request would stop the loop on every message. So
@@ -172,7 +178,7 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     // "Animate" settles from the motor's own spiral, hot, whatever the last run drew.
     restart: () => {
       built.forced?.release();
-      built.forced = motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
+      built.forced = openForce(motor, built, deps);
       if (built.forced === null) throw new SessionRefusal("the motor made no force session");
       return built.forced;
     },
@@ -188,22 +194,6 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     },
   });
   return built.port;
-}
-
-/**
- * The session a force request finds: seeded at the picture the last run drew and born cold,
- * so its first frame repaints that picture instead of replacing it, and a drag or a knob wakes
- * it from there. A scatter (`settle.ts`) is no picture to keep: that session starts hot from
- * the motor's spiral and settles on screen.
- *
- * Measured before this (2026-10-03): every force layout was replaced on the first frame by one
- * settle from the spiral, so ForceAtlas2 and DrL drew identical bounds.
- */
-function startSession<Handle>(motor: MotorLike<Handle>, built: Built<Handle>): (ForcePort & Growable<Handle>) | null {
-  if (!built.warm) return motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
-  const session = motor.forceSession?.(built.handle, undefined, built.engine, "layout") ?? null;
-  session?.reheat(0);
-  return session;
 }
 
 /** A run is a new picture, so the session over the last one goes. The knobs stay, the pins go. */

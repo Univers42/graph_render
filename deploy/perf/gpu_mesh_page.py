@@ -39,18 +39,26 @@ READY_JS = """(async () => {
 })()"""
 
 # The pass dispatch: `gpu/<pass>.js` and its `run<Pass>(request, fault)` export, `runCharge`,
-# `runLink`, `runCollide` or `runTick`. A module without the export is a throw naming it, not a
+# `runLink`, `runCollide` or `runTick`; `live` is `gpu/live-probe.js`'s `runLive`, which also
+# takes the wasm module's bytes, fetched here. A module without the export is a throw naming it, not a
 # call on `undefined` that reads as a kernel fault. The tick's report carries the final f32
 # positions, which the harness writes for `gpu-stress`; they cross as a plain array because a
 # Float32Array does not survive the CDP's JSON.
 PAGE = """<!doctype html><meta charset="utf-8"><title>gpu-mesh</title>
 <script type="module">
 window.gpuMesh = async (name, arm, fault, pass = "charge", ticks = 1) => {
-  const module = await import("/target/gpu-js/gpu/" + pass + ".js");
+  const file = pass === "live" ? "live-probe" : pass;
+  const module = await import("/target/gpu-js/gpu/" + file + ".js");
   const entry = "run" + pass[0].toUpperCase() + pass.slice(1);
-  if (typeof module[entry] !== "function") { throw new Error(pass + ".js has no " + entry); }
+  if (typeof module[entry] !== "function") { throw new Error(file + ".js has no " + entry); }
   const bytes = await (await fetch("/target/gpu-fixtures/" + name + ".gmfx")).arrayBuffer();
-  const report = await module[entry]({ fixture: bytes, arm, ticks }, fault);
+  const request = { fixture: bytes, arm, ticks };
+  if (pass === "live") {
+    const wasm = await fetch("/target/wasm32-unknown-unknown/release/graph_wasm.wasm");
+    if (!wasm.ok) { throw new Error("the wasm module is not built: " + wasm.status); }
+    request.wasm = await wasm.arrayBuffer();
+  }
+  const report = await module[entry](request, fault);
   if (pass === "tick" && report.finalPositions) {
     return { ...report, finalPositions: Array.from(report.finalPositions) };
   }

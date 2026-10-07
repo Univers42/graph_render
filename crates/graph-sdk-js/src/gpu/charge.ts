@@ -56,6 +56,7 @@ import type { Buffers } from "./buffers.ts";
 import { refreshKernel } from "./charge-kernel.ts";
 import { uploadConstants, writeFrames } from "./charge-upload.ts";
 import { loadFixture } from "./fixture.ts";
+import { lawOf } from "./law.ts";
 import type { Fixture } from "./fixture.ts";
 import type { Arm } from "./bounds.ts";
 import { bumpDensity, readback, report } from "./readback.ts";
@@ -128,9 +129,6 @@ const FAULTS: Readonly<Record<string, number>> = {
 /** `--break repeat` is not in the uniform: it is a host-side write between two runs. */
 const FAULT_REPEAT = "repeat";
 
-/** `params.charge · alpha` at `alpha = 1`, which is what the fixture's deltas are at. */
-const CHARGE_ALPHA = -90;
-
 /**
  * Builds the charge stage: uploads the constants, compiles the pipelines, binds the groups.
  *
@@ -146,10 +144,13 @@ export function buildChargeStage(
 ): ChargeStage {
   uploadConstants(device, buffers, fixture);
   const rig = build(device, buffers);
-  // The kernel the fixture carries is its own rung's; a frame on another rung refreshes it.
-  let rung = rungOf(fixture);
+  // The kernel a `.gmfx` carries is its own rung's; a frame on another rung refreshes it. A
+  // live graph carries no spectrum, so its first placement refreshes whatever the rung.
+  let rung: string | null = fixture.spectrumRe.length === 0 ? null : rungOf(fixture);
+  const { charge } = lawOf(fixture);
   const place = (frame: Frame, alpha: number): void => {
-    const at = { ...frame, charge: CHARGE_ALPHA * alpha, fault: faultCode };
+    // `params.charge · alpha` (`charge.rs:44`).
+    const at = { ...frame, charge: charge * alpha, fault: faultCode };
     if (rungOf(frame) !== rung) {
       refreshKernel(device, buffers, rig, { fixture, place: at });
       rung = rungOf(frame);

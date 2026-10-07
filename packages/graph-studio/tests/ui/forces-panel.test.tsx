@@ -121,3 +121,20 @@ test("a slider shows the knob the state holds: a preset or a recalled source mov
   const html = markup(createElement(ForcesPanel, { studio, state, bar: fakeBar() }));
   assert.match(html, /<span class="gs-field-label">Node spacing<\/span><span class="gs-row"><input[^>]*value="7.5"/);
 });
+
+test("the_gpu_switch_is_drawn_off_by_default", () => {
+  const html = panel();
+  assert.match(html, /<input type="checkbox" role="switch"[^>]*aria-disabled="true"[^>]*\/><span class="gs-field-label">GPU forces<\/span>/);
+  assert.doesNotMatch(html, /role="switch"[^>]*checked/, "off until the user turns it on");
+});
+
+test("the_theta_knob_says_it_does_nothing_on_the_gpu_arm", () => {
+  const link: ForceLink = { ...NO_FORCE_LINK, disabled: () => null, gpu: () => true, setGpu: () => undefined };
+  const { studio } = studioWith(DRAWN, link);
+  const html = markup(createElement(ForcesPanel, { studio, state: DRAWN, bar: fakeBar() }));
+  const off = html.match(/type="range"[^>]*aria-disabled="true"[^>]*/g) ?? [];
+  assert.equal(off.length, 1, "Accuracy alone is off; the other eight still move the mesh");
+  assert.match(off.join(""), /aria-describedby="gs-forces-reason-accuracy"/);
+  assert.match(html, /<span class="gs-reason" id="gs-forces-reason-accuracy">Accuracy is Barnes-Hut&#x27;s theta, and the GPU arm ticks the particle mesh, which has none<\/span>/);
+  assert.match(html, /role="switch"[^>]*checked=""/, "the switch shows the arm is on");
+});

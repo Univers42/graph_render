@@ -1,4 +1,4 @@
-/** The Forces section: nine live sliders, Spread and Compact, Animate, Pause, Resume and Reset, and one line saying why they are off. */
+/** The Forces section: nine live sliders, Spread and Compact, Animate, Pause, Resume and Reset, the GPU switch, and one line saying why they are off. */
 import { memo, useEffect, useState, useSyncExternalStore, type ReactElement } from "react";
 
 import type { StudioAction } from "../actions/context.ts";
@@ -57,6 +57,8 @@ interface SliderProps {
   readonly action: StudioAction;
   readonly state: StudioState;
   readonly disabled: boolean;
+  /** Why this one control is off when the rest are on (Accuracy on the GPU arm), or null. */
+  readonly own?: string | null;
 }
 
 /**
@@ -66,7 +68,9 @@ interface SliderProps {
  * the user last dragged, and a draft held from that drag would keep the thumb where it was.
  */
 function Slider(props: SliderProps): ReactElement | null {
-  const { studio, action, state, disabled } = props;
+  const { studio, action, state, own = null } = props;
+  const disabled = props.disabled || own !== null;
+  const ownId = `${REASON_ID}-${action.alias}`;
   const spec = action.params[0];
   const value = spec === undefined ? Number.NaN : Number(spec.value(state));
   const [draft, setDraft] = useState<number | null>(null);
@@ -94,11 +98,12 @@ function Slider(props: SliderProps): ReactElement | null {
           step={spec.step}
           value={String(shown)}
           aria-disabled={disabled}
-          aria-describedby={REASON_ID}
+          aria-describedby={own === null ? REASON_ID : ownId}
           onChange={(event) => change(Number(event.target.value))}
         />
         <span className="gs-value">{sig3(shown)}</span>
       </span>
+      {own !== null && <span className="gs-reason" id={ownId}>{own}</span>}
     </label>
   );
 }
@@ -134,6 +139,27 @@ function Button(props: ButtonProps): ReactElement | null {
     >
       {action.title}
     </button>
+  );
+}
+
+/** The GPU arm: a switch, since it holds a state where Animate is a press. */
+function GpuSwitch(props: ButtonProps & { readonly state: StudioState }): ReactElement | null {
+  const { studio, action, disabled, state } = props;
+  const spec = action?.params[0];
+  if (action === undefined || spec === undefined) return null;
+  const on = spec.value(state) === true;
+  return (
+    <label className="gs-field gs-row">
+      <input
+        type="checkbox"
+        role="switch"
+        checked={on}
+        aria-disabled={disabled}
+        aria-describedby={REASON_ID}
+        onChange={() => { if (!disabled) void studio.dispatch(action.id, { [spec.name]: !on }); }}
+      />
+      <span className="gs-field-label">{spec.title}</span>
+    </label>
   );
 }
 
@@ -178,13 +204,18 @@ export function ForcesPanelBody(props: ForcesPanelProps): ReactElement {
   // WHY the panel subscribes at all: the worker answers on this store and on no other, so
   // without it the reason line keeps saying "not asked yet" until something else redraws.
   useSyncExternalStore(bar.onBar, () => drawnOf(actions, state), () => drawnOf(actions, state));
-  const reason = actions.map((action) => action.available?.(state) ?? null).find((why) => why !== null) ?? null;
-  const disabled = reason !== null;
   const knobs = actions.filter((action) => action.params[0]?.control === "slider");
+  // The panel's one reason is the buttons': a knob that is off on its own says so beside itself.
+  const reasonOf = (action: StudioAction): string | null => action.available?.(state) ?? null;
+  const reason = actions.filter((action) => !knobs.includes(action)).map(reasonOf).find((why) => why !== null) ?? null;
+  const disabled = reason !== null;
   return (
     <div className="gs-actions gs-forces" id="gs-forces">
-      {knobs.map((action) => <Slider key={action.id} studio={studio} action={action} state={state} disabled={disabled} />)}
+      {knobs.map((action) => (
+        <Slider key={action.id} studio={studio} action={action} state={state} disabled={disabled} own={disabled ? null : reasonOf(action)} />
+      ))}
       <Buttons studio={studio} actions={actions} disabled={disabled} />
+      <GpuSwitch studio={studio} action={actions.find((one) => one.id === "forces.gpu")} disabled={disabled} state={state} />
       <BarLine store={bar} />
       {reason !== null && <p className="gs-reason" id={REASON_ID} role="status">{reason}</p>}
     </div>

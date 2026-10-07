@@ -20,10 +20,9 @@
  * called after every force layout, so a re-layout makes a new session and a new loop.
  */
 import type { ForceLink } from "../actions/forces.ts";
-import { DEFAULT_KNOBS, type ForceKnobs, settlesLive } from "./live.ts";
+import { DEFAULT_KNOBS, type ForceKnobs, type ForceTier } from "./live.ts";
 import type { ForceFrame, ForceRequest, Result, RunReport } from "./protocol.ts";
 import { type Watchdog, createWatchdog, later } from "./watchdog.ts";
-import type { Store } from "../state/store.ts";
 import { type Bar, HIDDEN, batchBar, frameBar } from "../ui/progress.ts";
 
 export interface LiveDeps {
@@ -37,7 +36,7 @@ export interface LiveDeps {
   readonly unavailable?: () => string | null;
   /** The worker failing where the page can hear it; the watchdog's other way in. */
   readonly onFail?: (handler: (detail: string) => void) => () => void;
-  /** One line in the console, naming why a live session ended; absent in a bare test. */
+  /** One line in the console: why a live session ended, or which arm it ticks on; absent in a bare test. */
   readonly report?: (reason: string) => void;
   /**
    * The structure snapshot the worker rebuilt after a delta batch, so the new nodes are drawn.
@@ -88,6 +87,10 @@ interface Desk {
   settling: Bar;
   /** How many calls the worker is running. */
   busy: number;
+  /** Whether the settle ticks on the GPU arm; off until the toggle says otherwise. */
+  gpu: boolean;
+  /** The last arm line the console was given, so a frame repeats none. */
+  arm: string | null;
   /** Re-arms the watchdog while the settle strip is up, and sleeps it when the strip is not. */
   watchdog: Watchdog;
 }
@@ -97,6 +100,7 @@ export const NOT_ASKED = "the motor has not been asked yet";
 function newDesk(): Desk {
   return {
     knobs: DEFAULT_KNOBS, running: false, paused: false, available: undefined, settling: HIDDEN, busy: 0,
+    gpu: false, arm: null,
     watchdog: { touch: () => undefined, rest: () => undefined, lost: () => undefined, stop: () => undefined },
   };
 }
@@ -176,7 +180,23 @@ function linkOf(desk: Desk, deps: LiveDeps, publish: () => void): ForceLink {
       deps.send({ type: "force.resume" });
     },
     paused: () => desk.paused,
+    gpu: () => desk.gpu,
+    // A restart, as Animate: the worker makes the next session on the arm chosen.
+    setGpu: (on) => {
+      desk.gpu = on;
+      desk.running = true;
+      deps.send({ type: "force.start", gpu: on });
+    },
   };
+}
+
+/** One console line per change of arm, so a fallback to the CPU is never silent. */
+function noteArm(desk: Desk, deps: LiveDeps, tier: ForceTier | null | undefined): void {
+  if (tier === undefined || tier === null || tier.tier === "opening") return;
+  const line = tier.tier === "gpu" ? `forces tick on the GPU (${tier.marks})` : `GPU forces run on the CPU: ${tier.reason}`;
+  if (line === desk.arm) return;
+  desk.arm = line;
+  deps.report?.(line);
 }
 
 /**
@@ -190,6 +210,7 @@ function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Resul
     if (result.type === "force-frame") {
       desk.running = result.frame.running;
       desk.settling = frameBar(result.frame);
+      noteArm(desk, deps, result.frame.tier);
       deps.paint(result.frame);
       show(desk, publish);
       return;
@@ -251,33 +272,5 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
     destroy,
   };
 }
-/** What `watchRuns` reads of the studio's state: the calls in flight and the last run drawn. */
-export interface RunState {
-  readonly busy: readonly unknown[];
-  readonly run: { readonly layoutId: string } | null;
-}
 
-/**
- * A force layout settles live: the loop steps the session the run left, which keeps the run's
- * picture, or settles a large graph's scatter on screen (`settle.ts`). Every other layout is
- * finished, so nothing starts. A batch layout
- * run shows the same strip with no fraction of its own — one call, no progress inside it.
- *
- * Keyed on the run, not on its layout id: a large graph reports `particle_mesh` whichever force
- * layout was asked for, so two runs in a row can share an id. Keyed on the id, picking
- * `particle_mesh` and then opening 400k nodes left the scatter unsettled (0 frames, 2026-10-03).
- */
-export function watchRuns(store: Pick<Store<RunState>, "get" | "subscribe">, bridge: LiveBridge): () => void {
-  let seen: RunState["run"] = null;
-  let wasBusy = 0;
-  return store.subscribe(() => {
-    const at = store.get();
-    if (at.busy.length !== wasBusy) {
-      wasBusy = at.busy.length;
-      bridge.batch(wasBusy);
-    }
-    if (at.run === seen) return;
-    seen = at.run;
-    if (at.run !== null && settlesLive(at.run.layoutId)) bridge.start();
-  });
-}
+export { type RunState, watchRuns } from "./watchRuns.ts";

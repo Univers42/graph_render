@@ -50,5 +50,10 @@ export function batchBar(busy: number): Bar {
 
 /** What a frame from the live loop shows. */
 export function frameBar(frame: ForceFrame): Bar {
-  return settleBar(frame.alpha, frame.running);
+  const bar = settleBar(frame.alpha, frame.running);
+  // A GPU-armed session names the arm it ticks on, so the strip says where the work runs.
+  const arm = frame.tier?.tier;
+  if (arm === undefined || !bar.visible) return bar;
+  const label = arm === "gpu" ? "settling on the GPU" : arm === "opening" ? "opening the GPU" : "settling on the CPU";
+  return { ...bar, label };
 }

@@ -19,13 +19,19 @@ import type { Buffers } from "./buffers.ts";
 import { frameWords } from "./charge-upload.ts";
 import type { Placement } from "./charge-upload.ts";
 import type { Fixture } from "./fixture.ts";
+import { lawOf } from "./law.ts";
 import { dispatch } from "./pipelines.ts";
 import type { Rig } from "./pipelines.ts";
 import type { GPUDevice } from "./types.ts";
 
-/** The law's squared cutoffs at the frozen parameters: `distance_min = 1`, `distance_max = 520`. */
-const DMIN2 = 1;
-const DMAX2 = 520 * 520;
+/** The law's squared cutoffs, `distance_min²` and `distance_max²` (`kernel.rs:19-20`). */
+export interface Cutoffs {
+  readonly dmin2: number;
+  readonly dmax2: number;
+}
+
+/** The cutoffs at the frozen parameters: `distance_min = 1`, `distance_max = 520`. */
+const FROZEN_CUTOFFS: Cutoffs = { dmin2: 1, dmax2: 520 * 520 };
 
 /** The frame fields the kernel depends on. */
 export interface KernelFrame {
@@ -38,14 +44,14 @@ export interface KernelFrame {
  * scaled by `1/side²`, as interleaved `f64` pairs — the real part is `Gx`, the imaginary part
  * `Gy`. The upload narrows them, once.
  */
-export function sampleKernel(side: number, frame: KernelFrame): Float64Array {
+export function sampleKernel(side: number, frame: KernelFrame, cut: Cutoffs = FROZEN_CUTOFFS): Float64Array {
   const g = new Float64Array(side * side * 2);
   const scale = 1 / (side * side);
   for (let dy = -frame.reach; dy <= frame.reach; dy += 1) {
     const row = wrap(dy, side) * side;
     for (let dx = -frame.reach; dx <= frame.reach; dx += 1) {
       const at = (row + wrap(dx, side)) * 2;
-      const [re, im] = green(dx * frame.h, dy * frame.h, scale);
+      const [re, im] = green(dx * frame.h, dy * frame.h, scale, cut);
       g[at] = re;
       g[at + 1] = im;
     }
@@ -60,7 +66,9 @@ export function sampleKernel(side: number, frame: KernelFrame): Float64Array {
 export function refreshKernel(device: GPUDevice, buffers: Buffers, rig: Rig, at: { fixture: Fixture; place: Placement & KernelFrame }): void {
   const { fixture, place } = at;
   const { side } = fixture;
-  device.queue.writeBuffer(buffers.field, 0, new Float32Array(sampleKernel(side, place)));
+  const { distance_min: dmin, distance_max: dmax } = lawOf(fixture);
+  const cut = { dmin2: dmin * dmin, dmax2: dmax * dmax };
+  device.queue.writeBuffer(buffers.field, 0, new Float32Array(sampleKernel(side, place, cut)));
   const encoder = device.createCommandEncoder();
   const passes: readonly (readonly [number, number])[] = [[0, 0], [1, 2]];
   for (const [index, mode] of passes) {
@@ -79,13 +87,13 @@ export function refreshKernel(device: GPUDevice, buffers: Buffers, rig: Rig, at:
 }
 
 /** `kernel::green`: `G(r) · scale`, zero at the origin and past `dmax`, softened under `dmin`. */
-function green(rx: number, ry: number, scale: number): [number, number] {
+function green(rx: number, ry: number, scale: number, cut: Cutoffs): [number, number] {
   let l = rx * rx + ry * ry;
-  if (l === 0 || l >= DMAX2) {
+  if (l === 0 || l >= cut.dmax2) {
     return [0, 0];
   }
-  if (l < DMIN2) {
-    l = Math.sqrt(DMIN2 * l);
+  if (l < cut.dmin2) {
+    l = Math.sqrt(cut.dmin2 * l);
   }
   return [(-rx / l) * scale, (-ry / l) * scale];
 }

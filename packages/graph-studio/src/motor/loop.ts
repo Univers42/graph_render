@@ -58,6 +58,7 @@ export class ForceLoop {
     this.queued = createDeltaQueue({
       ...(live.extend === undefined ? {} : { extend: (batch: GraphBatch) => live.extend?.(batch) }),
       ...(live.grow === undefined ? {} : { grow: () => live.grow?.() }),
+      ...(live.settled === undefined ? {} : { settled: () => live.settled?.() ?? null }),
       reheat: (alpha) => this.live.reheat(alpha),
       alpha: () => this.alpha,
       nodeCount: () => this.live.positions().xs.length,
@@ -180,7 +181,9 @@ export class ForceLoop {
    */
   private publish(running: boolean): void {
     const { xs, ys } = this.live.positions();
-    const frame = { xs: Float32Array.from(xs), ys: Float32Array.from(ys), alpha: this.alpha, running };
+    const frame = {
+      xs: Float32Array.from(xs), ys: Float32Array.from(ys), alpha: this.alpha, running, tier: this.live.tier?.() ?? null,
+    };
     this.deps.emit({ type: "force-frame", frame }, [frame.xs.buffer, frame.ys.buffer]);
   }
 

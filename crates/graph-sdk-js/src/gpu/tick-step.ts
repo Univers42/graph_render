@@ -7,8 +7,10 @@
  * The caller decays `alpha` first. Then **link** reads `x + v` (`link.rs:184-193`) and merges,
  * **charge** reads `x` and merges, the **centre** shifts `x` by the mean, **collide** reads its
  * projection `x + v` (`particle_mesh/motion.rs:136-149`), gravity is skipped at zero (the
- * fixtures carry `gravity = 0.0`, `live_params.rs:183`), and **integrate** merges the collide's
- * push, decays the velocities and moves the positions.
+ * fixtures carry `gravity = 0.0`, `live_params.rs:183`; a live law's gravity is added inside
+ * the integrate), and **integrate** merges the collide's push, decays the velocities and moves
+ * the positions. A law with `collide_radius = 0` skips the collide and its read-back, as the
+ * CPU skips it at `d2 == 0` (`collide.rs:262-273`).
  *
  * ## The two read-backs
  *
@@ -29,25 +31,28 @@ import { Refusal } from "./adapter.ts";
 import { buildChargeStage } from "./charge.ts";
 import type { ChargeStage } from "./charge.ts";
 import { gridFor } from "./collide-grid.ts";
-import { buildCollideStage } from "./collide-stage.ts";
+import { buildCollideStage, radiusOf } from "./collide-stage.ts";
 import type { CollideStage } from "./collide-stage.ts";
 import type { Fixture } from "./fixture.ts";
 import { frameOf } from "./frame.ts";
 import type { Frame } from "./frame.ts";
 import { buildLinkStage } from "./link.ts";
 import type { LinkStage } from "./link.ts";
-import { buildMotionStage, centreShift, VELOCITY_DECAY } from "./motion.ts";
+import { lawOf } from "./law.ts";
+import { buildMotionStage, centreShift } from "./motion.ts";
 import type { MotionStage } from "./motion.ts";
 import { createResident, destroyResident } from "./resident.ts";
 import type { ResidentBuffers } from "./resident.ts";
 import { GPUMapMode } from "./types.ts";
 import type { GPUBuffer, GPUCommandEncoder, GPUDevice } from "./types.ts";
+import type { ForceParams } from "../types.ts";
 
-/** The `distance_max` the frame's `dmax` is (`params.rs:68`). */
-const DISTANCE_MAX = 520;
-
-/** The harness's two faults: `tick-decay` drops `velocity_decay`, `tick-order` runs charge before link. */
-export const TICK_FAULTS: readonly string[] = ["tick-decay", "tick-order"];
+/**
+ * The harness's faults: `tick-decay` drops `velocity_decay`, `tick-order` runs charge before
+ * link, `params` builds the rig at the frozen law whatever law the graph carries — the live
+ * arm's "setParams never reached the device".
+ */
+export const TICK_FAULTS: readonly string[] = ["tick-decay", "tick-order", "params"];
 
 /** The stages and the buffers of one graph's tick, built once. */
 export interface TickRig {
@@ -59,6 +64,8 @@ export interface TickRig {
   readonly collide: CollideStage;
   readonly motion: MotionStage;
   readonly linkFirst: boolean;
+  /** The law the stages were built at: the graph's, or the frozen one under `params`. */
+  readonly law: Readonly<ForceParams>;
 }
 
 /** Builds every stage over one set of resident buffers; `fault` is `undefined` or a `TICK_FAULTS` name. */
@@ -66,36 +73,52 @@ export function buildRig(device: GPUDevice, fixture: Fixture, fault?: string): T
   if (fault !== undefined && !TICK_FAULTS.includes(fault)) {
     throw new Refusal(`--break ${fault}: the tick faults are ${TICK_FAULTS.join(", ")}`);
   }
-  const buffers = createResident(device, fixture.n, fixture.side, gridFor(fixture.posX, fixture.posY));
+  const graph = fault === "params" ? { ...fixture, law: undefined } : fixture;
+  const law = lawOf(graph);
+  const buffers = createResident(device, graph.n, graph.side, gridFor(graph.posX, graph.posY, radiusOf(graph)));
   const { nodes: positions, velocities, pins } = buffers;
-  const link = buildLinkStage(device, fixture, 0, { positions, velocities, delta: buffers.linkDelta, read: buffers.readPositions });
-  const charge = buildChargeStage(device, buffers, fixture, 0);
-  const collide = buildCollideStage(device, buffers.collide, fixture, 0);
-  const decay = fault === "tick-decay" ? 1 : VELOCITY_DECAY;
-  const motion = buildMotionStage(device, { positions, velocities, pins, collideDelta: collide.delta, projected: collide.nodes }, fixture.n, decay);
-  return { device, fixture, buffers, link, charge, collide, motion, linkFirst: fault !== "tick-order" };
+  const link = buildLinkStage(device, graph, 0, { positions, velocities, delta: buffers.linkDelta, read: buffers.readPositions });
+  const charge = buildChargeStage(device, buffers, graph, 0);
+  const collide = buildCollideStage(device, buffers.collide, graph, 0);
+  const decay = fault === "tick-decay" ? 1 : law.velocity_decay;
+  const into = { positions, velocities, pins, collideDelta: collide.delta, projected: collide.nodes };
+  const motion = buildMotionStage(device, into, graph.n, { decay, gravity: law.gravity });
+  return { device, fixture: graph, buffers, link, charge, collide, motion, linkFirst: fault !== "tick-order", law };
 }
 
-/** Destroys the rig's buffers; the pipelines go with the device. */
+/** Destroys the rig's buffers, the grown row table included; the pipelines go with the device. */
 export function destroyRig(rig: TickRig): void {
+  rig.collide.destroy();
   destroyResident(rig.buffers);
 }
 
-/** One tick at `alpha`, already decayed. `tick` keys the collide's jiggle and picks tick 0's frame. */
-export async function tickOnce(rig: TickRig, step: { readonly tick: number; readonly alpha: number }): Promise<void> {
-  const { device, fixture, motion, collide } = rig;
+/**
+ * One tick at `alpha`, already decayed. `tick` keys the collide's jiggle. The frame is the
+ * fixture's own on the rig's first tick (`placed`, which defaults to `tick === 0`), graph-core's
+ * fold over the `f64` positions, and the read-back's on every later one.
+ */
+export async function tickOnce(rig: TickRig, step: { readonly tick: number; readonly alpha: number; readonly placed?: boolean }): Promise<void> {
+  const { device, fixture, motion, collide, law } = rig;
   const x = await readPositions(rig, rig.buffers.nodes);
   const columns = widen(x, fixture.n);
-  const frame = step.tick === 0 ? fixture : frameOf(columns.posX, columns.posY, fixture.side, DISTANCE_MAX);
+  const placed = step.placed ?? step.tick === 0;
+  // `Mesh::solve` places no frame for one node or a zero `distance_max` (`mesh.rs:164-166`).
+  const solvable = fixture.n > 1 && law.distance_max > 0;
+  const fold = placed ? fixture : frameOf(columns.posX, columns.posY, fixture.side, law.distance_max);
+  const frame = solvable ? fold : null;
+  const collides = law.collide_radius > 0;
   const first = device.createCommandEncoder();
   encodeForces(rig, first, frame, step.alpha);
-  motion.centre(first, centreShift(x, fixture.n));
-  motion.project(first);
+  motion.centre(first, centreShift(x, fixture.n, law.center_strength));
+  if (collides) motion.project(first);
   device.queue.submit([first.finish()]);
-  const projected = widen(await readPositions(rig, collide.nodes), fixture.n);
-  collide.regrid(gridFor(projected.posX, projected.posY), step.tick);
+  if (collides) {
+    const projected = widen(await readPositions(rig, collide.nodes), fixture.n);
+    collide.regrid(gridFor(projected.posX, projected.posY, law.collide_radius), step.tick);
+  }
+  motion.setAlpha(step.alpha);
   const second = device.createCommandEncoder();
-  collide.encode(second);
+  if (collides) collide.encode(second);
   motion.integrate(second);
   device.queue.submit([second.finish()]);
 }

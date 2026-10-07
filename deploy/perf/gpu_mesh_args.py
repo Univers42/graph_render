@@ -15,7 +15,7 @@ from pathlib import Path
 # The sizes `--only` accepts, as the fixture names' middle word. `1m` is the 1M pair.
 SIZES = ("1k", "10k", "50k", "1m")
 # The passes `--pass` accepts, each a module `gpu/<pass>.js` with a `run<Pass>` export.
-PASSES = ("charge", "link", "collide", "tick")
+PASSES = ("charge", "link", "collide", "tick", "live")
 
 
 def parse_args(argv):
@@ -77,7 +77,9 @@ def line(report, ms):
     A `ChargeReport` is the one with a `side`; a `TickReport` is the one with `msPerTick`;
     anything else is a `PassReport`.
     """
-    if "side" in report:
+    if report.get("kind") == "live":
+        fields = live_fields(report, ms)
+    elif "side" in report:
         fields = charge_fields(report, ms)
     elif "msPerTick" in report:
         fields = tick_fields(report, ms)
@@ -92,6 +94,17 @@ def tick_fields(report, ms):
         f"n={report['n']} ticks={report['ticks']} msPerTick={report['msPerTick']:.3f} "
         f"collide={report['collide']} repeatEqual={report['repeatEqual']} "
         f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} wallMs={ms * 1000:.1f}"
+    )
+
+
+def live_fields(report, ms):
+    """Every `LiveReport` field: the twin's two one-tick numbers, the tier and the speed."""
+    return (
+        f"kind=live n={report['n']} ticks={report['ticks']} tier={report['tier']} "
+        f"relDefault={report['relDefault']:.3e} relCustom={report['relCustom']:.3e} "
+        f"ceiling={report['ceiling']:.1e} msPerTick={report['msPerTick']:.3f} "
+        f"marks={report['marks'] or '(absent)'} reason={report['reason'] or '(none)'} "
+        f"wallMs={ms * 1000:.1f}"
     )
 
 

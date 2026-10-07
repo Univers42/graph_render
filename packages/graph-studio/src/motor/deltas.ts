@@ -32,6 +32,11 @@ export interface QueueDeps {
   readonly extend?: (batch: GraphBatch) => void;
   /** Covers the graph's new node count in the live session. Throws when it cannot. */
   readonly grow?: () => void;
+  /**
+   * The grow still on its way into the session, or null once it is in. The GPU arm's grow waits
+   * for the batch in flight (`gpuPort.ts`); the node count is read after it. Absent: synchronous.
+   */
+  readonly settled?: () => Promise<void> | null;
   readonly reheat: (alpha: number) => void;
   /** The session's alpha now, so the reheat is the larger of it and `GROW_ALPHA`. */
   readonly alpha: () => number;
@@ -162,6 +167,16 @@ function growFor(deps: QueueDeps): number {
   }
 }
 
+/** The count once an asynchronous grow is in; a grow that fails keeps `grown`, as above. */
+async function settledCount(deps: QueueDeps, growing: Promise<void>, grown: number): Promise<number> {
+  try {
+    await growing;
+    return deps.nodeCount();
+  } catch {
+    return grown;
+  }
+}
+
 /** The ring's marks for the burst, in order, and the count of batches that went in. */
 function mark(applied: readonly (Applied | Refused)[], ring: GrowMark[], tick: number): number {
   let any = 0;
@@ -206,7 +221,10 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
     }
     const applied = extendAll(deps, burst);
     const any = mark(applied, ring, tick);
-    const count = any > 0 ? growFor(deps) : deps.nodeCount();
+    const grown = any > 0 ? growFor(deps) : deps.nodeCount();
+    // Awaited only when a grow is still on its way: the CPU arm answers without a microtask.
+    const growing = any > 0 ? deps.settled?.() ?? null : null;
+    const count = growing === null ? grown : await settledCount(deps, growing, grown);
     for (const one of applied) {
       one.queued.answer("error" in one
         ? { type: "failed", error: one.error }
