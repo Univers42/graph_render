@@ -91,7 +91,7 @@ def tick_fields(report, ms):
     return (
         f"n={report['n']} ticks={report['ticks']} msPerTick={report['msPerTick']:.3f} "
         f"collide={report['collide']} repeatEqual={report['repeatEqual']} "
-        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} ms={ms:.1f}"
+        f"marks={report['marks'] or '(absent)'} fallback={report['fallback']} wallMs={ms * 1000:.1f}"
     )
 
 

@@ -569,3 +569,95 @@ host run), and every existing row gains its `floorRms` rounded down to three sig
 
 The 1M GPU rows themselves are the orchestrator's (`gpu-g1c-floor-1m.rows`); this slice fills the
 ceiling rows and the guard from the host run and the orchestrator's table.
+
+## G1c — the resident tick, measured
+
+The tick on the device (`crates/graph-sdk-js/src/gpu/tick.ts`, `tick-step.ts`) runs the passes
+in `particle_mesh.rs:177-207`'s order over buffers allocated once per graph (`resident.ts`):
+`alpha` decays first, link reads `x + v` and merges, charge reads `x` and merges, the centre
+shifts `x` by the mean, collide reads the projection `x + v`, integrate merges the collide push,
+decays `v` and moves `x`. Graded by `graph-cli gpu-stress`, which steps the CPU mesh from the
+same start over the same graph. Measured on 2026-10-07, hardware arm `amd/rdna-2`.
+
+### What the tick needed, in the order it was found
+
+| defect | effect | fix |
+|---|---|---|
+| a `?:` in the motion kernel, which WGSL does not have | the module never compiled; every centre, merge and integrate dispatch was refused, so the tick read back its own start | `select` and a bit-pattern `is_nan`; `gpu-wgsl-scan.mjs` rule 3 refuses a `?` outside comments, with a control |
+| a refused dispatch is silent | the tick above reported PASS | the whole run sits in one `validation` error scope; a caught error fails the report and names the message |
+| link read its own position copy, and `x` without `v` | link deltas from stale positions | link binds the shared positions and the velocities (binding 7), and reads `x + v` (`link.rs:184-193`) |
+| storage buffers without `COPY_DST` | the host's writes into them were refused | every resident storage buffer is `STORAGE · COPY_SRC · COPY_DST` |
+| `alpha` decayed after the tick | every force at the next tick's `alpha` | decays before, as the CPU does |
+| the charge frame fixed at the fixture's | a moving layout deposited outside its frame | the host folds the frame from the read-back every tick and rewrites all five uniforms (`charge-upload.ts`) |
+| the kernel spectrum fixed at the fixture's rung | a frame on another rung used the wrong Green's function | `charge-kernel.ts` samples `kernel::sample` on the host and forward-transforms it on the device when `(step, reach)` changes; `gpu-kernel.test.mjs` holds the samples to the fixture spectrum by a direct DFT, with a control on the next rung |
+| collide gridded from `x`, once | collide over the wrong positions | collide runs on the projection, regridded every tick from its read-back |
+| `gpu-stress` built the CPU graph with every edge strength 1.0 | the CPU reference used other link distances and stiffnesses: one-tick displacement 0.27 and 0.90 at 1k | it reads the fixture's `strength` column |
+
+### The two read-backs
+
+A tick reads `x` back (the charge frame and the centre's mean are folds over it, and link and
+charge move only velocities, so the CPU's later mean is the same), submits link, charge, the
+centre and the projection, reads the projection back (the collide grid is a fold over it), then
+submits collide and integrate. At 1M each read-back is 8 MB; both are inside the times below.
+
+### One tick against the CPU mesh
+
+`scripts/studio-probe.sh gpu-mesh hardware target/gpu-fixtures --pass tick --ticks 1 --only
+1k,10k,50k`, then `graph-cli gpu-stress <fixture> target/gpu-tick/<fixture>.f32 --ticks 1`.
+`displacementRelRms` is `rms(gpu − cpu) / rms(cpu − start)`.
+
+| fixture | ratio | `displacementRelRms` |
+|---|---:|---:|
+| `mesh-1k-start` | 1.000000 | 0.000000 (printed at 6 decimals) |
+| `mesh-1k-settled` | 1.000000 | 4e-6 (printed at 6 decimals) |
+| `mesh-10k-start` | 1.000000 | 2.594e-6 |
+| `mesh-10k-settled` | 1.000000 | 4.348e-6 |
+| `mesh-50k-start` | 1.000000 | 3.168e-6 |
+| `mesh-50k-settled` | 1.000000 | 1.551e-5 |
+
+The ceiling is `1e-4`, the decade above the largest, under the plan's `1e-3` guard
+(`gpu_stress.rs`, `DISPLACEMENT_CEILING`). It is held at `--ticks 1` only: over many ticks the
+two layouts diverge chaotically and only the stress ratio is held.
+
+### The controls
+
+`--break <fault> --pass tick --ticks 1 --only 1k`, then `gpu-stress --ticks 1`, which must exit 1:
+
+| fault | fixture | ratio | `displacementRelRms` | exit |
+|---|---|---:|---:|---:|
+| `tick-decay` | `mesh-1k-start` | 0.999272 | 0.724139 | 1 |
+| `tick-decay` | `mesh-1k-settled` | 0.999652 | 0.724140 | 1 |
+| `tick-order` | `mesh-1k-start` | 0.998574 | 0.175823 | 1 |
+| `tick-order` | `mesh-1k-settled` | 1.000129 | 0.264137 | 1 |
+
+The weakest control sits 1 700 times over the ceiling, and the real tick 6 times under it.
+
+### Stress over 300 ticks
+
+`--pass tick --ticks 300 --only 10k,50k`, then `gpu-stress --ticks 300` (band `[0.5, 2]`):
+
+| fixture | ratio | `displacementRelRms` | GPU ms/tick |
+|---|---:|---:|---:|
+| `mesh-10k-start` | 0.998008 | 0.2200 | 4.830 |
+| `mesh-10k-settled` | 0.999396 | 0.1794 | 4.990 |
+| `mesh-50k-start` | 1.023991 | 0.4338 | 5.780 |
+| `mesh-50k-settled` | 1.003540 | 0.5822 | 5.740 |
+
+### 1M, ms per tick
+
+`--pass tick --ticks 21 --only 1m`, alone under `gpu.lock`, 14 GB available, host load 2.4–3.4;
+the first tick is the warm-up and is excluded. Three rounds; the median is the claim.
+
+| fixture | round 1 | round 2 | round 3 | median |
+|---|---:|---:|---:|---:|
+| `mesh-1m-start` | 74.770 | 72.895 | 72.705 | **72.895** |
+| `mesh-1m-settled` | 75.375 | 76.235 | 75.385 | **75.385** |
+
+Both are under the 100 ms budget, with the two read-backs included.
+
+### What this does not establish
+
+- The software arm was not run for the tick: the per-pass rows hold it, the tick's time does not.
+- The 1M one-tick displacement was not measured: `gpu-stress` folds stress by BFS, which is the
+  caveat in its header; 1k to 50k is the evidence.
+- One device (`amd/rdna-2`). Another adapter's time is its own measurement.
