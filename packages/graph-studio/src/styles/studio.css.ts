@@ -132,6 +132,7 @@ export const STUDIO_CSS = `
 .gs-form > .gs-row, .gs-form > .gs-list { padding: 0 8px; }
 .gs-form > .gs-btn { margin: 0 8px; }
 .gs-reason { padding: 0 8px 6px; color: var(--gs-danger); }
+.gs-field > .gs-reason { grid-column: 1 / -1; padding: 0; }
 .gs-value { color: var(--gs-muted); font-variant-numeric: tabular-nums; }
 .gs-dock-body { overflow-y: auto; }
 .gs-section-head { display: flex; align-items: center; width: 100%; justify-content: space-between; background: transparent; border: 0; border-radius: 0; color: var(--gs-muted); text-align: left; }

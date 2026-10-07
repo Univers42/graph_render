@@ -149,8 +149,10 @@ function GpuSwitch(props: ButtonProps & { readonly state: StudioState }): ReactE
   if (action === undefined || spec === undefined) return null;
   const on = spec.value(state) === true;
   return (
-    <label className="gs-field gs-row">
+    <label className="gs-field">
+      <span className="gs-field-label">{spec.title}</span>
       <input
+        className="gs-check"
         type="checkbox"
         role="switch"
         checked={on}
@@ -158,7 +160,6 @@ function GpuSwitch(props: ButtonProps & { readonly state: StudioState }): ReactE
         aria-describedby={REASON_ID}
         onChange={() => { if (!disabled) void studio.dispatch(action.id, { [spec.name]: !on }); }}
       />
-      <span className="gs-field-label">{spec.title}</span>
     </label>
   );
 }

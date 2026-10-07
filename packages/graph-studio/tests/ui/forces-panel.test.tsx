@@ -124,7 +124,7 @@ test("a slider shows the knob the state holds: a preset or a recalled source mov
 
 test("the_gpu_switch_is_drawn_off_by_default", () => {
   const html = panel();
-  assert.match(html, /<input type="checkbox" role="switch"[^>]*aria-disabled="true"[^>]*\/><span class="gs-field-label">GPU forces<\/span>/);
+  assert.match(html, /<span class="gs-field-label">GPU forces<\/span><input class="gs-check" type="checkbox" role="switch"[^>]*aria-disabled="true"[^>]*\/>/);
   assert.doesNotMatch(html, /role="switch"[^>]*checked/, "off until the user turns it on");
 });
 
