@@ -26,7 +26,9 @@ export const REQUIRED_EXPORT_NAMES = [
   "gm_force_session_params",
   "gm_force_session_tick", "gm_force_session_alpha", "gm_force_session_reheat",
   "gm_force_session_pin", "gm_force_session_unpin", "gm_force_session_unpin_all",
-  "gm_force_session_column_ptr", "gm_force_session_column_len", "gm_force_session_release",
+  "gm_force_session_column_ptr", "gm_force_session_column_len",
+  "gm_force_session_velocity_ptr", "gm_force_session_velocity_len",
+  "gm_force_session_edge_ptr", "gm_force_session_edge_len", "gm_force_session_release",
   "gm_graph_extend", "gm_graph_extend_columns", "gm_force_session_grow",
 ];
 

@@ -244,6 +244,17 @@ export class ForceSession {
     return this.#own((columns) => columns.read());
   }
 
+  /** The two velocity columns, one `Float64Array` each, one entry per node in row order.
+   *
+   *  **Zero-copy and writable**, as {@link positions}: a `NaN` written through the view is
+   *  refused as `TamperedGeometryError` on the next read **and** on the next tick. **Stale after
+   *  a tick or a grow** — a mesh tick swaps `sim.vx`/`sim.vy` with its scratch — so copy
+   *  (`.slice()`) before keeping one past the next call. */
+  velocities(): { readonly vxs: Float64Array; readonly vys: Float64Array } {
+    this.#calls.requireLive();
+    return this.#own((columns) => columns.readVelocities());
+  }
+
   /** Takes the session onto what {@link Motor.extend} appended to `handle`, its own graph
    *  (`gm_force_session_grow`): the same bits a fresh session carried across would hold. Every
    *  position view is stale after it. Refused, session unchanged: `InvalidSessionError`,

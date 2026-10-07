@@ -32,6 +32,7 @@
 pub(crate) mod params;
 
 mod grow;
+pub(crate) mod handoff;
 #[cfg(test)]
 mod tests;
 mod warm;
