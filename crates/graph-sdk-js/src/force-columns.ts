@@ -16,6 +16,10 @@ import type { ForceSessionId } from "./types.ts";
 export const X_AXIS = 0;
 /** …and the one that names `y`. */
 export const Y_AXIS = 1;
+/** The `axis` argument of the two velocity calls that names the `vx` column. */
+export const VX_AXIS = 0;
+/** …and the one that names `vy`. */
+export const VY_AXIS = 1;
 
 /** One `Float64Array` over the session's own storage, or a refusal when the pair is illegal.
  *
@@ -25,8 +29,8 @@ export const Y_AXIS = 1;
  *  `0` is the motor refusing and a `0` length is a graph with no nodes, so `(0, anything)` is
  *  refused rather than handed back as an empty column a renderer would read as "everything is
  *  at the origin". */
-function checkedColumn(buffer: ArrayBufferLike, address: number, len: number, axis: number): Float64Array {
-  const named = `the position column (axis ${String(axis)})`;
+function checkedColumn(buffer: ArrayBufferLike, address: number, len: number, axis: number, kind = "position"): Float64Array {
+  const named = `the ${kind} column (axis ${String(axis)})`;
   if (address === 0) throw new AbiContractError(`${named} answered address 0, which is never a column's address`);
   if (address % 4 !== 0) throw new AbiContractError(`${named} answered address ${String(address)}, which is not 4-aligned`);
   if (len <= 0) throw new AbiContractError(`${named} is empty, so there is nothing to read`);
@@ -61,6 +65,20 @@ export function assertFinitePositions(id: ForceSessionId, columns: readonly Floa
   }
 }
 
+/** D9 for the velocity columns, which nothing else re-checks either: the same two scans, the
+ *  same permanent refusal, and the same reason — a `NaN` velocity integrates into every later
+ *  tick exactly as a `NaN` position does. */
+export function assertFiniteVelocities(id: ForceSessionId, columns: readonly Float64Array[]): void {
+  for (const column of columns) {
+    for (let row = 0; row < column.length; row += 1) {
+      if (Number.isFinite(column[row] as number)) continue;
+      throw new TamperedGeometryError(
+        `force session ${String(id)}: row ${String(row)} holds a non-finite velocity, written through the zero-copy view`,
+      );
+    }
+  }
+}
+
 /** One session's two position columns: read them, keep the views fresh, and stand in front of
  *  them. {@link ForceSession} owns one of these and is the only thing that constructs it.
  *
@@ -70,8 +88,12 @@ export function assertFinitePositions(id: ForceSessionId, columns: readonly Floa
 export class ForceColumns {
   readonly #loaded: Loaded;
   readonly #id: ForceSessionId;
-  /** The last two views, dropped whenever wasm memory itself has been replaced. */
+  /** The last two position views, dropped whenever wasm memory itself has been replaced. */
   #views: { readonly buffer: ArrayBufferLike; readonly xs: Float64Array; readonly ys: Float64Array } | null = null;
+  /** The last two velocity views, on their own cache: a mesh tick swaps them with its scratch
+   *  for the same reason it swaps the positions, so they go stale on the same two events and
+   *  are re-derived on the next call either way. */
+  #velocities: { readonly buffer: ArrayBufferLike; readonly vxs: Float64Array; readonly vys: Float64Array } | null = null;
 
   constructor(loaded: Loaded, id: ForceSessionId) {
     this.#loaded = loaded;
@@ -98,18 +120,41 @@ export class ForceColumns {
     return { xs, ys };
   }
 
+  /** Both velocity columns, zero-copy, re-derived when the backing `ArrayBuffer` has been
+   *  replaced and finiteness-checked on the way out — the same contract {@link read} gives the
+   *  positions, and for the same reason: a mesh tick swaps `sim.vx`/`sim.vy` with its scratch,
+   *  so a held view is stale after a tick exactly as a position view is. */
+  readVelocities(): { readonly vxs: Float64Array; readonly vys: Float64Array } {
+    const { exports } = this.#loaded;
+    const cached = this.#velocities;
+    // The cached path is checked too, and it is the *common* one, for the reason `read` gives:
+    // a caller that reads a frame, writes through it, and reads the next frame without ever
+    // ticking arrives here.
+    if (cached !== null && cached.buffer === exports.memory.buffer) {
+      assertFiniteVelocities(this.#id, [cached.vxs, cached.vys]);
+      return { vxs: cached.vxs, vys: cached.vys };
+    }
+    const vxs = this.#velocity(exports, VX_AXIS);
+    const vys = this.#velocity(exports, VY_AXIS);
+    assertFiniteVelocities(this.#id, [vxs, vys]);
+    this.#velocities = { buffer: exports.memory.buffer, vxs, vys };
+    return { vxs, vys };
+  }
+
   /** The D9 gate on its own, so `tick` and `read` cannot disagree about when it runs. The
    *  views are not cached here: a tick moves the columns, so a gate that trusted a cached
    *  view would be checking the frame before the tick rather than the one about to be read. */
   assertFinite(): void {
     const { exports } = this.#loaded;
     assertFinitePositions(this.#id, [this.#column(exports, X_AXIS), this.#column(exports, Y_AXIS)]);
+    assertFiniteVelocities(this.#id, [this.#velocity(exports, VX_AXIS), this.#velocity(exports, VY_AXIS)]);
   }
 
-  /** Forgets the cached views — after a tick, which swaps the position columns in, and after a
-   *  release, so a session cannot hand back a view over memory it no longer owns. */
+  /** Forgets the cached views — after a tick, which swaps the position and velocity columns in,
+   *  and after a release, so a session cannot hand back a view over memory it no longer owns. */
   forget(): void {
     this.#views = null;
+    this.#velocities = null;
   }
 
   #column(exports: RawExports, axis: number): Float64Array {
@@ -124,5 +169,21 @@ export class ForceColumns {
       throw new InvalidSessionError(`force session ${String(this.#id)} is not live`, INVALID_SESSION_CODE);
     }
     throw new ForceSessionRefusedError(`the position column (axis ${axis}) is not readable (${codeName(code)})`, code);
+  }
+
+  /** One velocity column, checked and named the same way `#column` is — the velocity exports
+   *  are the same `(ptr, len)` pair with the same two refusals. */
+  #velocity(exports: RawExports, axis: number): Float64Array {
+    const id = toU32(this.#id);
+    const address = invoke("gm_force_session_velocity_ptr", () =>
+      exports.gm_force_session_velocity_ptr(id, toU32(axis)),
+    );
+    const len = invoke("gm_force_session_velocity_len", () => exports.gm_force_session_velocity_len(id, toU32(axis)));
+    if (address !== 0 && len > 0) return checkedColumn(exports.memory.buffer, address, len, axis, "velocity");
+    const code = lastError(exports);
+    if (code === INVALID_SESSION_CODE) {
+      throw new InvalidSessionError(`force session ${String(this.#id)} is not live`, INVALID_SESSION_CODE);
+    }
+    throw new ForceSessionRefusedError(`the velocity column (axis ${axis}) is not readable (${codeName(code)})`, code);
   }
 }

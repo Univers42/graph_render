@@ -27,6 +27,7 @@ mod build_paths;
 mod columns;
 mod delta;
 mod session;
+pub(crate) mod session_handoff;
 mod stages;
 mod state;
 #[cfg(feature = "threads")]

@@ -44,6 +44,7 @@
 //! that are not, and each says why on its own doc comment.
 
 mod carry;
+mod columns;
 mod error;
 mod fidelity;
 pub(in crate::layout::force) mod gravity;

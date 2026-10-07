@@ -54,6 +54,10 @@ export interface RawExports {
   gm_force_session_unpin_all(session: number): number;
   gm_force_session_column_ptr(session: number, axis: number): number;
   gm_force_session_column_len(session: number, axis: number): number;
+  gm_force_session_velocity_ptr(session: number, axis: number): number;
+  gm_force_session_velocity_len(session: number, axis: number): number;
+  gm_force_session_edge_ptr(session: number, column: number): number;
+  gm_force_session_edge_len(session: number): number;
   gm_force_session_release(session: number): number;
   gm_graph_extend(graph: number, ptr: number, len: number): number;
   gm_graph_extend_columns(graph: number, ptr: number, len: number): number;
@@ -76,7 +80,9 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   gm_force_session_params: true, gm_force_session_tick: true, gm_force_session_alpha: true,
   gm_force_session_reheat: true, gm_force_session_pin: true, gm_force_session_unpin: true,
   gm_force_session_unpin_all: true, gm_force_session_column_ptr: true,
-  gm_force_session_column_len: true, gm_force_session_release: true,
+  gm_force_session_column_len: true, gm_force_session_velocity_ptr: true,
+  gm_force_session_velocity_len: true, gm_force_session_edge_ptr: true,
+  gm_force_session_edge_len: true, gm_force_session_release: true,
   gm_graph_extend: true, gm_graph_extend_columns: true, gm_force_session_grow: true,
 };
 
